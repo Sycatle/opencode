@@ -28,7 +28,7 @@ const MAX_REROUTES = 4
 const CACHE_TTL_MS = 5 * 60_000
 // System prompt and tool definitions of a session that has not run a turn yet.
 const FIXED_CONTEXT = 12_000
-const SIGNALS_TIMEOUT = "8 seconds"
+const SIGNALS_TIMEOUT = "20 seconds"
 
 export type Resolved = { providerID: ProviderV2.ID; modelID: ModelV2.ID }
 
