@@ -48,6 +48,8 @@ export async function ForkHooksPlugin(input: PluginInput): Promise<Hooks> {
     },
 
     "tool.execute.after": async (info, output) => {
+      // A failed or cancelled subtask triggers this hook without any output.
+      if (!output) return
       const outcome = await fire(
         "PostToolUse",
         { sessionID: info.sessionID, tool: info.tool, args: info.args, output: output.output },
