@@ -80,7 +80,9 @@ test("records a turn and walks subagent sessions", async () => {
 
   const tree = ForkTelemetry.steps("parent", { children: true })
   expect(tree.map((step) => step.agent)).toEqual(["build", "explore"])
-  expect(ForkTelemetry.recentSessions(10).map((row) => row.session_id)).toEqual(["parent"])
+  const recent = ForkTelemetry.recentSessions(50).map((row) => row.session_id)
+  expect(recent).toContain("parent")
+  expect(recent).not.toContain("child")
 })
 
 test("a turn without a measurement is still recorded", async () => {

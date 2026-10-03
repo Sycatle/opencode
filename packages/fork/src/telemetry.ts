@@ -107,6 +107,25 @@ export function steps(sessionID: string, options?: { children?: boolean }) {
     .all(sessionID)
 }
 
+// Walks parent links recorded by previous turns; a session without rows is its own root.
+export function rootOf(sessionID: string) {
+  const row = db()
+    .query<{ id: string }, [string]>(
+      `WITH RECURSIVE up(id, parent) AS (
+        SELECT ?1, (SELECT parent_session_id FROM fork_usage WHERE session_id = ?1 LIMIT 1)
+        UNION SELECT up.parent, (SELECT parent_session_id FROM fork_usage WHERE session_id = up.parent LIMIT 1)
+        FROM up WHERE up.parent IS NOT NULL
+      )
+      SELECT id FROM up WHERE parent IS NULL LIMIT 1`,
+    )
+    .get(sessionID)
+  return row?.id ?? sessionID
+}
+
+export function treeCost(sessionID: string) {
+  return steps(sessionID, { children: true }).reduce((sum, step) => sum + step.cost, 0)
+}
+
 export function recentSessions(limit: number) {
   return db()
     .query<{ session_id: string; last: number; steps: number; cost: number }, [number]>(

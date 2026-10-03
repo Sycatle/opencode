@@ -17,6 +17,7 @@ import { SystemPrompt } from "./system"
 import { Instruction } from "./instruction"
 import { Plugin } from "../plugin"
 import { MAX_STEPS_PROMPT } from "@opencode-ai/core/session/runner/max-steps"
+import { ForkBudget } from "@opencode-fork/core/budget"
 import { ToolRegistry } from "@/tool/registry"
 import { MCP } from "../mcp"
 import { LSP } from "@/lsp/lsp"
@@ -1176,7 +1177,16 @@ const layer = Layer.effect(
             throw error
           }
           const maxSteps = agent.steps ?? Infinity
-          const isLastStep = step >= maxSteps
+          // FORK-SEAM: budget
+          const budget = ForkBudget.check(session)
+          if (budget.state === "stop") {
+            const error = new NamedError.Unknown({
+              message: `Budget exceeded: $${budget.spent.toFixed(2)} spent of $${budget.max.toFixed(2)}.`,
+            })
+            yield* events.publish(Session.Event.Error, { sessionID, error: error.toObject() })
+            break
+          }
+          const isLastStep = step >= maxSteps || budget.state === "wrap-up"
           msgs = yield* SessionReminders.apply({ messages: msgs, agent, session }).pipe(
             Effect.provideService(RuntimeFlags.Service, flags),
             Effect.provideService(FSUtil.Service, fsys),
@@ -1278,11 +1288,19 @@ const layer = Layer.effect(
               system,
               messages: [
                 ...modelMsgs,
-                ...(isLastStep ? [{ role: "assistant" as const, content: MAX_STEPS_PROMPT }] : []),
+                ...(isLastStep
+                  ? [
+                      {
+                        role: "assistant" as const,
+                        content: budget.state === "wrap-up" ? ForkBudget.PROMPT : MAX_STEPS_PROMPT,
+                      },
+                    ]
+                  : []),
               ],
               tools,
               model,
-              toolChoice: format.type === "json_schema" ? "required" : undefined,
+              toolChoice:
+                format.type === "json_schema" ? "required" : budget.state === "wrap-up" ? "none" : undefined,
             })
 
             if (structured !== undefined) {
