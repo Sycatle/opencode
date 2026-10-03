@@ -40,6 +40,8 @@ import { Permission } from "@/permission"
 import { SessionStatus } from "./status"
 import { LLM } from "./llm"
 import { ForkRouteTurn } from "./fork-route"
+import { ForkSmartCompaction } from "./fork-smart-compaction"
+import { BackgroundJob } from "@/background/job"
 import { Shell } from "@opencode-ai/core/shell"
 import { ShellID } from "@/tool/shell/id"
 import { FSUtil } from "@opencode-ai/core/fs-util"
@@ -138,6 +140,8 @@ const layer = Layer.effect(
     const scope = yield* Scope.Scope
     const instruction = yield* Instruction.Service
     const state = yield* SessionRunState.Service
+    // FORK-SEAM: smart-compaction
+    const background = yield* BackgroundJob.Service
     const revert = yield* SessionRevert.Service
     const summary = yield* SessionSummary.Service
     const sys = yield* SystemPrompt.Service
@@ -1155,6 +1159,22 @@ const layer = Layer.effect(
               })
             }
             yield* Effect.logInfo("exiting loop", { "session.id": sessionID })
+            // FORK-SEAM: smart-compaction (end of the turn: compact at a task boundary instead of mid-loop later)
+            if (
+              yield* ForkSmartCompaction.check({
+                phase: "end",
+                sessionID,
+                parentID: session.parentID,
+                messages: msgs,
+                provider,
+                user: lastUser,
+                assistant: lastFinished,
+                background,
+              })
+            ) {
+              yield* compaction.create({ sessionID, agent: lastUser.agent, model: lastUser.model, auto: false })
+              continue
+            }
             break
           }
 
@@ -1206,6 +1226,24 @@ const layer = Layer.effect(
             (yield* compaction.isOverflow({ tokens: lastFinished.tokens, model }))
           ) {
             yield* compaction.create({ sessionID, agent: lastUser.agent, model: lastUser.model, auto: true })
+            continue
+          }
+
+          // FORK-SEAM: smart-compaction (start of a turn after a cold cache: compact before the model call)
+          if (
+            step === 1 &&
+            (yield* ForkSmartCompaction.check({
+              phase: "start",
+              sessionID,
+              parentID: session.parentID,
+              messages: msgs,
+              provider,
+              user: lastUser,
+              assistant: lastFinished,
+              background,
+            }))
+          ) {
+            yield* compaction.create({ sessionID, agent: lastUser.agent, model: lastUser.model, auto: false })
             continue
           }
 
@@ -1696,6 +1734,7 @@ export const node = LayerNode.make({
     CrossSpawnSpawner.node,
     Instruction.node,
     SessionRunState.node,
+    BackgroundJob.node,
     SessionRevert.node,
     SessionSummary.node,
     SystemPrompt.node,

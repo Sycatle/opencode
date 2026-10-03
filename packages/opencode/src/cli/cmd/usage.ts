@@ -1,4 +1,5 @@
 import type { ForkRoute } from "@opencode-fork/core/route"
+import { ForkCompactionLog } from "@opencode-fork/core/compaction-log"
 import { ForkRouteLog } from "@opencode-fork/core/route-log"
 import { ForkTelemetry } from "@opencode-fork/core/telemetry"
 import { cmd } from "./cmd"
@@ -51,6 +52,7 @@ export const UsageCommand = cmd({
       console.log(`  ${name.padEnd(12)} ${tok(value).padStart(8)}  ${pct(value, inputSide).padStart(6)}`),
     )
     routeSection(args.session)
+    compactionSection(args.session)
     console.log("")
     console.log("By agent")
     Object.entries(Object.groupBy(steps, (s) => s.agent)).forEach(([agent, rows = []]) =>
@@ -125,6 +127,18 @@ function routeSection(session: string) {
   console.log(`  ${turns} routed turns, ${rows.length - turns} fallbacks (opencode usage --route ${session} for the detail)`)
   Object.entries(Object.groupBy(rows.filter((row) => row.kind === "decision"), (row) => `${row.tier} ${row.provider_id}/${row.model_id}`)).forEach(
     ([key, group = []]) => console.log(`  ${key.padEnd(52)} ${String(group.length).padStart(4)} turns`),
+  )
+}
+
+function compactionSection(session: string) {
+  const rows = ForkCompactionLog.list(session)
+  if (!rows.length) return
+  console.log("")
+  console.log(`Smart compaction  ${rows.filter((row) => row.compact).length} compacted, ${rows.filter((row) => !row.compact).length} skipped`)
+  rows.slice(-10).forEach((row) =>
+    console.log(
+      `  ${new Date(row.time).toLocaleTimeString()}  ${row.phase.padEnd(5)} ${row.compact ? "COMPACT" : "skip   "} ${row.code.padEnd(17)} ${row.reason}`,
+    ),
   )
 }
 
