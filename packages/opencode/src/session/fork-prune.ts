@@ -39,7 +39,7 @@ export const keep = Effect.fn("ForkPrune.keep")(function* (input: {
     items,
     (user?.parts ?? []).flatMap((part) => (part.type === "text" && !part.synthetic ? [part.text] : [])).join("\n"),
   )
-  const response = yield* Effect.promise(() => ForkJev.ask(request))
+  const response = yield* Effect.promise((signal) => ForkJev.ask({ ...request, signal }))
   const kept = response.answers
     ? ForkContext.pruneKeeps(
         items,

@@ -288,7 +288,7 @@ const classify = Effect.fn("ForkRouteTurn.classify")(function* (input: {
 
   // Jev first when TYPESAFE_API_KEY is set; any failure falls back to the small model below.
   if (ForkRouteJev.enabled()) {
-    const jev = yield* Effect.promise(() => ForkRouteJev.call({ prompt: input.prompt, summary, size }))
+    const jev = yield* Effect.promise((signal) => ForkRouteJev.call({ prompt: input.prompt, summary, size, signal }))
     ForkJev.journal({
       feature: "route",
       session_id: input.sessionID,

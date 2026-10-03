@@ -56,7 +56,9 @@ export const suggest = Effect.fn("ForkSuggest.suggest")(function* (sessionID: Se
   // mode, go on to the small model as before.
   const jev = ForkJev.mode("PROMPT_SUGGESTION")
   if (jev !== "off") {
-    const answer = yield* Effect.promise(() => ForkJev.ask(ForkPromptSuggestion.jevRequest({ turns, todos })))
+    const answer = yield* Effect.promise((signal) =>
+      ForkJev.ask({ ...ForkPromptSuggestion.jevRequest({ turns, todos }), signal }),
+    )
     const noul = answer.answers?.predictable?.noul
     const skipped = noul !== undefined && noul < ForkPromptSuggestion.jevMin()
     ForkJev.journal({

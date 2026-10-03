@@ -60,14 +60,15 @@ const confirmBoundary = Effect.fn("ForkSmartCompaction.boundary")(function* (
     (input.messages.findLast((message) => message.info.role === role)?.parts ?? [])
       .flatMap((part) => (part.type === "text" && !part.synthetic && !part.ignored ? [part.text] : []))
       .join("\n")
-  const response = yield* Effect.promise(() =>
-    ForkJev.ask(
-      ForkCompactionTiming.jevRequest({
+  const response = yield* Effect.promise((signal) =>
+    ForkJev.ask({
+      ...ForkCompactionTiming.jevRequest({
         user: text("user"),
         reply: text("assistant"),
         todos: state.todos.filter((todo) => todo.status !== "completed").length,
       }),
-    ),
+      signal,
+    }),
   )
   const boundary = response.answers?.boundary?.noul
   const second = boundary === undefined ? first : ForkCompactionTiming.decide({ ...state, boundary })

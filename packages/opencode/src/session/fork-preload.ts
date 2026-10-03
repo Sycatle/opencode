@@ -34,7 +34,9 @@ export const make = (input: { sessions: Session.Interface; messages: SessionV1.W
     const prompt = user.parts.flatMap((part) => (part.type === "text" && !part.synthetic ? [part.text] : [])).join("\n")
     const names = ForkTools.preloadCandidates(pool, prompt, ForkTools.loadedTools(input.messages))
     if (!names.length) return
-    const response = yield* Effect.promise(() => ForkJev.ask(ForkTools.preloadRequest(pool, names, prompt)))
+    const response = yield* Effect.promise((signal) =>
+      ForkJev.ask({ ...ForkTools.preloadRequest(pool, names, prompt), signal }),
+    )
     const picked = response.answers ? ForkTools.preloadPicks(names, response.answers) : []
     ForkJev.journal({
       feature: "defer_tools",

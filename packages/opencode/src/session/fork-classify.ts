@@ -65,15 +65,16 @@ const classify = Effect.fn("ForkClassify.classify")(function* (input: AskInput) 
   // the session recently read tool output that looked like an injection.
   const jev = ForkJev.mode("AUTO_CLASSIFIER")
   if (jev !== "off") {
-    const answer = yield* Effect.promise(() =>
-      ForkJev.ask(
-        ForkClassifier.jevRequest({
+    const answer = yield* Effect.promise((signal) =>
+      ForkJev.ask({
+        ...ForkClassifier.jevRequest({
           action,
           directory: session._tag === "Some" ? session.value.directory : undefined,
           home: Global.Path.home,
           lastUser: lastUser?.parts.flatMap((part) => (part.type === "text" && !part.synthetic ? [part.text] : [])).join("\n"),
         }),
-      ),
+        signal,
+      }),
     )
     const verdict = ForkClassifier.jevVerdict(answer.answers, ForkGuard.recent(input.sessionID))
     ForkJev.journal({
