@@ -129,3 +129,25 @@ test("preloading only happens when the cache holds nothing worth keeping", () =>
   expect(ForkTools.preloadWindow({ turnsSinceStart: 4, idleMs: 60_000, ttlMs })).toBe(false)
   expect(ForkTools.preloadWindow({ turnsSinceStart: 4, idleMs: ttlMs + 1, ttlMs })).toBe(true)
 })
+
+test("restoreServerToolNames undoes opencode-claude-auth's prefix on server search tools only", () => {
+  const body = JSON.stringify({
+    tools: [
+      { name: "mcp_Read", input_schema: {} },
+      { type: "tool_search_tool_bm25_20251119", name: "mcp_Tool_search_tool_bm25" },
+    ],
+    messages: [],
+  })
+  expect(JSON.parse(ForkTools.restoreServerToolNames(body) ?? "{}").tools).toEqual([
+    { name: "mcp_Read", input_schema: {} },
+    { type: "tool_search_tool_bm25_20251119", name: "tool_search_tool_bm25" },
+  ])
+  expect(ForkTools.restoreServerToolNames(JSON.stringify({ tools: [{ name: "mcp_Read" }] }))).toBeUndefined()
+})
+
+test("nativeSearchOutput reads back the stored references, an unreadable output is an empty result", () => {
+  expect(ForkTools.nativeSearchOutput('[{"type":"tool_reference","toolName":"x"}]')).toEqual([
+    { type: "tool_reference", toolName: "x" },
+  ])
+  expect(ForkTools.nativeSearchOutput("[Old tool result content cleared]")).toEqual([])
+})

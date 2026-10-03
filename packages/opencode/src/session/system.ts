@@ -20,6 +20,7 @@ import { Permission } from "@/permission"
 import { Skill } from "@/skill"
 import { ForkSystemPrompt } from "@opencode-fork/core/system-prompt"
 import { ForkClaudeTools } from "@opencode-fork/core/claude-tools"
+import { ForkTools } from "@opencode-fork/core/tools"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { Location } from "@opencode-ai/core/location"
 import { LocationServiceMap, locationServiceMapLayer } from "@opencode-ai/core/location-services"
@@ -48,7 +49,7 @@ export function provider(model: Provider.Model) {
       !ForkClaudeTools.enabled(model)
         ? PROMPT_ANTHROPIC
         : ForkSystemPrompt.enabled()
-          ? ForkSystemPrompt.CLAUDE
+          ? ForkSystemPrompt.claude(ForkTools.native(model.api.npm))
           : ForkClaudeTools.prompt(PROMPT_ANTHROPIC),
     ]
   if (model.api.id.toLowerCase().includes("trinity")) return [PROMPT_TRINITY]

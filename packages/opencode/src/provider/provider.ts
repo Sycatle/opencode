@@ -1,5 +1,6 @@
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { ForkCache } from "@opencode-fork/core/cache"
+import { ForkTools } from "@opencode-fork/core/tools"
 import { ForkQuota } from "@opencode-fork/core/quota"
 import { ForkRouteProvider } from "./fork-route"
 import os from "os"
@@ -121,6 +122,8 @@ function timeoutFetch(options: Record<string, any>) {
     // FORK-SEAM: auth-cache (1h breakpoint that survives the opencode-claude-auth body rewrite)
     if (ForkCache.authCacheEnabled() && ForkCache.isMessagesRequest(input))
       opts.body = ForkCache.pinFirstUserMessage(opts.body) ?? opts.body
+    // FORK-SEAM: native-tool-search (the server search tool keeps its name through opencode-claude-auth)
+    if (typeof opts.body === "string" && opts.body.includes('"tool_search_tool_')) ForkTools.guardServerToolNames()
 
     const res = await fetchFn(input, {
       ...opts,

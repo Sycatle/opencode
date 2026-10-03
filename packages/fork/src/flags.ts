@@ -17,6 +17,11 @@ type Def = {
 export const FLAGS = {
   // ---- context and cost
   DEFER_TOOLS: { kind: "switch", default: "on", description: "Withhold MCP and rare native tools behind tool_search" },
+  NATIVE_TOOL_SEARCH: {
+    kind: "switch",
+    default: "on",
+    description: "Anthropic models search deferred tools server-side (defer_loading): the prompt cache survives a load",
+  },
   DEFER_NATIVE: {
     kind: "text",
     default: "built-in list",

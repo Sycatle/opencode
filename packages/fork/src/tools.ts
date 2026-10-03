@@ -73,6 +73,82 @@ export function defer(
   return tools
 }
 
+// Anthropic's own tool search (Messages API through @ai-sdk/anthropic): deferred tools are sent with
+// `defer_loading` and the API finds them, so loading one never changes the tool block and the prompt cache survives.
+export const NATIVE_SEARCH = "tool_search_tool_bm25"
+
+export function native(npm: string) {
+  return ForkFlags.on("DEFER_TOOLS") && ForkFlags.on("NATIVE_TOOL_SEARCH") && npm === "@ai-sdk/anthropic"
+}
+
+export function deferNative(
+  tools: Record<string, Tool>,
+  deferrable: string[],
+  messages: { parts: readonly HistoryPart[] }[],
+  search: Tool,
+) {
+  const candidates = deferrable.filter((name) => name in tools)
+  if (!candidates.length) return tools
+  // A session that ran on the legacy tool_search keeps what it loaded: those calls have no tool_reference in
+  // history to bring their definition back. Once the native search was used, discovered tools stay deferred.
+  const used = messages.some((message) => message.parts.some((part) => part.type === "tool" && part.tool === NATIVE_SEARCH))
+  const loaded = used ? new Set<string>() : loadedTools(messages)
+  candidates
+    .filter((name) => !loaded.has(name))
+    .forEach((name) => {
+      const original = tools[name]
+      const options = original.providerOptions ?? {}
+      tools[name] = { ...original, providerOptions: { ...options, anthropic: { ...options.anthropic, deferLoading: true } } }
+    })
+  tools[NATIVE_SEARCH] = search
+  return tools
+}
+
+// opencode-claude-auth renames every tool of a request to `mcp_<Name>`, server tools included, and the API only
+// accepts their fixed names. The plugin sends the request with the global fetch, the only place left to undo it.
+export function restoreServerToolNames(body: string) {
+  if (!body.includes('"tool_search_tool_')) return undefined
+  try {
+    const parsed: unknown = JSON.parse(body)
+    if (typeof parsed !== "object" || parsed === null || !("tools" in parsed) || !Array.isArray(parsed.tools)) return undefined
+    const match = (type: unknown) => (typeof type === "string" ? /^(tool_search_tool_(?:bm25|regex))_\d+$/.exec(type)?.[1] : undefined)
+    const fixed = parsed.tools.map((item: unknown) => {
+      if (typeof item !== "object" || item === null || !("type" in item)) return item
+      const name = match(item.type)
+      return name ? { ...item, name } : item
+    })
+    return JSON.stringify({ ...parsed, tools: fixed })
+  } catch {
+    return undefined
+  }
+}
+
+let guarded = false
+
+export function guardServerToolNames() {
+  if (guarded) return
+  guarded = true
+  const original = globalThis.fetch
+  globalThis.fetch = Object.assign(
+    (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const fixed = typeof init?.body === "string" ? restoreServerToolNames(init.body) : undefined
+      return original(input, fixed ? { ...init, body: fixed } : init)
+    },
+    original,
+  )
+}
+
+// The stored output of a native search, as the JSON the API expects back in history: a text output would be
+// dropped and leave its server_tool_use without a result. Pruning never applies to it, it is a few names.
+export function nativeSearchOutput(output: string) {
+  try {
+    const value: unknown = JSON.parse(output)
+    return Array.isArray(value) ? value : []
+  } catch {
+    return []
+  }
+}
+
 export function loadedTools(messages: { parts: readonly HistoryPart[] }[]) {
   return new Set(
     messages.flatMap((message) =>

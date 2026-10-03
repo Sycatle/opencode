@@ -78,6 +78,7 @@ Toutes les variables `OPENCODE_FORK_*` sont déclarées dans `packages/fork/src/
 | `usage-command` | `packages/opencode/src/index.ts` | Enregistre les commandes `opencode usage`, `auto`, `schedule` et `workflow` (un run dont le process est mort passe en `interrupted` ; son coût est lu dans `fork_usage` par session d'étape) |
 | `fork-config` | `packages/core/src/config.ts`, `core/src/v1/config/config.ts`, `core/src/v1/config/migrate.ts`, `packages/opencode/src/config/config.ts` | Clé `fork` de la config, appliquée aux variables `OPENCODE_FORK_*` laissées vides par l'environnement (`ForkFlags.apply`) |
 | `remote-attach` | `packages/opencode/src/cli/cmd/attach.ts` | `opencode attach` vers une autre machine pose `OPENCODE_FORK_REMOTE=1` : les widgets d'usage disent que les données du fork n'y sont pas disponibles |
+| `native-tool-search` | `packages/opencode/src/session/tools.ts`, `session/message-v2.ts`, `session/system.ts`, `provider/provider.ts` | Modèles Anthropic (`@ai-sdk/anthropic`) : les outils différés partent avec `defer_loading` à côté de `tool_search_tool_bm25`, l'API les cherche elle-même et le bloc d'outils ne change plus au chargement (le cache tient) ; le résultat de recherche est rejoué en JSON, prune ou pas ; le prompt système décrit cette recherche ; sous `opencode-claude-auth`, qui préfixe tous les noms d'outils, le `fetch` global rend son nom fixe à l'outil serveur (`OPENCODE_FORK_NATIVE_TOOL_SEARCH=0` : `tool_search` du fork) |
 
 Fichiers ajoutés par le fork (sans conflit possible) :
 - `packages/fork/**`
