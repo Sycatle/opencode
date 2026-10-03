@@ -5,6 +5,9 @@
 //   bun run bench/run.ts --label fork --model anthropic/claude-haiku-4-5
 //   bun run bench/run.ts --label upstream --bin opencode --model anthropic/claude-haiku-4-5
 //   bun run bench/run.ts compare results/upstream-*.json results/fork-*.json
+//   bun run bench/run.ts --label noskills --env OPENCODE_FORK_SLIM_SKILLS=0 --model anthropic/claude-haiku-4-5
+//   bun run bench/run.ts ablate --flags SLIM_SKILLS,SLIM_TOOLS --runs 2 --model anthropic/claude-haiku-4-5
+// `ablate` runs the baseline, then each fork switch turned off, and prints success and cost against the baseline.
 import { parseArgs } from "util"
 import fs from "fs/promises"
 import os from "os"
@@ -32,6 +35,8 @@ const args = parseArgs({
     model: { type: "string" },
     task: { type: "string", multiple: true },
     runs: { type: "string", default: "1" },
+    env: { type: "string", multiple: true },
+    flags: { type: "string" },
   },
 })
 
@@ -44,22 +49,44 @@ const bin = args.values.bin
   ? args.values.bin.split(" ")
   : ["bun", "run", path.join(import.meta.dir, "../../opencode/src/index.ts")]
 const selected = tasks.filter((task) => !args.values.task || args.values.task.includes(task.id))
-const results: Result[] = []
-for (let run = 0; run < Number(args.values.runs); run++)
-  for (const task of selected) {
-    const result = await runTask(task)
-    results.push(result)
-    console.log(
-      `${task.id.padEnd(10)} ${result.ok ? "ok  " : "FAIL"} ${result.seconds.toFixed(0).padStart(4)}s  $${result.cost.toFixed(4)}  in ${result.input + result.cache_read + result.cache_write}  out ${result.output}  ${result.sessionID ?? ""} ${result.error ?? ""}`,
-    )
+const env = Object.fromEntries((args.values.env ?? []).map((pair) => [pair.slice(0, pair.indexOf("=")), pair.slice(pair.indexOf("=") + 1)]))
+
+if (args.positionals[0] === "ablate") {
+  const flags = (args.values.flags ?? "").split(",").map((flag) => flag.trim().toUpperCase()).filter(Boolean)
+  if (!flags.length) throw new Error("ablate needs --flags NAME[,NAME...] (OPENCODE_FORK_ prefix optional)")
+  const baseline = await runAll(args.values.label, env)
+  const variants = []
+  for (const flag of flags) {
+    const name = `OPENCODE_FORK_${flag.replace(/^OPENCODE_FORK_/, "")}`
+    variants.push(await runAll(`${args.values.label}-no-${flag.toLowerCase()}`, { ...env, [name]: "0" }))
   }
+  for (const variant of variants) {
+    console.log("")
+    await compare(baseline, variant)
+  }
+  process.exit(0)
+}
 
-const out = path.join(import.meta.dir, "results", `${args.values.label}-${new Date().toISOString().replace(/[:.]/g, "-")}.json`)
-await fs.mkdir(path.dirname(out), { recursive: true })
-await Bun.write(out, JSON.stringify({ label: args.values.label, model: args.values.model, bin, results }, null, 2))
-console.log(`\n${out}`)
+await runAll(args.values.label, env)
 
-async function runTask(task: (typeof tasks)[number]): Promise<Result> {
+async function runAll(label: string, extra: Record<string, string>) {
+  const results: Result[] = []
+  for (let run = 0; run < Number(args.values.runs); run++)
+    for (const task of selected) {
+      const result = await runTask(task, extra)
+      results.push(result)
+      console.log(
+        `${label.padEnd(16)} ${task.id.padEnd(10)} ${result.ok ? "ok  " : "FAIL"} ${result.seconds.toFixed(0).padStart(4)}s  $${result.cost.toFixed(4)}  in ${result.input + result.cache_read + result.cache_write}  out ${result.output}  ${result.sessionID ?? ""} ${result.error ?? ""}`,
+      )
+    }
+  const out = path.join(import.meta.dir, "results", `${label}-${new Date().toISOString().replace(/[:.]/g, "-")}.json`)
+  await fs.mkdir(path.dirname(out), { recursive: true })
+  await Bun.write(out, JSON.stringify({ label, model: args.values.model, bin, env: extra, results }, null, 2))
+  console.log(out)
+  return out
+}
+
+async function runTask(task: (typeof tasks)[number], extra: Record<string, string>): Promise<Result> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), `bench-${task.id}-`))
   await fs.cp(path.join(import.meta.dir, "fixture"), dir, { recursive: true })
   await sh("git init -q && git add -A && git -c user.email=bench@local -c user.name=bench commit -qm fixture", dir)
@@ -77,7 +104,7 @@ async function runTask(task: (typeof tasks)[number]): Promise<Result> {
       ...(args.values.model ? ["--model", args.values.model] : []),
       task.prompt,
     ],
-    { stdout: "pipe", stderr: "pipe" },
+    { stdout: "pipe", stderr: "pipe", env: { ...process.env, ...extra } },
   )
   const stdout = await new Response(proc.stdout).text()
   await proc.exited
@@ -139,9 +166,16 @@ async function compare(a: string, b: string) {
   const l = summarize(left.results)
   const r = summarize(right.results)
   const delta = (x: number, y: number) => (x === 0 ? "-" : `${(((y - x) / x) * 100).toFixed(1)}%`)
+  // Per task: successes over runs, so a regression on one task is not averaged away.
+  const ids = [...new Set([...left.results, ...right.results].map((r: Result) => r.task))]
+  const rate = (results: Result[], id: string) => {
+    const runs = results.filter((r) => r.task === id)
+    return `${runs.filter((r) => r.ok).length}/${runs.length}`
+  }
   console.log(`${"".padEnd(10)} ${left.label.padStart(14)} ${right.label.padStart(14)} ${"delta".padStart(9)}`)
   for (const key of ["success", "cost", "input", "output", "seconds"] as const)
     console.log(
       `${key.padEnd(10)} ${l[key].toFixed(key === "cost" ? 4 : 2).padStart(14)} ${r[key].toFixed(key === "cost" ? 4 : 2).padStart(14)} ${delta(l[key], r[key]).padStart(9)}`,
     )
+  ids.forEach((id) => console.log(`  ${id.padEnd(8)} ${rate(left.results, id).padStart(14)} ${rate(right.results, id).padStart(14)}`))
 }
