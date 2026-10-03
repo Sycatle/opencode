@@ -23,6 +23,7 @@ Le code du fork vit dans `packages/fork`. Les seuls points de contact avec le co
 | `tui-widgets` | `packages/tui/src/feature-plugins/builtins.ts` | Enregistre les plugins TUI du fork : Usage, Subagents, budget, commandes « Pin messages for compaction » et « Compaction preview » |
 | `slim-tool-descriptions` | `packages/opencode/src/tool/registry.ts` | Descriptions d'outils compactes (−47 % sur les définitions natives ; `OPENCODE_FORK_SLIM_TOOLS=0` pour couper) |
 | `cache-ttl` | `provider/transform.ts`, `session/processor.ts`, `cli/cmd/tui.ts` | TTL 1h sur le préfixe stable (outils + système) en session interactive, coût des écritures 1h corrigé. Sans effet avec `opencode-claude-auth` : le plugin déplace le prompt système dans le premier message et retire son `cache_control` |
+| `no-upstream-autoupdate` | `packages/opencode/src/cli/upgrade.ts` | Le binaire du fork ne cherche pas de mise à jour upstream |
 | `usage-command` | `packages/opencode/src/index.ts` | Enregistre les commandes `opencode usage` et `opencode auto` |
 
 Fichiers ajoutés par le fork (sans conflit possible) :

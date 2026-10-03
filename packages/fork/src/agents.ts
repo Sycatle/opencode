@@ -1,5 +1,8 @@
 // Multi-agent defaults of the fork.
 
+// Marks fork binaries, e.g. to skip upstream auto-updates.
+export const FORK_BUILD = true
+
 // Background subagents ship behind OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS
 // upstream; the fork enables them unless that variable is explicitly false.
 export const BACKGROUND_DEFAULT = true
