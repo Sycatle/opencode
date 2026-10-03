@@ -20,6 +20,8 @@ import { LayerNodePlatform } from "@opencode-ai/core/effect/app-node-platform"
 import { InstanceStore } from "@/project/instance-store"
 import { InstanceBootstrap } from "@/project/bootstrap"
 import { Config } from "@/config/config"
+import { InstanceState } from "@/effect/instance-state"
+import { ForkMemory } from "@opencode-fork/core/memory"
 
 const it = testEffect(
   AppNodeBuilder.build(LayerNode.group([CrossSpawnSpawner.node, LayerNodePlatform.filesystem, InstanceStore.node]), [
@@ -258,6 +260,38 @@ describe("Instruction.systemPaths global config", () => {
         const svc = yield* Instruction.Service
         const paths = yield* svc.systemPaths()
         expect(paths.has(path.join(globalTmp, "AGENTS.md"))).toBe(true)
+      }).pipe(provideInstance(projectTmp), provideInstruction({ home: globalTmp, config: globalTmp }))
+    }),
+  )
+})
+
+describe("Instruction.system memory index", () => {
+  it.live("injects the index once per session and keeps it stable", () =>
+    Effect.gen(function* () {
+      const globalTmp = yield* tmpWithFiles({})
+      const projectTmp = yield* tmpWithFiles({ "AGENTS.md": "# Project" })
+
+      yield* Effect.gen(function* () {
+        const svc = yield* Instruction.Service
+        const memoryDir = ForkMemory.dir((yield* InstanceState.context).project.id)
+        yield* write(path.join(memoryDir, "MEMORY.md"), "- [First](first.md) — hook one")
+        const sessionID = SessionID.make("session-memory-1")
+
+        const first = yield* svc.system(sessionID)
+        expect(first).toHaveLength(2)
+        expect(first[0]).toStartWith("Instructions from:")
+        expect(first[1]).toContain(memoryDir)
+        expect(first[1]).toContain("- [First](first.md) — hook one")
+
+        yield* write(
+          path.join(memoryDir, "MEMORY.md"),
+          "- [First](first.md) — hook one\n- [Second](second.md) — hook two",
+        )
+        expect(yield* svc.system(sessionID)).toEqual(first)
+
+        const next = yield* svc.system(SessionID.make("session-memory-2"))
+        expect(next[1]).toContain("- [Second](second.md) — hook two")
+        expect(yield* svc.system()).toHaveLength(1)
       }).pipe(provideInstance(projectTmp), provideInstruction({ home: globalTmp, config: globalTmp }))
     }),
   )

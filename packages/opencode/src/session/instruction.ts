@@ -12,7 +12,11 @@ import { FSUtil } from "@opencode-ai/core/fs-util"
 import { withTransientReadRetry } from "@/util/effect-http-client"
 import { Global } from "@opencode-ai/core/global"
 import type { MessageV2 } from "./message-v2"
-import type { MessageID } from "./schema"
+import type { MessageID, SessionID } from "./schema"
+import { ForkMemory } from "@opencode-fork/core/memory"
+
+// One rendered memory block per session keeps the system prompt prefix stable across turns.
+const memorySnapshots = new Map<SessionID, string>()
 
 function extract(messages: SessionV1.WithParts[]) {
   const paths = new Set<string>()
@@ -34,7 +38,7 @@ function extract(messages: SessionV1.WithParts[]) {
 export interface Interface {
   readonly clear: (messageID: MessageID) => Effect.Effect<void>
   readonly systemPaths: () => Effect.Effect<Set<string>, FSUtil.Error>
-  readonly system: () => Effect.Effect<string[], FSUtil.Error>
+  readonly system: (sessionID?: SessionID) => Effect.Effect<string[], FSUtil.Error>
   readonly find: (dir: string) => Effect.Effect<string | undefined, FSUtil.Error>
   readonly resolve: (
     messages: SessionV1.WithParts[],
@@ -152,7 +156,7 @@ const layer: Layer.Layer<
       return paths
     })
 
-    const system = Effect.fn("Instruction.system")(function* () {
+    const system = Effect.fn("Instruction.system")(function* (sessionID?: SessionID) {
       const config = yield* cfg.get()
       const paths = yield* systemPaths()
       const urls = (config.instructions ?? []).filter(
@@ -162,10 +166,24 @@ const layer: Layer.Layer<
       const files = yield* Effect.forEach(Array.from(paths), read, { concurrency: 8 })
       const remote = yield* Effect.forEach(urls, fetch, { concurrency: 4 })
 
+      // FORK-SEAM: memory-index
+      const memory = sessionID && ForkMemory.enabled() ? yield* memoryBlock(sessionID) : []
+
       return [
         ...Array.from(paths).flatMap((item, i) => (files[i] ? [`Instructions from: ${item}\n${files[i]}`] : [])),
         ...urls.flatMap((item, i) => (remote[i] ? [`Instructions from: ${item}\n${remote[i]}`] : [])),
+        ...memory,
       ]
+    })
+
+    const memoryBlock = Effect.fnUntraced(function* (sessionID: SessionID) {
+      const snapshot = memorySnapshots.get(sessionID)
+      if (snapshot) return [snapshot]
+      const ctx = yield* InstanceState.context
+      const memoryDir = ForkMemory.dir(ctx.project.id)
+      const block = ForkMemory.render(memoryDir, yield* Effect.promise(() => ForkMemory.readIndex(memoryDir)))
+      memorySnapshots.set(sessionID, block)
+      return [block]
     })
 
     const find = Effect.fn("Instruction.find")(function* (dir: string) {

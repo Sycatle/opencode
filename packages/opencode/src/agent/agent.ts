@@ -6,6 +6,7 @@ import { Provider } from "@/provider/provider"
 
 import { generateObject, streamObject, type ModelMessage } from "ai"
 import { Truncate } from "@/tool/truncate"
+import { ForkMemory } from "@opencode-fork/core/memory"
 import { Auth } from "../auth"
 import { ProviderTransform } from "@/provider/transform"
 
@@ -148,6 +149,8 @@ const layer = Layer.effect(
                 question: "allow",
                 plan_enter: "allow",
               }),
+              // FORK-SEAM: memory-permission
+              Permission.fromConfig(ForkMemory.permission(ctx.project.id)),
               user,
             ),
             mode: "primary",

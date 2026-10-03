@@ -23,7 +23,8 @@
     "./cache": "./src/cache.ts",
     "./pins": "./src/pins.ts",
     "./lsp": "./src/lsp.ts",
-    "./shell": "./src/shell.ts"
+    "./shell": "./src/shell.ts",
+    "./memory": "./src/memory.ts"
   },
   "dependencies": {
     "@opencode-ai/core": "workspace:*",
