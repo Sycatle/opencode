@@ -109,9 +109,17 @@ async function totals(sessionID: string) {
     SELECT sum(cost) AS cost, sum(tokens_input) AS input, sum(tokens_output + tokens_reasoning) AS output,
       sum(tokens_cache_read) AS cache_read, sum(tokens_cache_write) AS cache_write
     FROM session WHERE id IN (SELECT id FROM tree)`
-  const proc = Bun.spawn([...bin, "db", query, "--format", "json"], { stdout: "pipe", stderr: "pipe" })
-  const rows: Omit<Result, "task" | "ok" | "seconds">[] = JSON.parse(await new Response(proc.stdout).text())
-  return rows[0]
+  // The run process may still hold the database while it shuts down: retry briefly.
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const proc = Bun.spawn([...bin, "db", query, "--format", "json"], { stdout: "pipe", stderr: "pipe" })
+    const text = await new Response(proc.stdout).text()
+    if (text.trim().startsWith("[")) {
+      const rows: Omit<Result, "task" | "ok" | "seconds">[] = JSON.parse(text)
+      return rows[0]
+    }
+    await Bun.sleep(2000)
+  }
+  return undefined
 }
 
 async function sh(command: string, cwd: string) {
