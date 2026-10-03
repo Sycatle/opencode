@@ -10,7 +10,8 @@ if [[ "${1:-}" != "--no-merge" ]]; then
 fi
 
 bun install
-grep -rn "FORK-SEAM" packages/ --include=*.ts
+grep -rn "FORK-SEAM" packages/ --include=*.ts --include=*.tsx
 (cd packages/fork && bun run typecheck && bun run test)
 (cd packages/opencode && bun run typecheck)
+(cd packages/tui && bun run typecheck && bun test --timeout 60000 test/feature-plugins/fork-usage.test.tsx test/feature-plugins/fork-compaction.test.tsx)
 echo "Sync OK. Run the bench before shipping: (cd packages/fork && bun run bench --model <provider/model>)"
