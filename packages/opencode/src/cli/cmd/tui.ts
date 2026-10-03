@@ -145,6 +145,8 @@ export const TuiThreadCommand = cmd({
   handler: async (args) => {
     // FORK-SEAM: cache-ttl (interactive sessions keep the stable prefix cached for 1h)
     process.env.OPENCODE_FORK_CACHE_TTL ??= ForkCache.INTERACTIVE_TTL
+    // FORK-SEAM: prompt-suggestion (only the TUI shows suggestions, so only its sessions pay for them)
+    process.env.OPENCODE_FORK_INTERACTIVE ??= "1"
     if (args.replay === true) {
       UI.error("--replay is not supported; replay is enabled by default")
       process.exitCode = 1

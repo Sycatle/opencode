@@ -44,6 +44,8 @@ export type StreamInput = {
   system: string[]
   messages: ModelMessage[]
   small?: boolean
+  // FORK-SEAM: small-output-cap
+  maxOutputTokens?: number
   tools: Record<string, Tool>
   retries?: number
   toolChoice?: "auto" | "required" | "none"

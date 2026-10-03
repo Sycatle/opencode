@@ -11,6 +11,9 @@ import { Session } from "@/session/session"
 // hooks and the auto-mode permission classifier. `current` picks the provider (default model if missing).
 export const smallModelRun = Effect.fn("ForkSmallModel.run")(function* (input: {
   prompt: string
+  maxOutputTokens?: number
+  // Plain completion for tiny answers: the small model's default thinking would dwarf the answer.
+  noThinking?: boolean
   current?: { providerID: string; modelID: string }
 }) {
   const llm = yield* LLM.Service
@@ -19,7 +22,7 @@ export const smallModelRun = Effect.fn("ForkSmallModel.run")(function* (input: {
     name: "fork-small-model",
     mode: "primary" as const,
     permission: [],
-    options: {},
+    options: {} as Record<string, unknown>,
     native: true,
     prompt: "",
   }
@@ -29,6 +32,7 @@ export const smallModelRun = Effect.fn("ForkSmallModel.run")(function* (input: {
   const model =
     (yield* provider.getSmallModel(fallback.providerID)) ??
     (yield* provider.getModel(fallback.providerID, fallback.modelID))
+  if (input.noThinking && model.api.npm === "@ai-sdk/anthropic") agent.options = { thinking: { type: "disabled" } }
   const sessionID = SessionID.descending()
   const events = yield* llm
     .stream({
@@ -43,6 +47,7 @@ export const smallModelRun = Effect.fn("ForkSmallModel.run")(function* (input: {
       },
       system: [],
       small: true,
+      maxOutputTokens: input.maxOutputTokens,
       tools: {},
       model,
       sessionID,

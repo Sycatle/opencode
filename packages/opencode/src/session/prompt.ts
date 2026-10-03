@@ -44,6 +44,8 @@ import { ForkSmartCompaction } from "./fork-smart-compaction"
 import { BackgroundJob } from "@/background/job"
 import { ForkSessionCwd } from "@/tool/fork-session-cwd"
 import { ForkSessionWorktree } from "@opencode-fork/core/session-worktree"
+// FORK-SEAM: prompt-suggestion
+import { ForkSuggest } from "./fork-suggest"
 import { Shell } from "@opencode-ai/core/shell"
 import { ShellID } from "@/tool/shell/id"
 import { FSUtil } from "@opencode-ai/core/fs-util"
@@ -1444,6 +1446,14 @@ const layer = Layer.effect(
         }
 
         yield* compaction.prune({ sessionID }).pipe(Effect.ignore, Effect.forkIn(scope))
+        // FORK-SEAM: prompt-suggestion (the small model proposes the user's next request, stored for the TUI)
+        yield* ForkSuggest.suggest(sessionID).pipe(
+          Effect.provideService(Session.Service, sessions),
+          Effect.provideService(LLM.Service, llm),
+          Effect.provideService(Provider.Service, provider),
+          Effect.ignore,
+          Effect.forkIn(scope),
+        )
         return yield* lastAssistant(sessionID)
       },
     )

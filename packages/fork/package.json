@@ -42,7 +42,8 @@
     "./wakeup": "./src/wakeup.ts",
     "./compaction-timing": "./src/compaction-timing.ts",
     "./compaction-log": "./src/compaction-log.ts",
-    "./session-worktree": "./src/session-worktree.ts"
+    "./session-worktree": "./src/session-worktree.ts",
+    "./prompt-suggestion": "./src/prompt-suggestion.ts"
   },
   "dependencies": {
     "@opencode-ai/core": "workspace:*",

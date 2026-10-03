@@ -10,6 +10,9 @@ import {
 } from "@opentui/core"
 import { ForkClassifier } from "@opencode-fork/core/classifier"
 import { ForkPermissionMode } from "../../feature-plugins/fork/permission-mode"
+// FORK-SEAM: prompt-suggestion
+import { ForkPromptSuggest } from "../../feature-plugins/fork/prompt-suggestion"
+import { ForkPromptSuggestion } from "@opencode-fork/core/prompt-suggestion"
 import type { CommandContext } from "@opentui/keymap"
 import { createEffect, createMemo, onMount, createSignal, onCleanup, on, Show, Switch, Match } from "solid-js"
 import { registerOpencodeSpinner } from "../register-spinner"
@@ -317,6 +320,19 @@ export function Prompt(props: PromptProps) {
     ),
   )
 
+  // FORK-SEAM: prompt-suggestion (the next request proposed by the small model, shown grey in the empty prompt)
+  const suggestions = ForkPromptSuggest.createSuggestions(() => props.sessionID)
+  const suggestion = createMemo(() =>
+    store.mode !== "normal"
+      ? undefined
+      : ForkPromptSuggest.visible({
+          row: suggestions.row(),
+          lastMessage: props.sessionID ? sync.data.message[props.sessionID]?.at(-1) : undefined,
+          prompt: store.prompt.input,
+          enabled: suggestions.enabled(),
+        }),
+  )
+
   // Initialize agent/model/variant from last user message when session changes
   let syncedSessionID: string | undefined
   createEffect(() => {
@@ -343,6 +359,17 @@ export function Prompt(props: PromptProps) {
 
   const promptCommands = createMemo(() =>
     [
+      {
+        // FORK-SEAM: prompt-suggestion
+        title: suggestions.enabled() ? "Disable prompt suggestions" : "Enable prompt suggestions",
+        name: "prompt.suggestion.toggle",
+        category: "Prompt",
+        hidden: !ForkPromptSuggestion.enabled(),
+        run: () => {
+          suggestions.toggle()
+          dialog.clear()
+        },
+      },
       {
         title: "Clear prompt",
         name: "prompt.clear",
@@ -811,6 +838,30 @@ export function Prompt(props: PromptProps) {
       target: inputTarget,
       enabled: inputTarget() !== undefined && !props.disabled,
       bindings: tuiConfig.keybinds.get("prompt.paste"),
+    }
+  })
+
+  useBindings(() => {
+    // FORK-SEAM: prompt-suggestion (tab inserts the grey suggestion; submitting an empty field still sends nothing)
+    return {
+      target: inputTarget,
+      enabled: inputTarget() !== undefined && !props.disabled && !auto()?.visible && suggestion() !== undefined,
+      commands: [
+        {
+          name: "prompt.suggestion.accept",
+          title: "Insert prompt suggestion",
+          category: "Prompt",
+          hidden: true,
+          run() {
+            const text = suggestion()
+            if (!text || !input || input.isDestroyed) return false
+            input.setText(text)
+            input.cursorOffset = text.length
+            setStore("prompt", "input", text)
+          },
+        },
+      ],
+      bindings: tuiConfig.keybinds.get("prompt.suggestion.accept"),
     }
   })
 
@@ -1326,6 +1377,8 @@ export function Prompt(props: PromptProps) {
       const example = shell()[store.placeholder % shell().length]
       return `Run a command… "${example}"`
     }
+    // FORK-SEAM: prompt-suggestion
+    if (suggestion()) return suggestion()
     if (!list().length) return undefined
     return `Ask anything… "${list()[store.placeholder % list().length]}"`
   })

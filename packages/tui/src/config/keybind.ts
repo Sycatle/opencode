@@ -127,9 +127,12 @@ export const Definitions = {
   provider_connect: keybind("none", "Connect provider"),
   console_org_switch: keybind("none", "Switch console organization"),
   agent_list: keybind("<leader>a", "List agents"),
-  agent_cycle: keybind("tab", "Next agent"),
-  // FORK-SEAM: permission-mode (shift+tab cycles build, accept edits, plan, auto; reverse agent cycling is unbound)
-  agent_cycle_reverse: keybind("none", "Previous agent"),
+  // FORK-SEAM: prompt-suggestion (tab accepts the suggestion; custom primary agents move to f3, free everywhere else)
+  agent_cycle: keybind("f3", "Next agent"),
+  // FORK-SEAM: permission-mode (shift+tab cycles build, accept edits, plan, auto)
+  agent_cycle_reverse: keybind("shift+f3", "Previous agent"),
+  // FORK-SEAM: prompt-suggestion
+  prompt_suggestion_accept: keybind("tab", "Insert the prompt suggestion shown in the empty prompt"),
   permission_mode_cycle: keybind("shift+tab", "Cycle permission mode"),
   variant_cycle: keybind("ctrl+t", "Cycle model variants"),
   variant_list: keybind("none", "List model variants"),
@@ -337,6 +340,8 @@ export const CommandMap = {
   agent_list: "agent.list",
   agent_cycle: "agent.cycle",
   agent_cycle_reverse: "agent.cycle.reverse",
+  // FORK-SEAM: prompt-suggestion
+  prompt_suggestion_accept: "prompt.suggestion.accept",
   permission_mode_cycle: "permission.mode.cycle",
   variant_cycle: "variant.cycle",
   variant_list: "variant.list",
