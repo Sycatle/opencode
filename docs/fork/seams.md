@@ -6,7 +6,7 @@ Le code du fork vit dans `packages/fork`. Les seuls points de contact avec le co
 | --- | --- | --- |
 | `telemetry-measure` | `packages/opencode/src/session/llm.ts` | Mesure la requête finale (après plugins) : système, outils, historique, sorties d'outils |
 | `telemetry-record` | `packages/opencode/src/session/processor.ts` | Enregistre l'usage facturé à chaque `step-finish` |
-| `deferred-tools` | `packages/opencode/src/session/tools.ts` | Retient les outils MCP et les outils natifs rares (`lsp`, `webfetch`, `websearch`, `question`, `plan_*`, `shell_output`, `shell_kill`) derrière `tool_search` (`OPENCODE_FORK_DEFER_TOOLS=0` coupe tout, `OPENCODE_FORK_DEFER_NATIVE=0` ou CSV pour les natifs) |
+| `deferred-tools` | `packages/opencode/src/session/tools.ts` | Retient les outils MCP et les outils natifs rares (`lsp`, `webfetch`, `websearch`, `question`, `shell_output`, `shell_kill`, `monitor`) derrière `tool_search` (`OPENCODE_FORK_DEFER_TOOLS=0` coupe tout, `OPENCODE_FORK_DEFER_NATIVE=0` ou CSV pour les natifs) |
 | `prune-default` | `packages/opencode/src/session/compaction.ts` | Prune des anciennes sorties d'outils actif par défaut (`compaction.prune: false` pour couper) |
 | `pruned-stub` | `packages/opencode/src/session/message-v2.ts` | Stub informatif à la place de `[Old tool result content cleared]` |
 | `tool-output-limits` | `packages/opencode/src/tool/truncate.ts` | Troncature par défaut 640 lignes / 16 Ko au lieu de 2000 / 50 Ko (`tool_output` en config pour surcharger) |
@@ -20,7 +20,7 @@ Le code du fork vit dans `packages/fork`. Les seuls points de contact avec le co
 | `subagent-model-routing` | `packages/opencode/src/tool/task.ts` | `explore` tourne sur le petit modèle du provider (`OPENCODE_FORK_ROUTE_SUBAGENTS=0` pour couper), avec son variant d'effort le plus bas (`OPENCODE_FORK_SUBAGENT_EFFORT=0` pour couper) |
 | `worktree-isolation` | `packages/opencode/src/tool/task.ts` | Paramètre `isolation: "worktree"` : le sous-agent tourne dans un worktree git, ses changements reviennent en commit sur une branche `opencode/<nom>` |
 | `run-wait-background` | `packages/opencode/src/cli/cmd/run.ts` | `opencode run` attend les sous-agents d'arrière-plan avant de quitter |
-| `tui-widgets` | `packages/tui/src/feature-plugins/builtins.ts` | Enregistre les plugins TUI du fork : Usage, Subagents, budget, commandes « Pin messages for compaction » et « Compaction preview » |
+| `tui-widgets` | `packages/tui/src/feature-plugins/builtins.ts` | Enregistre les plugins TUI du fork : Usage, Subagents, budget, commandes « Pin messages for compaction » et « Compaction preview », statusline (`app_bottom`) et notification de fin de job d'arrière-plan (`OPENCODE_FORK_BACKGROUND_NOTIFY=0`) |
 | `slim-tool-descriptions` | `packages/opencode/src/tool/registry.ts` | Descriptions d'outils compactes (−47 % sur les définitions natives ; `OPENCODE_FORK_SLIM_TOOLS=0` pour couper) |
 | `cache-ttl` | `provider/transform.ts`, `session/processor.ts`, `cli/cmd/tui.ts` | TTL 1h sur le préfixe stable (outils + système) en session interactive, coût des écritures 1h corrigé. Sans effet avec `opencode-claude-auth` : le plugin déplace le prompt système dans le premier message et retire son `cache_control` |
 | `no-upstream-autoupdate` | `packages/opencode/src/cli/upgrade.ts` | Le binaire du fork ne cherche pas de mise à jour upstream |
@@ -29,7 +29,15 @@ Le code du fork vit dans `packages/fork`. Les seuls points de contact avec le co
 | `background-shell` | `packages/opencode/src/tool/shell/prompt.ts`, `tool/shell.ts`, `tool/registry.ts` | Paramètre `background` de bash : job d'arrière-plan avec notification à la fin, outils `shell_output` / `shell_kill` (`OPENCODE_FORK_BACKGROUND_SHELL=0` pour couper) |
 | `memory-index` | `packages/opencode/src/session/instruction.ts`, `session/prompt.ts` | Index `MEMORY.md` de la mémoire projet injecté après les instructions, figé une fois par session (`OPENCODE_FORK_MEMORY=0` pour couper) |
 | `memory-permission` | `packages/opencode/src/agent/agent.ts` | L'agent build peut écrire dans `<data>/memory/<projet>/` sans demande |
-| `usage-command` | `packages/opencode/src/index.ts` | Enregistre les commandes `opencode usage` et `opencode auto` |
+| `subagent-inherit` | `packages/opencode/src/tool/task.ts` | Paramètre `inherit` : le sous-agent reprend agent, modèle, permissions et historique du parent avant le tour courant, avec un préambule de fork (`OPENCODE_FORK_SUBAGENT_INHERIT=0` pour couper) |
+| `monitor` | `packages/opencode/src/tool/registry.ts` | Outil `monitor` (`tool/monitor.ts`) : attend un motif dans la sortie d'un job shell, sa fin, ou le succès d'une commande relancée via l'outil bash |
+| `plan-default` | `packages/opencode/src/effect/runtime-flags.ts` | Plan mode actif par défaut pour le client `cli` (ou avec `OPENCODE_EXPERIMENTAL`), `OPENCODE_EXPERIMENTAL_PLAN_MODE=false` pour couper |
+| `plan-enter` | `packages/opencode/src/tool/registry.ts` | Enregistre l'outil `plan_enter` (`tool/plan.ts`) à côté de `plan_exit` |
+| `hooks-config` | `packages/core/src/config.ts`, `core/src/v1/config/config.ts`, `core/src/v1/config/migrate.ts` | Clé `hooks` de la config (PreToolUse, PostToolUse, UserPromptSubmit, SessionStart, Stop, PreCompact, PermissionRequest) |
+| `hooks-plugin` | `packages/opencode/src/plugin/index.ts` | Enregistre `ForkHooksPlugin` (hooks shell déclaratifs, `OPENCODE_FORK_HOOKS=0` pour couper) |
+| `permission-ask-hook` | `packages/opencode/src/session/tools.ts`, `session/processor.ts` | Les demandes de permission passent par `askWithPlugins`, qui déclenche le hook plugin `permission.ask` (un `deny` du ruleset l'emporte toujours) |
+| `statusline-config` | `packages/tui/src/config/index.tsx` | Clé `statusline { command, interval }` de la config TUI |
+| `usage-command` | `packages/opencode/src/index.ts` | Enregistre les commandes `opencode usage`, `auto`, `schedule` et `workflow` |
 
 Fichiers ajoutés par le fork (sans conflit possible) :
 - `packages/fork/**`
@@ -37,6 +45,13 @@ Fichiers ajoutés par le fork (sans conflit possible) :
 - `packages/opencode/src/cli/cmd/auto.ts`
 - `packages/opencode/src/tool/fork-worktree.ts`
 - `packages/opencode/src/tool/shell-background.ts`
+- `packages/opencode/src/tool/monitor.ts`
+- `packages/opencode/src/plugin/fork-hooks.ts`
+- `packages/opencode/src/session/fork-permission.ts`
+- `packages/opencode/src/cli/cmd/schedule.ts`
+- `packages/opencode/src/cli/cmd/workflow.ts`
+- `packages/core/src/config/hooks.ts`
+- `packages/tui/src/feature-plugins/fork/statusline.tsx`
 - `packages/tui/src/feature-plugins/fork/usage.tsx`
 - `packages/tui/src/feature-plugins/fork/compaction.tsx`
 - `packages/opencode/src/session/fork-compaction.ts`
