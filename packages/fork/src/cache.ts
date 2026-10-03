@@ -45,7 +45,8 @@ export function isMessagesRequest(input: unknown) {
 // will relocate (no identity-led system prompt) or nothing needs to change.
 // Applied before the plugin, so system blocks still carry their (soon dropped) markers.
 export function pinFirstUserMessage(body: unknown) {
-  if (typeof body !== "string") return undefined
+  // Every Anthropic request of an interactive session passes here: skip the parse when the identity is absent.
+  if (typeof body !== "string" || !body.includes(PLUGIN_IDENTITY)) return undefined
   const parsed = parse(body)
   if (!isRecord(parsed) || !Array.isArray(parsed.system) || !Array.isArray(parsed.messages)) return undefined
   const first = parsed.system[0]
