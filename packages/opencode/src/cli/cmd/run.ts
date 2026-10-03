@@ -1,4 +1,5 @@
 import type { PermissionV1 } from "@opencode-ai/core/v1/permission"
+import { ForkAgents } from "@opencode-fork/core/agents"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 // CLI entry point for `opencode run` and `opencode --mini`.
 //
@@ -698,6 +699,8 @@ export const RunCommand = effectCmd({
           const toggles = new Map<string, boolean>()
           const sessions = new Set([sessionID])
           let error: string | undefined
+          // FORK-SEAM: run-wait-background
+          const background = ForkAgents.backgroundTracker()
 
           for await (const event of events.stream) {
             if (event.type === "session.created" && event.properties.info.parentID) {
@@ -720,6 +723,7 @@ export const RunCommand = effectCmd({
             if (event.type === "message.part.updated") {
               const part = event.properties.part
               if (part.sessionID !== sessionID) continue
+              if (part.type === "tool") background.observePart(part)
 
               if (part.type === "tool" && (part.state.status === "completed" || part.state.status === "error")) {
                 if (emit("tool_use", { part })) continue
@@ -790,10 +794,13 @@ export const RunCommand = effectCmd({
               UI.error(err)
             }
 
+            if (event.type === "session.status" && event.properties.status.type === "idle")
+              background.observeIdle(event.properties.sessionID)
             if (
               event.type === "session.status" &&
               event.properties.sessionID === sessionID &&
-              event.properties.status.type === "idle"
+              event.properties.status.type === "idle" &&
+              background.canExit()
             ) {
               break
             }

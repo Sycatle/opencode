@@ -57,6 +57,8 @@ const layer = (flags: Partial<RuntimeFlags.Info> = {}) =>
 
 const it = testEffect(layer())
 const background = testEffect(layer({ experimentalBackgroundSubagents: true }))
+// Fork: background subagents are on by default, so the disabled case is explicit.
+const foreground = testEffect(layer({ experimentalBackgroundSubagents: false }))
 
 function defer<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void
@@ -504,11 +506,13 @@ describe("tool.task", () => {
     }),
   )
 
-  it.instance("prevents subagents from launching subagents by default", () =>
+  // Fork: the default depth is 2, so the limit is hit one level deeper than upstream.
+  it.instance("prevents subagents from launching subagents beyond the default depth", () =>
     Effect.gen(function* () {
       const sessions = yield* Session.Service
       const { chat, assistant } = yield* seed()
-      const child = yield* sessions.create({ parentID: chat.id, title: "child" })
+      const middle = yield* sessions.create({ parentID: chat.id, title: "middle" })
+      const child = yield* sessions.create({ parentID: middle.id, title: "child" })
       const nestedAssistant = yield* sessions.updateMessage({
         ...assistant,
         id: MessageID.ascending(),
@@ -652,7 +656,7 @@ describe("tool.task", () => {
     },
   )
 
-  it.instance("rejects background execution when the experiment is disabled", () =>
+  foreground.instance("rejects background execution when the experiment is disabled", () =>
     Effect.gen(function* () {
       const { chat, assistant } = yield* seed()
       const tool = yield* TaskTool

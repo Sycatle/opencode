@@ -15,7 +15,8 @@
     "./tools": "./src/tools.ts",
     "./context": "./src/context.ts",
     "./budget": "./src/budget.ts",
-    "./compaction": "./src/compaction.ts"
+    "./compaction": "./src/compaction.ts",
+    "./agents": "./src/agents.ts"
   },
   "dependencies": {
     "@opencode-ai/core": "workspace:*",

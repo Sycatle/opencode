@@ -1,4 +1,5 @@
 import { Config, ConfigProvider, Context, Effect, Layer, Option } from "effect"
+import { ForkAgents } from "@opencode-fork/core/agents"
 import { ConfigService } from "@/effect/config-service"
 
 const bool = (name: string) => Config.boolean(name).pipe(Config.withDefault(false))
@@ -40,7 +41,10 @@ export class Service extends ConfigService.Service<Service>()("@opencode/Runtime
   enableExperimentalModels: bool("OPENCODE_ENABLE_EXPERIMENTAL_MODELS"),
   enableQuestionTool: bool("OPENCODE_ENABLE_QUESTION_TOOL"),
   experimentalReferences: enabledByExperimental("OPENCODE_EXPERIMENTAL_REFERENCES"),
-  experimentalBackgroundSubagents: enabledByExperimental("OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS"),
+  // FORK-SEAM: background-default
+  experimentalBackgroundSubagents: Config.boolean("OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS").pipe(
+    Config.withDefault(ForkAgents.BACKGROUND_DEFAULT),
+  ),
   experimentalLspTy: bool("OPENCODE_EXPERIMENTAL_LSP_TY"),
   experimentalLspTool: enabledByExperimental("OPENCODE_EXPERIMENTAL_LSP_TOOL"),
   experimentalOxfmt: enabledByExperimental("OPENCODE_EXPERIMENTAL_OXFMT"),

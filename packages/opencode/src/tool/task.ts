@@ -10,10 +10,12 @@ import { Agent } from "../agent/agent"
 import { deriveSubagentSessionPermission } from "../agent/subagent-permissions"
 import type { SessionPrompt } from "../session/prompt"
 import { Config } from "@/config/config"
-import { Effect, Exit, Schema, Scope } from "effect"
+import { Effect, Exit, Option, Schema, Scope } from "effect"
 import { EffectBridge } from "@/effect/bridge"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Database } from "@opencode-ai/core/database/database"
+import { Provider } from "@/provider/provider"
+import { ForkAgents } from "@opencode-fork/core/agents"
 
 export interface TaskPromptOps {
   cancel(sessionID: SessionID): Effect.Effect<void>
@@ -88,6 +90,8 @@ export const TaskTool = Tool.define(
     const scope = yield* Scope.Scope
     const flags = yield* RuntimeFlags.Service
     const database = yield* Database.Service
+    // Optional so the tool keeps working in layers that do not provide models.
+    const provider = yield* Effect.serviceOption(Provider.Service)
 
     const run = Effect.fn("TaskTool.execute")(function* (
       params: Schema.Schema.Type<typeof Parameters>,
@@ -101,6 +105,17 @@ export const TaskTool = Tool.define(
         )
       }
 
+      // FORK-SEAM: background-cap
+      if (runInBackground) {
+        const running = (yield* background.list()).filter((job) => job.type === id && job.status === "running").length
+        if (running >= ForkAgents.maxBackground())
+          return yield* Effect.fail(
+            new Error(
+              `${running} background tasks are already running (limit ${ForkAgents.maxBackground()}). Wait for one to finish or run this task in the foreground.`,
+            ),
+          )
+      }
+
       const parent = yield* sessions.get(ctx.sessionID)
       let current = parent
       let depth = 0
@@ -108,10 +123,12 @@ export const TaskTool = Tool.define(
         depth++
         current = yield* sessions.get(current.parentID)
       }
-      if (depth >= (cfg.subagent_depth ?? 1)) {
+      // FORK-SEAM: subagent-depth
+      const maxDepth = cfg.subagent_depth ?? ForkAgents.SUBAGENT_DEPTH
+      if (depth >= maxDepth) {
         return yield* Effect.fail(
           new Error(
-            `Subagent depth limit reached (${cfg.subagent_depth ?? 1}). Increase "subagent_depth" to allow nested subagents.`,
+            `Subagent depth limit reached (${maxDepth}). Increase "subagent_depth" to allow nested subagents.`,
           ),
         )
       }
@@ -178,10 +195,16 @@ export const TaskTool = Tool.define(
       if (msg.info.role !== "assistant") return yield* Effect.fail(new Error("Not an assistant message"))
       const variant = msg.info.variant
 
-      const model = next.model ?? {
-        modelID: msg.info.modelID,
-        providerID: msg.info.providerID,
-      }
+      // FORK-SEAM: subagent-model-routing
+      const small =
+        ForkAgents.routeToSmallModel(next) && Option.isSome(provider)
+          ? yield* provider.value.getSmallModel(msg.info.providerID)
+          : undefined
+      const model = next.model ??
+        (small ? { modelID: small.id, providerID: small.providerID } : undefined) ?? {
+          modelID: msg.info.modelID,
+          providerID: msg.info.providerID,
+        }
       const metadata = {
         parentSessionId: ctx.sessionID,
         sessionId: nextSession.id,
@@ -206,7 +229,7 @@ export const TaskTool = Tool.define(
             modelID: model.modelID,
             providerID: model.providerID,
           },
-          variant: next.model ? undefined : variant,
+          variant: next.model || small ? undefined : variant,
           agent: next.name,
           parts,
         })
