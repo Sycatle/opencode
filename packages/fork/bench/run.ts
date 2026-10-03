@@ -49,7 +49,12 @@ const bin = args.values.bin
   ? args.values.bin.split(" ")
   : ["bun", "run", path.join(import.meta.dir, "../../opencode/src/index.ts")]
 const selected = tasks.filter((task) => !args.values.task || args.values.task.includes(task.id))
-const env = Object.fromEntries((args.values.env ?? []).map((pair) => [pair.slice(0, pair.indexOf("=")), pair.slice(pair.indexOf("=") + 1)]))
+// The user's Claude Code plugins (skills, SessionStart hooks) would make results depend on the machine:
+// off unless --env OPENCODE_FORK_CC_PLUGINS=1.
+const env = {
+  OPENCODE_FORK_CC_PLUGINS: "0",
+  ...Object.fromEntries((args.values.env ?? []).map((pair) => [pair.slice(0, pair.indexOf("=")), pair.slice(pair.indexOf("=") + 1)])),
+}
 
 if (args.positionals[0] === "ablate") {
   const flags = (args.values.flags ?? "").split(",").map((flag) => flag.trim().toUpperCase()).filter(Boolean)
