@@ -25,7 +25,8 @@
     "./lsp": "./src/lsp.ts",
     "./shell": "./src/shell.ts",
     "./memory": "./src/memory.ts",
-    "./statusline": "./src/statusline.ts"
+    "./statusline": "./src/statusline.ts",
+    "./schedule": "./src/schedule.ts"
   },
   "dependencies": {
     "@opencode-ai/core": "workspace:*",
