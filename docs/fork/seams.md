@@ -45,7 +45,7 @@ Le code du fork vit dans `packages/fork`. Les seuls points de contact avec le co
 | `cc-plugins-config` | `packages/opencode/src/config/config.ts` | Fusionne sous la config utilisateur les commandes, agents (subagents) et serveurs MCP des plugins Claude Code activés (`ForkClaudePlugins.config`) |
 | `cc-plugins-hooks` | `packages/opencode/src/plugin/fork-hooks.ts` | Ajoute après les hooks de l'utilisateur ceux des plugins Claude Code activés ; le contexte d'un `SessionStart` est injecté dans le premier message d'une session racine |
 | `cc-plugins-command` | `packages/opencode/src/index.ts` | Commande `opencode plugin-cc` (`add`, `list`, `rm`, `marketplace add`), qui écrit dans `~/.claude/plugins/*` et `~/.claude/settings.json` comme Claude Code |
-| `claude-tools` | `packages/opencode/src/session/tools.ts`, `session/system.ts`, `session/reminders.ts` | Profil d'outils Claude Code pour les modèles Anthropic (`Read`, `Edit`, `Bash`, `Agent`, `TodoWrite`…, noms et schémas identiques) : map d'outils renommée (`ForkClaudeTools.wrap`), prompt système et rappel de plan mode qui les nomment (`OPENCODE_FORK_CC_TOOLS=0` pour couper) |
+| `claude-tools` | `packages/opencode/src/session/tools.ts`, `session/system.ts`, `session/reminders.ts` | Profil d'outils Claude Code pour les modèles Anthropic, avec le prompt système du fork (`ForkSystemPrompt`, `OPENCODE_FORK_SYSTEM_PROMPT=0` pour le prompt upstream) (`Read`, `Edit`, `Bash`, `Agent`, `TodoWrite`…, noms et schémas identiques) : map d'outils renommée (`ForkClaudeTools.wrap`), prompt système et rappel de plan mode qui les nomment (`OPENCODE_FORK_CC_TOOLS=0` pour couper) |
 | `claude-tools-inbound` | `packages/opencode/src/session/processor.ts` | Reconvertit l'appel du modèle (nom et args Claude Code) au format opencode avant la persistance |
 | `claude-tools-history` | `packages/opencode/src/session/message-v2.ts` | Rejoue l'historique stocké sous les noms et args Claude Code, de façon déterministe |
 | `claude-tools-permission` | `packages/opencode/src/session/llm/request.ts` | Permissions et réglages d'outils évalués sur les noms opencode |
@@ -54,6 +54,15 @@ Le code du fork vit dans `packages/fork`. Les seuls points de contact avec le co
 | `ripgrep-search` | `packages/core/src/ripgrep.ts` | `Ripgrep.search` : sortie texte de ripgrep avec les flags de l'appelant |
 | `sandbox-config` | `packages/core/src/config.ts`, `core/src/v1/config/config.ts`, `core/src/v1/config/migrate.ts` | Clé `sandbox` de la config (`enabled`, `network.allow`, `write`, `read_deny`), voir `docs/fork/sandbox.md` |
 | `sandbox` | `packages/opencode/src/tool/shell.ts`, `tool/shell/prompt.ts` | Commande bash (premier plan, `background`, `monitor`) enveloppée dans bwrap quand la sandbox est active ; paramètre `sandbox: false` (`dangerouslyDisableSandbox` sous le profil Claude Code) soumis à la permission `sandbox_escape` ; indice `[sandbox]` sur un échec typique (`OPENCODE_FORK_SANDBOX=1/0` pour forcer) |
+| `permission-mode` | `packages/tui/src/context/permission.tsx`, `context/sync.tsx`, `config/keybind.ts`, `app.tsx`, `component/prompt/index.tsx`, `routes/session/permission.tsx`, `packages/opencode/src/cli/cmd/tui.ts` | Modes de permission à la Claude Code, retenus par session (règle marqueur `fork.mode`) : shift+tab fait tourner build, éditions acceptées, plan, auto (`agent_cycle_reverse` n'a plus de touche par défaut) ; indicateur sous le prompt, raison du classifieur dans la demande ; `--auto` démarre en auto, `--yolo` approuve tout côté client |
+| `auto-mode` | `packages/opencode/src/cli/cmd/run.ts` | `opencode run --auto` : session en mode auto ; `--yolo` ou classifieur coupé approuvent côté client, jamais `sandbox_escape` |
+| `workflow-tool` | `packages/opencode/src/tool/registry.ts` | Outil `workflow` (`tool/workflow.ts`, `Workflow` sous le profil Claude Code) : lance `opencode workflow run` en job d'arrière-plan, permission `workflow`, budget restant hérité, notification de fin injectée ; `shell_output` / `shell_kill` / `monitor` l'acceptent (`OPENCODE_FORK_WORKFLOW_TOOL=0` pour couper) |
+| `messaging` | `packages/opencode/src/session/prompt.ts`, `tool/registry.ts` | Messagerie entre sessions vivantes via `fork.db` (`fork_agents`, `fork_inbox`) : un watcher par session livre les messages par `prompt` en part synthétique `<session-message>` ; outils différés `list_agents` / `send_message` (`ListAgents` / `SendMessage`) (`OPENCODE_FORK_MESSAGING=0` pour couper) |
+| `route-provider` | `packages/opencode/src/provider/provider.ts` | Provider virtuel `router` (`router/auto`, `fast`, `standard`, `reasoning`, `frontier`) ajouté aux providers connectés (`OPENCODE_FORK_ROUTE=0` pour couper) |
+| `route-language` | `packages/opencode/src/provider/provider.ts` | Un modèle `router/*` passé à `getLanguage` (titre, compaction, hooks) tourne sur le modèle concret de son dernier tour |
+| `route-turn` | `packages/opencode/src/session/prompt.ts` | Résout `router/*` en modèle concret à chaque tour : signaux du petit modèle au nouveau message, politique de llm-router, changement conscient du cache (TTL 1h en interactif, cache chaud par modèle), journal `fork_route` ; `OPENCODE_FORK_ROUTE_TIERS` (JSON) et `OPENCODE_FORK_ROUTE_QUOTA` (0.9) |
+| `route-fallback` | `packages/opencode/src/session/processor.ts`, `session/prompt.ts` | Avant le premier octet, une erreur d'un tour `router/*` met le modèle ou le provider en cooldown et le tour est re-routé ; hors `router/*`, rien ne change |
+| `route-subagent` | `packages/opencode/src/tool/task.ts` | Sous une session `router/*`, un sous-agent sans modèle propre est lui aussi routé |
 | `usage-command` | `packages/opencode/src/index.ts` | Enregistre les commandes `opencode usage`, `auto`, `schedule` et `workflow` (un run dont le process est mort passe en `interrupted` ; son coût est lu dans `fork_usage` par session d'étape) |
 
 Fichiers ajoutés par le fork (sans conflit possible) :
@@ -71,6 +80,13 @@ Fichiers ajoutés par le fork (sans conflit possible) :
 - `packages/core/src/config/hooks.ts`
 - `packages/core/src/config/sandbox.ts`
 - `packages/opencode/src/tool/fork-sandbox.ts`
+- `packages/opencode/src/tool/workflow.ts`
+- `packages/opencode/src/tool/fork-messaging.ts`
+- `packages/opencode/src/session/fork-messaging.ts`
+- `packages/opencode/src/session/fork-classify.ts`
+- `packages/opencode/src/session/fork-route.ts`
+- `packages/opencode/src/provider/fork-route.ts`
+- `packages/opencode/src/plugin/fork-small-model.ts`
 - `packages/tui/src/feature-plugins/fork/statusline.tsx`
 - `packages/tui/src/feature-plugins/fork/usage.tsx`
 - `packages/tui/src/feature-plugins/fork/compaction.tsx`

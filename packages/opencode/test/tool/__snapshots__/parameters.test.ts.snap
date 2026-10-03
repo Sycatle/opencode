@@ -28,6 +28,10 @@ exports[`tool parameters JSON Schema (wire shape) bash 1`] = `
       "description": "The command to execute",
       "type": "string",
     },
+    "sandbox": {
+      "description": "Set to false to run this command outside the OS sandbox. Always asks the user for explicit approval, so use it only after a sandboxed attempt failed because of the sandbox.",
+      "type": "boolean",
+    },
     "timeout": {
       "description": "Optional timeout in milliseconds",
       "exclusiveMinimum": 0,
