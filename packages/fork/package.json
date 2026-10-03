@@ -35,7 +35,8 @@
     "./claude-tools": "./src/claude-tools.ts",
     "./sandbox": "./src/sandbox.ts",
     "./classifier": "./src/classifier.ts",
-    "./messaging": "./src/messaging.ts"
+    "./messaging": "./src/messaging.ts",
+    "./system-prompt": "./src/system-prompt.ts"
   },
   "dependencies": {
     "@opencode-ai/core": "workspace:*",
