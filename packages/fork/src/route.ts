@@ -41,7 +41,8 @@ export type Signals = {
   context_size: ContextSize
   confidence: number
   // Who produced the signals (journal only; the policy ignores it).
-  source?: "jev" | "small-model"
+  // "reused": a short follow-up kept the signals of the previous message (`shouldReclassify`).
+  source?: "jev" | "small-model" | "reused"
 }
 
 // Neutral signals for an unavailable classifier: confidence 0 holds the tier (or STANDARD).
@@ -138,6 +139,99 @@ function distanceFromBand(value: number, tier: Tier, cfg: Config) {
 }
 
 export const rank = (tier: Tier) => TIERS.indexOf(tier)
+
+// ---------------------------------------------------------------- refinements around the policy
+
+type Env = Record<string, string | undefined>
+
+const RECLASSIFY_MAX_AGE_MS = 30 * 60_000
+const RECLASSIFY_CONFIDENCE = 0.6
+const SHORT_CHARS = 80
+const SHORT_WORDS = 12
+
+// A short follow-up ("ok, go on", "run the tests") keeps the signals of the previous message, as long as that
+// classification was confident and recent. The first message of a session is always classified.
+// OPENCODE_FORK_ROUTE_RECLASSIFY=0 classifies every message.
+export function shouldReclassify(
+  i: { prompt: string; previous?: { signals: Signals; time: number }; now: number },
+  env: Env = process.env,
+) {
+  if (env.OPENCODE_FORK_ROUTE_RECLASSIFY === "0") return true
+  if (!i.previous) return true
+  if (i.now - i.previous.time > RECLASSIFY_MAX_AGE_MS) return true
+  if (i.previous.signals.confidence < RECLASSIFY_CONFIDENCE) return true
+  const text = i.prompt.trim()
+  return text.length > SHORT_CHARS && text.split(/\s+/).length > SHORT_WORDS
+}
+
+// Variant names by decreasing effort, as models.dev providers spell them.
+const EFFORT_HIGH = ["high"]
+const EFFORT_MAX = ["xhigh", "max", "high"]
+const EFFORT_LOW = ["low", "minimal"]
+
+// The reasoning effort variant of the chosen model, from the signals. It only changes when the model changed or
+// the prompt cache is cold: a new thinking setting invalidates the cached messages. `previous` is the variant
+// of the session's last routed message (undefined when there is none). OPENCODE_FORK_ROUTE_EFFORT=0 turns it off.
+export function effort(
+  i: {
+    signals?: Signals
+    tier: Tier
+    available: readonly string[]
+    previous?: { variant?: string }
+    switched: boolean
+    cold: boolean
+  },
+  env: Env = process.env,
+) {
+  if (env.OPENCODE_FORK_ROUTE_EFFORT === "0") return undefined
+  const keep = i.previous && !i.switched && !i.cold
+  if (keep) return i.previous?.variant && i.available.includes(i.previous.variant) ? i.previous.variant : undefined
+  const signals = i.signals
+  if (!signals || signals.confidence < DEFAULTS.min_confidence || i.available.length === 0) return undefined
+  const wanted =
+    signals.reasoning >= 0.99 && i.tier === "frontier"
+      ? EFFORT_MAX
+      : signals.reasoning >= 0.67
+        ? EFFORT_HIGH
+        : signals.reasoning <= 0.1 && QUICK_TASKS.includes(signals.task_type)
+          ? EFFORT_LOW
+          : []
+  return wanted.find((name) => i.available.includes(name))
+}
+
+const QUICK_TASKS: readonly TaskType[] = ["question", "repo_search", "small_edit"]
+
+export const PLAN_NUDGE =
+  "This request looks ambiguous or underspecified. Before changing anything, consider calling plan_enter to agree on a plan with the user."
+
+// A build agent on an ambiguous request is reminded that plan mode exists. The caller supplies whether
+// `plan_enter` is registered; OPENCODE_FORK_ROUTE_PLAN=0 turns it off and OPENCODE_FORK_ROUTE_PLAN_AT sets the
+// ambiguity threshold (default 0.7).
+export function planNudge(
+  i: { signals?: Signals; agent: string; root: boolean; available: boolean },
+  env: Env = process.env,
+) {
+  if (env.OPENCODE_FORK_ROUTE_PLAN === "0") return false
+  const at = Number(env.OPENCODE_FORK_ROUTE_PLAN_AT)
+  const threshold = Number.isFinite(at) && at > 0 && at <= 1 ? at : 0.7
+  const signals = i.signals
+  if (!signals || signals.confidence < DEFAULTS.min_confidence) return false
+  return signals.ambiguity >= threshold && i.agent === "build" && i.root && i.available
+}
+
+const STRUGGLE_WINDOW = 6
+const STRUGGLE_ERRORS = 3
+
+// Tool calls of the turn so far, oldest first: three failures among the last six mean the model is struggling.
+export function struggling(tools: readonly { status: string }[], env: Env = process.env) {
+  if (env.OPENCODE_FORK_ROUTE_ESCALATE === "0") return false
+  return tools.slice(-STRUGGLE_WINDOW).filter((tool) => tool.status === "error").length >= STRUGGLE_ERRORS
+}
+
+// The next tier up; undefined at the top.
+export function above(tier: Tier) {
+  return TIERS[rank(tier) + 1]
+}
 
 // ---------------------------------------------------------------- catalog
 
