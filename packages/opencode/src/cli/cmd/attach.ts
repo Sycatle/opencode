@@ -127,6 +127,10 @@ export const AttachCommand = cmd({
       return
     }
 
+    // FORK-SEAM: remote-attach (fork widgets read this machine's fork.db, which a remote server does not write)
+    if (!["localhost", "127.0.0.1", "::1", "[::1]"].includes(new URL(args.url).hostname))
+      process.env.OPENCODE_FORK_REMOTE ??= "1"
+
     const { Effect } = await import("effect")
     const { run } = await import("../tui/layer")
     const { createLegacyTuiPluginHost } = await import("@/plugin/tui/runtime")

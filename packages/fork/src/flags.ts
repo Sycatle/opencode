@@ -89,6 +89,7 @@ export const FLAGS = {
   AUTO_JEV: { kind: "jev", default: "on", description: "`opencode auto` judges completion without --until" },
   // ---- internal
   INTERACTIVE: { kind: "text", default: "set by the TUI", description: "Marks an interactive session" },
+  REMOTE: { kind: "text", default: "set by attach", description: "The TUI is attached to a server on another machine" },
   DB: { kind: "text", default: "<data>/fork.db", description: "Fork database path" },
 } satisfies Record<string, Def>
 

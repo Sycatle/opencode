@@ -76,6 +76,8 @@ Toutes les variables `OPENCODE_FORK_*` sont déclarées dans `packages/fork/src/
 | `route-fallback` | `packages/opencode/src/session/processor.ts`, `session/prompt.ts` | Avant le premier octet, une erreur d'un tour `router/*` met le modèle ou le provider en cooldown et le tour est re-routé ; hors `router/*`, rien ne change |
 | `route-subagent` | `packages/opencode/src/tool/task.ts` | Sous une session `router/*`, un sous-agent sans modèle propre est lui aussi routé |
 | `usage-command` | `packages/opencode/src/index.ts` | Enregistre les commandes `opencode usage`, `auto`, `schedule` et `workflow` (un run dont le process est mort passe en `interrupted` ; son coût est lu dans `fork_usage` par session d'étape) |
+| `fork-config` | `packages/core/src/config.ts`, `core/src/v1/config/config.ts`, `core/src/v1/config/migrate.ts`, `packages/opencode/src/config/config.ts` | Clé `fork` de la config, appliquée aux variables `OPENCODE_FORK_*` laissées vides par l'environnement (`ForkFlags.apply`) |
+| `remote-attach` | `packages/opencode/src/cli/cmd/attach.ts` | `opencode attach` vers une autre machine pose `OPENCODE_FORK_REMOTE=1` : les widgets d'usage disent que les données du fork n'y sont pas disponibles |
 
 Fichiers ajoutés par le fork (sans conflit possible) :
 - `packages/fork/**`
