@@ -23,6 +23,8 @@ import { XaiAuthPlugin } from "./xai"
 import { CerebrasPlugin } from "./cerebras"
 // FORK-SEAM: hooks-plugin
 import { ForkHooksPlugin } from "./fork-hooks"
+// FORK-SEAM: guard-plugin
+import { ForkGuardPlugin } from "./fork-guard"
 import { SnowflakeCortexAuthPlugin } from "./snowflake-cortex"
 import { Effect, Layer, Context } from "effect"
 import { EffectBridge } from "@/effect/bridge"
@@ -86,6 +88,8 @@ function internalPlugins(flags: RuntimeFlags.Info): PluginInstance[] {
     CerebrasPlugin,
     // FORK-SEAM: hooks-plugin
     ForkHooksPlugin,
+    // FORK-SEAM: guard-plugin
+    ForkGuardPlugin,
   ]
 }
 

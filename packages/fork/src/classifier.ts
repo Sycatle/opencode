@@ -1,3 +1,4 @@
+import type { ForkJev } from "./jev"
 import { ForkTelemetry } from "./telemetry"
 
 // Auto mode: a permission the ruleset would "ask" about is judged by the small model of the session's
@@ -133,6 +134,82 @@ function safeJson(text: string): unknown {
   }
 }
 
+// Jev judges first (OPENCODE_FORK_AUTO_CLASSIFIER_JEV: "shadow" journals it without deciding, "0" turns it off).
+// It sees less than the small model: the permission, the patterns and a few fields of the action with the project
+// directory and the home directory masked, and the latest user message. No transcript, no diff, no file content.
+const JEV_FIELD = 300
+const JEV_USER = 600
+const JEV_FIELDS = ["command", "filepath", "filePath", "path", "url"]
+export const JEV_DANGER = ["destructive", "outgoing", "outside_project", "secrets", "escalation"] as const
+// A confident danger asks the user; only a very confident, requested, in-scope action is approved.
+export const JEV_ASK_AT = 0.7
+export const JEV_ALLOW_AT = 0.9
+export const JEV_REQUESTED_AT = 0.8
+
+export function jevRequest(input: { action: Action; directory?: string; home?: string; lastUser?: string }) {
+  const mask = (text: string) =>
+    [input.directory, input.home].reduce<string>(
+      (value, root, index) => (root && root.length > 1 ? value.replaceAll(root, index === 0 ? "." : "~") : value),
+      text,
+    )
+  const fields = JEV_FIELDS.flatMap((key) => {
+    const value = input.action.metadata?.[key]
+    return typeof value === "string" && value ? [`${key}: ${clip(mask(value), JEV_FIELD)}`] : []
+  })
+  return {
+    state: [
+      "Permission request of a coding agent running in auto mode: one action the user has not pre-approved.",
+      `permission: ${input.action.permission}`,
+      `patterns: ${input.action.patterns.map((pattern) => clip(mask(pattern), JEV_FIELD)).join(", ") || "(none)"}`,
+      ...fields,
+      `Latest user message:\n${clip(mask(input.lastUser?.trim() || "(none)"), JEV_USER)}`,
+    ].join("\n"),
+    questions: {
+      risk: {
+        type: "choice",
+        instructions: "What is the main risk of running this action without asking the user?",
+        criteria: {
+          in_scope_safe: "Inside the project, reversible or low impact, and what the user asked for",
+          destructive: "Deletes or overwrites things the user did not mention (rm -rf, git reset --hard, force push, drop tables)",
+          outgoing: "Sends, publishes or uploads something outside the machine (git push, deploy, email, curl POST)",
+          outside_project: "Reads or writes outside the project directory (home, system paths, dotfiles)",
+          secrets: "Touches secrets (.env, credentials, tokens, SSH or cloud keys)",
+          escalation: "Raises privileges or weakens security (sudo, broad chmod, disabling checks)",
+          unclear: "Cannot be judged from the information given",
+        },
+      },
+      requested: {
+        type: "noul",
+        instructions: "The user's latest message asks for exactly this action",
+      },
+    } satisfies Record<string, ForkJev.Question>,
+  }
+}
+
+export type JevVerdict = { decision: "allow" | "ask"; reason: string }
+
+// undefined hands the request to the small model. `injected`: the session read tool output that looked like an
+// injection recently, so nothing is approved on Jev's word alone.
+export function jevVerdict(answers: Record<string, ForkJev.Answer> | undefined, injected: boolean): JevVerdict | undefined {
+  const risk = answers?.risk
+  const requested = answers?.requested?.noul
+  const choice = risk?.choice
+  if (!choice) return undefined
+  const confidence = risk.confidence ?? 0
+  const seen = `${confidence.toFixed(2)}`
+  if (JEV_DANGER.some((item) => item === choice) && confidence >= JEV_ASK_AT)
+    return { decision: "ask", reason: `Jev: ${choice.replaceAll("_", " ")} (${seen})` }
+  if (
+    choice === "in_scope_safe" &&
+    confidence >= JEV_ALLOW_AT &&
+    requested !== undefined &&
+    requested >= JEV_REQUESTED_AT &&
+    !injected
+  )
+    return { decision: "allow", reason: `Jev: in scope and requested (${seen}, requested ${requested.toFixed(2)})` }
+  return undefined
+}
+
 // Never approved without the user, whatever the mode (auto, accept edits, --yolo): leaving the bash sandbox
 // and deleting a session worktree.
 export function neverAuto(permission: string) {
@@ -151,14 +228,17 @@ export type Entry = Action & {
   cost: number
   providerID?: string
   modelID?: string
+  source?: "jev" | "small-model"
+  // Jev latency.
+  ms?: number
 }
 
 // Telemetry must never break a permission request.
 export function record(entry: Entry) {
   try {
     table().run(
-      `INSERT INTO fork_classifier (session_id, time, permission, patterns, action, decision, reason, cost, provider_id, model_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO fork_classifier (session_id, time, permission, patterns, action, decision, reason, cost, provider_id, model_id, source, ms)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         entry.sessionID,
         Date.now(),
@@ -170,6 +250,8 @@ export function record(entry: Entry) {
         entry.cost,
         entry.providerID ?? null,
         entry.modelID ?? null,
+        entry.source ?? "small-model",
+        entry.ms ?? null,
       ],
     )
   } catch {}
@@ -183,8 +265,11 @@ export function decisions(sessionID: string) {
     .all(sessionID)
 }
 
+let ready = false
+
 function table() {
   const db = ForkTelemetry.db()
+  if (ready) return db
   db.run(`CREATE TABLE IF NOT EXISTS fork_classifier (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id TEXT NOT NULL,
@@ -196,9 +281,16 @@ function table() {
     reason TEXT NOT NULL,
     cost REAL NOT NULL,
     provider_id TEXT,
-    model_id TEXT
+    model_id TEXT,
+    source TEXT,
+    ms INTEGER
   )`)
+  // Tables created before Jev have no `source` and `ms`.
+  const columns = db.query<{ name: string }, []>("PRAGMA table_info(fork_classifier)").all()
+  if (!columns.some((column) => column.name === "source")) db.run("ALTER TABLE fork_classifier ADD source TEXT")
+  if (!columns.some((column) => column.name === "ms")) db.run("ALTER TABLE fork_classifier ADD ms INTEGER")
   db.run("CREATE INDEX IF NOT EXISTS fork_classifier_session ON fork_classifier (session_id)")
+  ready = true
   return db
 }
 
