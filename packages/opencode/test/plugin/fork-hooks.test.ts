@@ -184,6 +184,55 @@ describe("fork hooks plugin", () => {
     }),
   )
 
+  it.instance("auto mode asks the classifier once for an action it already approved in the session", () =>
+    Effect.gen(function* () {
+      const plugin = yield* Plugin.Service
+      const permission = yield* Permission.Service
+      const calls: string[] = []
+      // A local Jev that judges every action safe and requested.
+      const server = Bun.serve({
+        port: 0,
+        fetch: async (request) => {
+          calls.push(String((await request.json()).state))
+          return Response.json({
+            answers: {
+              risk: { type: "choice", choice: "in_scope_safe", confidence: 0.99 },
+              requested: { type: "noul", noul: 0.99 },
+            },
+          })
+        },
+      })
+      // A slow Jev would hand the request to the small model, absent here: the test would wait for the user.
+      const vars = { TYPESAFE_API_KEY: "test", OPENCODE_FORK_JEV_URL: server.url.href, OPENCODE_FORK_JEV_TIMEOUT_MS: "4000" }
+      const saved = Object.fromEntries(Object.keys(vars).map((name) => [name, process.env[name]]))
+      Object.assign(process.env, vars)
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => {
+          server.stop(true)
+          Object.entries(saved).forEach(([name, value]) => {
+            if (value === undefined) delete process.env[name]
+            else process.env[name] = value
+          })
+        }),
+      )
+      const request = (pattern: string) =>
+        askWithPlugins(plugin, permission, {
+          sessionID: "s-auto-cache" as never,
+          permission: "bash",
+          patterns: [pattern],
+          metadata: {},
+          always: [],
+          ruleset: ForkClassifier.withMode([], "auto"),
+        })
+
+      yield* request("bun test")
+      yield* request("bun test")
+      expect(calls).toHaveLength(1)
+      yield* request("bun typecheck")
+      expect(calls).toHaveLength(2)
+    }),
+  )
+
   it.instance("a hook allow never overrides a deny from the ruleset", () =>
     withHooks(
       { PermissionRequest: [{ command: json({ decision: "allow" }) }] },

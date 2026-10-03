@@ -16,6 +16,8 @@ export const smallModelRun = Effect.fn("ForkSmallModel.run")(function* (input: {
   // Plain completion for tiny answers: the small model's default thinking would dwarf the answer.
   noThinking?: boolean
   current?: { providerID: string; modelID: string }
+  // Fail instead of falling back to the provider's main model when it has no small model.
+  smallOnly?: boolean
 }) {
   const llm = yield* LLM.Service
   const provider = yield* Provider.Service
@@ -35,9 +37,9 @@ export const smallModelRun = Effect.fn("ForkSmallModel.run")(function* (input: {
   const fallback = routed
     ? { providerID: ProviderV2.ID.make(routed.providerID), modelID: ModelV2.ID.make(routed.modelID) }
     : chosen
-  const model =
-    (yield* provider.getSmallModel(fallback.providerID)) ??
-    (yield* provider.getModel(fallback.providerID, fallback.modelID))
+  const small = yield* provider.getSmallModel(fallback.providerID)
+  if (!small && input.smallOnly) return yield* Effect.fail(new Error(`no small model for provider ${fallback.providerID}`))
+  const model = small ?? (yield* provider.getModel(fallback.providerID, fallback.modelID))
   if (input.noThinking && model.api.npm === "@ai-sdk/anthropic") agent.options = { thinking: { type: "disabled" } }
   const sessionID = SessionID.descending()
   const events = yield* llm

@@ -228,7 +228,7 @@ export type Entry = Action & {
   cost: number
   providerID?: string
   modelID?: string
-  source?: "jev" | "small-model"
+  source?: "jev" | "small-model" | "cache"
   // Jev latency.
   ms?: number
 }

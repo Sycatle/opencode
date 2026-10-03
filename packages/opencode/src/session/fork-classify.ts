@@ -12,6 +12,12 @@ type AskInput = Parameters<Permission.Interface["ask"]>[0]
 
 export type Judgement = { action: "allow" } | { action: "ask"; reason?: string }
 
+// Approvals already given in a session, by permission and patterns: the same action asked again within
+// CACHE_MS is approved without another classifier round trip. Denials are not kept, they reach the user anyway.
+const approved = new Map<string, number>()
+const CACHE_MS = 10 * 60_000
+const MAX_CACHED = 500
+
 // Runs inside the project's instance (see ForkPermission): resolves the session's permission mode, then
 // approves accepted edits or lets the small model judge in auto mode. "ask" means a real request to the user.
 export const judge = Effect.fn("ForkClassify.judge")(function* (input: AskInput) {
@@ -42,6 +48,25 @@ const sessionMode = Effect.fn("ForkClassify.mode")(function* (sessionID: Session
 
 // Never fails: an error, an unreadable answer or a timeout is a "deny" whose reason is shown to the user.
 const classify = Effect.fn("ForkClassify.classify")(function* (input: AskInput) {
+  const action = { permission: input.permission, patterns: input.patterns, metadata: input.metadata }
+  const key = `${input.sessionID}\0${input.permission}\0${JSON.stringify(input.patterns)}`
+  const now = Date.now()
+  for (const [id, time] of approved) if (now - time > CACHE_MS) approved.delete(id)
+  // Output that looked like an injection voids earlier approvals: the action may now come from it.
+  if (approved.has(key) && !ForkGuard.recent(input.sessionID)) {
+    const reason = "Same action approved earlier in this session"
+    ForkClassifier.record({ sessionID: input.sessionID, ...action, decision: "allow", reason, cost: 0, source: "cache" })
+    return { decision: "allow" as const, reason }
+  }
+  const verdict = yield* judgeAction(input, action)
+  if (verdict.decision === "allow" && approved.size < MAX_CACHED) approved.set(key, now)
+  return verdict
+})
+
+const judgeAction = Effect.fn("ForkClassify.judgeAction")(function* (
+  input: AskInput,
+  action: { permission: string; patterns: readonly string[]; metadata: AskInput["metadata"] },
+) {
   const sessions = yield* Session.Service
   const session = yield* sessions.get(input.sessionID).pipe(Effect.option)
   const messages = yield* sessions
@@ -58,7 +83,6 @@ const classify = Effect.fn("ForkClassify.classify")(function* (input: AskInput) 
     return text ? [{ role: message.info.role, text }] : []
   })
   const lastUser = messages.findLast((message) => message.info.role === "user")
-  const action = { permission: input.permission, patterns: input.patterns, metadata: input.metadata }
 
   // Jev first. A confident danger or a confident, requested, in-scope action settles the request here; anything
   // else, a failure and the shadow mode go on to the small model. An approval never comes from Jev alone when
@@ -110,6 +134,10 @@ const classify = Effect.fn("ForkClassify.classify")(function* (input: AskInput) 
       lastUser: lastUser?.parts.flatMap((part) => (part.type === "text" && !part.synthetic ? [part.text] : [])).join("\n"),
       transcript: lines,
     }),
+    // The answer is a one-line JSON verdict: no thinking, and never the session's main (possibly Opus) model.
+    noThinking: true,
+    maxOutputTokens: 300,
+    smallOnly: true,
     current:
       lastUser?.info.role === "user"
         ? { providerID: lastUser.info.model.providerID, modelID: lastUser.info.model.modelID }
