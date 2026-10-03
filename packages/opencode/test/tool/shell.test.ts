@@ -1336,6 +1336,28 @@ describe.skipIf(process.platform === "win32")("tool.shell background", () => {
     ),
   )
 
+  it.live("monitor asks permission once across iterations", () =>
+    runIn(
+      projectRoot,
+      Effect.gen(function* () {
+        const jobs = yield* BackgroundJob.Service
+        const { shell, monitor } = yield* tools
+        const tmp = yield* tmpdirScoped()
+        const flag = path.join(tmp, "flag")
+        yield* shell.execute({ command: `sleep 2; touch ${flag}`, background: true }, ctx)
+        const requests: Array<Omit<PermissionV1.Request, "id" | "sessionID" | "tool">> = []
+        const result = yield* monitor.execute(
+          { command: `test -f ${flag} && echo found`, interval_ms: 500, timeout_ms: 20000 },
+          capture(requests),
+        )
+        expect(result.output).toContain("Command succeeded")
+        expect(result.output).not.toContain("after 1 attempt")
+        expect(requests.filter((request) => request.permission === "bash")).toHaveLength(1)
+        yield* Effect.forEach(yield* jobs.list(), (job) => jobs.cancel(job.id))
+      }),
+    ),
+  )
+
   it.live("monitor times out", () =>
     runIn(
       projectRoot,

@@ -55,6 +55,16 @@ export const MonitorTool = Tool.define(
       }
       const tailOf = (path: string | undefined) =>
         path ? Effect.promise(() => Bun.file(path).slice(-65536).text()) : Effect.succeed("")
+      // A "once" approval would otherwise be asked again on every iteration of this call: replay only asks already granted.
+      const granted = new Set<string>()
+      const loopCtx: Tool.Context = {
+        ...ctx,
+        ask: (input) => {
+          const key = JSON.stringify([input.permission, input.patterns, input.metadata?.command])
+          if (granted.has(key)) return Effect.void
+          return ctx.ask(input).pipe(Effect.tap(() => Effect.sync(() => granted.add(key))))
+        },
+      }
       const commandMode = options.command !== undefined && options.until === "success"
 
       const step: Effect.Effect<ForkMonitor.Outcome> = Effect.gen(function* () {
@@ -74,7 +84,7 @@ export const MonitorTool = Tool.define(
 
         if (options.command && commandMode && Date.now() - state.lastAttempt >= options.intervalMs) {
           // The bash tool owns parsing, permissions (incl. external_directory), shell.env and truncation.
-          const result = yield* bash.execute({ command: options.command, timeout: options.timeoutMs }, ctx)
+          const result = yield* bash.execute({ command: options.command, timeout: options.timeoutMs }, loopCtx)
           state.attempts++
           state.lastAttempt = Date.now()
           state.lastExit = (result.metadata as { exit?: number | null }).exit ?? null
