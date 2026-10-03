@@ -21460,6 +21460,9 @@
             ],
             "description": "Enable or configure LSP servers. Omit or set to false to disable, true to enable built-ins, or an object to enable built-ins with overrides."
           },
+          "hooks": {
+            "$ref": "#/components/schemas/ConfigV2Hooks"
+          },
           "instructions": {
             "type": "array",
             "items": {
@@ -27056,6 +27059,72 @@
           }
         },
         "required": ["path"],
+        "additionalProperties": false
+      },
+      "ConfigV2HooksEntry": {
+        "type": "object",
+        "properties": {
+          "matcher": {
+            "type": "string"
+          },
+          "command": {
+            "type": "string",
+            "description": "Shell command run with sh -c in the project directory. The event JSON is written to stdin"
+          },
+          "timeout": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          }
+        },
+        "required": ["command"],
+        "additionalProperties": false
+      },
+      "ConfigV2Hooks": {
+        "type": "object",
+        "properties": {
+          "PreToolUse": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConfigV2HooksEntry"
+            }
+          },
+          "PostToolUse": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConfigV2HooksEntry"
+            }
+          },
+          "UserPromptSubmit": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConfigV2HooksEntry"
+            }
+          },
+          "SessionStart": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConfigV2HooksEntry"
+            }
+          },
+          "Stop": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConfigV2HooksEntry"
+            }
+          },
+          "PreCompact": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConfigV2HooksEntry"
+            }
+          },
+          "PermissionRequest": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConfigV2HooksEntry"
+            }
+          }
+        },
         "additionalProperties": false
       },
       "PolicyEffect": {

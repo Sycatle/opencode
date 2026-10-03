@@ -2000,6 +2000,7 @@ export type Config = {
               }
             }
       }
+  hooks?: ConfigV2Hooks
   instructions?: Array<string>
   layout?: LayoutConfig
   permission?: PermissionConfig
@@ -3837,6 +3838,25 @@ export type ConfigV2ReferenceLocal = {
   path: string
   description?: string
   hidden?: boolean
+}
+
+export type ConfigV2HooksEntry = {
+  matcher?: string
+  /**
+   * Shell command run with sh -c in the project directory. The event JSON is written to stdin
+   */
+  command: string
+  timeout?: number
+}
+
+export type ConfigV2Hooks = {
+  PreToolUse?: Array<ConfigV2HooksEntry>
+  PostToolUse?: Array<ConfigV2HooksEntry>
+  UserPromptSubmit?: Array<ConfigV2HooksEntry>
+  SessionStart?: Array<ConfigV2HooksEntry>
+  Stop?: Array<ConfigV2HooksEntry>
+  PreCompact?: Array<ConfigV2HooksEntry>
+  PermissionRequest?: Array<ConfigV2HooksEntry>
 }
 
 export type PolicyEffect = "allow" | "deny"
