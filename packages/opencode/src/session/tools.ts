@@ -5,6 +5,7 @@ import { ProviderTransform } from "@/provider/transform"
 import { MCP } from "@/mcp"
 import { McpCatalog } from "@/mcp/catalog"
 import { ForkTools } from "@opencode-fork/core/tools"
+import { ForkClaudeTools } from "@opencode-fork/core/claude-tools"
 import { Permission } from "@/permission"
 import { Tool } from "@/tool/tool"
 import { ToolJsonSchema } from "@/tool/json-schema"
@@ -96,7 +97,11 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
     agent: input.agent,
     permission: input.session.permission,
   })) {
-    const schema = ProviderTransform.schema(input.model, ToolJsonSchema.fromTool(item))
+    // FORK-SEAM: claude-tools (opencode-only grep options are not offered outside the Claude profile)
+    const schema = ProviderTransform.schema(
+      input.model,
+      ForkClaudeTools.nativeSchema(item.id, ToolJsonSchema.fromTool(item)),
+    )
     tools[item.id] = tool({
       description: item.description,
       inputSchema: jsonSchema(schema),
@@ -386,7 +391,9 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
     })
   }
 
-  if (flags.experimentalCodeMode) return tools
+  const claude = ForkClaudeTools.enabled(input.model)
+  // FORK-SEAM: claude-tools
+  if (flags.experimentalCodeMode) return claude ? ForkClaudeTools.wrap(tools) : tools
 
   for (const [key, entry] of Object.entries(yield* mcp.tools())) {
     const item = McpCatalog.convertTool(entry.def, entry.client, entry.timeout)
@@ -490,12 +497,23 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
     tools[key] = item
   }
 
+  if (claude) {
+    // MCP keys are `<server>_<tool>`; the Claude Code name is `mcp__<server>__<tool>`.
+    const servers = Object.keys(yield* mcp.clients()).map(McpCatalog.sanitize)
+    for (const key of Object.keys(yield* mcp.tools())) {
+      const server = servers.filter((name) => key.startsWith(name + "_")).toSorted((a, b) => b.length - a.length)[0]
+      if (server) ForkClaudeTools.registerMcp(key, server)
+    }
+  }
   // FORK-SEAM: deferred-tools (MCP tools, MCP resource tools and rarely used native tools)
-  return ForkTools.defer(
+  const deferred = ForkTools.defer(
     tools,
     [...Object.keys(yield* mcp.tools()), ...Object.values(MCP_RESOURCE_TOOLS), ...ForkTools.nativeDeferrable()],
     input.messages,
+    claude ? { name: ForkClaudeTools.toModelName, description: ForkClaudeTools.describeTool } : undefined,
   )
+  // FORK-SEAM: claude-tools (Claude Code names and shapes for Anthropic models)
+  return claude ? ForkClaudeTools.wrap(deferred) : deferred
 })
 
 function toRecord(value: unknown) {

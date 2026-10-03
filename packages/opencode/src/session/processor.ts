@@ -29,6 +29,7 @@ import { Usage, type LLMEvent } from "@opencode-ai/llm"
 import { ForkTelemetry } from "@opencode-fork/core/telemetry"
 import { ForkCompaction } from "@opencode-fork/core/compaction"
 import { askWithPlugins } from "./fork-permission"
+import { ForkClaudeTools } from "@opencode-fork/core/claude-tools"
 
 const DOOM_LOOP_THRESHOLD = 3
 export type Result = "compact" | "stop" | "continue"
@@ -251,7 +252,8 @@ const layer = Layer.effect(
           messageID: ctx.assistantMessage.id,
           sessionID: ctx.assistantMessage.sessionID,
           type: "tool",
-          tool: input.name,
+          // FORK-SEAM: claude-tools-inbound
+          tool: ForkClaudeTools.toNativeName(input.name),
           callID: input.id,
           state: { status: "pending", input: {}, raw: "" },
           metadata: input.providerExecuted ? { providerExecuted: true } : undefined,
@@ -346,10 +348,15 @@ const layer = Layer.effect(
               throw new Error(`Tool call not allowed while generating summary: ${value.name}`)
             }
             yield* ensureToolCall(value)
-            const input = isRecord(value.input) ? value.input : { value: value.input }
+            // FORK-SEAM: claude-tools-inbound (the model's call, back in opencode's name and arguments)
+            const call = ForkClaudeTools.fromModel(
+              value.name,
+              isRecord(value.input) ? value.input : { value: value.input },
+            )
+            const input = call.input
             yield* updateToolCall(value.id, (match) => ({
               ...match,
-              tool: value.name,
+              tool: call.tool,
               state:
                 match.state.status === "running"
                   ? { ...match.state, input }
@@ -373,7 +380,7 @@ const layer = Layer.effect(
               !recentParts.every(
                 (part) =>
                   part.type === "tool" &&
-                  part.tool === value.name &&
+                  part.tool === call.tool &&
                   part.state.status !== "pending" &&
                   JSON.stringify(part.state.input) === JSON.stringify(input),
               )
@@ -385,10 +392,10 @@ const layer = Layer.effect(
             // FORK-SEAM: permission-ask-hook
             yield* askWithPlugins(plugin, permission, {
               permission: "doom_loop",
-              patterns: [value.name],
+              patterns: [call.tool],
               sessionID: ctx.assistantMessage.sessionID,
-              metadata: { tool: value.name, input },
-              always: [value.name],
+              metadata: { tool: call.tool, input },
+              always: [call.tool],
               ruleset: agent.permission,
             })
             return

@@ -18,6 +18,7 @@ import type { Provider } from "@/provider/provider"
 import type { Agent } from "@/agent/agent"
 import { Permission } from "@/permission"
 import { Skill } from "@/skill"
+import { ForkClaudeTools } from "@opencode-fork/core/claude-tools"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { Location } from "@opencode-ai/core/location"
 import { LocationServiceMap, locationServiceMapLayer } from "@opencode-ai/core/location-services"
@@ -40,7 +41,9 @@ export function provider(model: Provider.Model) {
     return [PROMPT_GPT]
   }
   if (model.api.id.includes("gemini-")) return [PROMPT_GEMINI]
-  if (model.api.id.includes("claude")) return [PROMPT_ANTHROPIC]
+  // FORK-SEAM: claude-tools (the prompt names the tools the model is given)
+  if (model.api.id.includes("claude"))
+    return [ForkClaudeTools.enabled(model) ? ForkClaudeTools.prompt(PROMPT_ANTHROPIC) : PROMPT_ANTHROPIC]
   if (model.api.id.toLowerCase().includes("trinity")) return [PROMPT_TRINITY]
   if (
     model.api.id.toLowerCase().includes("kimi") ||

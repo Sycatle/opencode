@@ -165,3 +165,81 @@ it.effect("preserves running tool start time across metadata updates", () =>
     }
   }),
 )
+
+const anthropic = {
+  providerID: ProviderV2.ID.make("anthropic"),
+  api: { id: "claude-sonnet-4-5", npm: "@ai-sdk/anthropic" },
+} as Provider.Model
+
+const hooks: { name: string; input: unknown; args?: unknown }[] = []
+const claudeLayer = Layer.mergeAll(
+  Layer.succeed(
+    Plugin.Service,
+    Plugin.Service.of({
+      init: () => Effect.void,
+      list: () => Effect.succeed([]),
+      trigger: (name, input, output) =>
+        Effect.sync(() => {
+          hooks.push({ name, input, args: (output as { args?: unknown })?.args })
+          return output
+        }),
+    } satisfies Plugin.Interface),
+  ),
+  Layer.succeed(Permission.Service, fakePermission),
+  Layer.succeed(MCP.Service, fakeMcp()),
+  Layer.succeed(Truncate.Service, fakeTruncate),
+  RuntimeFlags.layer(),
+  Layer.succeed(
+    ToolRegistry.Service,
+    ToolRegistry.Service.of({
+      ids: () => Effect.succeed(["edit"]),
+      all: () => Effect.succeed([]),
+      named: () => Effect.die("unused"),
+      tools: () =>
+        Effect.succeed([
+          {
+            id: "edit",
+            description: "native edit",
+            parameters: Schema.Struct({ filePath: Schema.String }),
+            jsonSchema: { type: "object", properties: { filePath: { type: "string" } } },
+            execute: (args: { filePath: string }) =>
+              Effect.succeed({ title: "edit", metadata: {}, output: `edited ${args.filePath}` }),
+          } satisfies Tool.Def,
+        ]),
+    }),
+  ),
+)
+
+testEffect(claudeLayer).effect(
+  "presents Claude Code tools to anthropic models and keeps opencode's format inside",
+  () =>
+    Effect.gen(function* () {
+      const processor = {
+        message: { id: messageID, sessionID },
+        updateToolCall: () => Effect.die("unused"),
+        completeToolCall: () => Effect.void,
+      } as unknown as Pick<SessionProcessor.Handle, "message" | "updateToolCall" | "completeToolCall">
+      const tools = yield* SessionTools.resolve({
+        agent,
+        model: anthropic,
+        session: { id: sessionID, permission: [] } as unknown as Session.Info,
+        processor,
+        bypassAgentCheck: false,
+        messages: [],
+        promptOps: {} as never,
+      })
+
+      expect(Object.keys(tools)).toEqual(["Edit"])
+      expect(JSON.stringify(tools.Edit.inputSchema)).toContain("file_path")
+      const result = yield* Effect.promise(() =>
+        tools.Edit.execute!(
+          { file_path: "/a.ts", old_string: "a", new_string: "b" },
+          { toolCallId: callID, abortSignal: new AbortController().signal, messages: [] },
+        ),
+      )
+      expect((result as { output: string }).output).toBe("edited /a.ts")
+      const before = hooks.find((hook) => hook.name === "tool.execute.before")
+      expect(before?.input).toMatchObject({ tool: "edit" })
+      expect(before?.args).toMatchObject({ filePath: "/a.ts", oldString: "a", newString: "b" })
+    }),
+)

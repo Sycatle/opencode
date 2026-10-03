@@ -8,6 +8,7 @@ import type { Agent } from "@/agent/agent"
 import type { MessageV2 } from "../message-v2"
 import type { Provider } from "@/provider/provider"
 import { ProviderTransform } from "@/provider/transform"
+import { ForkClaudeTools } from "@opencode-fork/core/claude-tools"
 import { SystemPrompt } from "../system"
 import { InstallationVersion } from "@opencode-ai/core/installation/version"
 import { Effect, Record } from "effect"
@@ -208,11 +209,16 @@ export const prepare = Effect.fn("LLMRequestPrep.prepare")(function* (input: Pre
 })
 
 function resolveTools(input: Pick<PrepareInput, "tools" | "agent" | "permission" | "user">) {
+  // FORK-SEAM: claude-tools-permission (rules and tool toggles are written with opencode's tool names)
   const disabled = Permission.disabled(
-    Object.keys(input.tools),
+    Object.keys(input.tools).map(ForkClaudeTools.toNativeName),
     Permission.merge(input.agent.permission, input.permission ?? []),
   )
-  return Record.filter(input.tools, (_, k) => input.user.tools?.[k] !== false && !disabled.has(k))
+  return Record.filter(
+    input.tools,
+    (_, k) =>
+      input.user.tools?.[ForkClaudeTools.toNativeName(k)] !== false && !disabled.has(ForkClaudeTools.toNativeName(k)),
+  )
 }
 
 export function hasToolCalls(messages: ModelMessage[]): boolean {

@@ -101,8 +101,37 @@ exports[`tool parameters JSON Schema (wire shape) grep 1`] = `
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "after": {
+      "type": "number",
+    },
+    "before": {
+      "type": "number",
+    },
+    "context": {
+      "type": "number",
+    },
+    "headLimit": {
+      "type": "number",
+    },
+    "ignoreCase": {
+      "type": "boolean",
+    },
     "include": {
       "description": "File pattern to include in the search (e.g. "*.js", "*.{ts,tsx}")",
+      "type": "string",
+    },
+    "lineNumbers": {
+      "type": "boolean",
+    },
+    "multiline": {
+      "type": "boolean",
+    },
+    "outputMode": {
+      "enum": [
+        "content",
+        "files_with_matches",
+        "count",
+      ],
       "type": "string",
     },
     "path": {
@@ -111,6 +140,9 @@ exports[`tool parameters JSON Schema (wire shape) grep 1`] = `
     },
     "pattern": {
       "description": "The regex pattern to search for in file contents",
+      "type": "string",
+    },
+    "type": {
       "type": "string",
     },
   },

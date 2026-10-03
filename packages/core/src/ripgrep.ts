@@ -76,10 +76,20 @@ export interface GrepInput {
   readonly signal?: AbortSignal
 }
 
+// FORK-SEAM: ripgrep-search (raw ripgrep text output with caller-chosen flags)
+export interface SearchInput {
+  readonly cwd: string
+  readonly pattern: string
+  readonly args: readonly string[]
+  readonly limit: number
+  readonly signal?: AbortSignal
+}
+
 export interface Interface {
   readonly find: (input: FindInput) => Effect.Effect<readonly Entry[], Error>
   readonly glob: (input: GlobInput) => Effect.Effect<readonly Entry[], Error>
   readonly grep: (input: GrepInput) => Effect.Effect<readonly Match[], Error | InvalidPatternError>
+  readonly search: (input: SearchInput) => Effect.Effect<readonly string[], Error | InvalidPatternError>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/v2/Ripgrep") {}
@@ -152,6 +162,16 @@ const layer = Layer.effect(
     }
 
     return Service.of({
+      // FORK-SEAM: ripgrep-search
+      search: (input) =>
+        run<string>({
+          cwd: input.cwd,
+          pattern: input.pattern,
+          limit: input.limit,
+          signal: input.signal,
+          args: [...input.args],
+          parse: (line) => Effect.succeed(line),
+        }).pipe(Effect.map((result) => result.items)),
       glob: (input) =>
         run<string>({
           cwd: input.cwd,

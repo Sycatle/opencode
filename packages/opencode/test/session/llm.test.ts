@@ -2150,13 +2150,13 @@ describe("session.llm.stream", () => {
           {
             type: "tool_use",
             id: "toolu_01N8mDEzG8DSTs7UPHFtmgCT",
-            name: "read",
-            input: { filePath: "/root" },
+            name: "Read",
+            input: { file_path: "/root" },
           },
           {
             type: "tool_use",
             id: "toolu_01APxrADs7VozN8uWzw9WwHr",
-            name: "glob",
+            name: "Glob",
             input: { pattern: "**/*.pdf", path: "/root" },
           },
         ])

@@ -131,6 +131,38 @@ describe("tool.grep", () => {
     }),
   )
 
+  it.instance("supports Claude Code output modes, case folding, context and file types", () =>
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      yield* Effect.promise(() =>
+        Promise.all([
+          Bun.write(path.join(test.directory, "a.ts"), "before\nNeedle one\nafter\nneedle two"),
+          Bun.write(path.join(test.directory, "b.py"), "needle"),
+        ]),
+      )
+      const info = yield* GrepTool
+      const grep = yield* info.init()
+      const run = (extra: Record<string, unknown>) =>
+        grep.execute({ pattern: "needle", path: test.directory, ...extra }, ctx)
+
+      const files = yield* run({ outputMode: "files_with_matches" })
+      expect(files.output).toContain("Found 2 files")
+      expect((yield* run({ outputMode: "files_with_matches", type: "py" })).output).toContain("Found 1 file\n")
+
+      const count = (yield* run({ outputMode: "count", include: "*.ts" })).output
+      expect(count).toContain("a.ts:1")
+      expect((yield* run({ outputMode: "count", include: "*.ts", ignoreCase: true })).output).toContain("a.ts:2")
+
+      const content = (yield* run({ outputMode: "content", include: "*.ts", ignoreCase: true, context: 1 })).output
+      expect(content).toContain("a.ts:2:Needle one")
+      expect(content).toContain("a.ts-1-before")
+
+      const limited = yield* run({ outputMode: "content", include: "*.ts", ignoreCase: true, headLimit: 1 })
+      expect(limited.metadata.truncated).toBe(true)
+      expect((yield* run({ outputMode: "content", pattern: "no-such-text" })).output).toBe("No matches found")
+    }),
+  )
+
   it.instance("does not report an unknown total when results are truncated", () =>
     Effect.gen(function* () {
       const test = yield* TestInstance

@@ -30,6 +30,7 @@ import * as OtelTracer from "@effect/opentelemetry/Tracer"
 import { LLMAISDK } from "./llm/ai-sdk"
 import { LLMNativeRuntime } from "./llm/native-runtime"
 import { LLMRequestPrep } from "./llm/request"
+import { ForkClaudeTools } from "@opencode-fork/core/claude-tools"
 
 export const OUTPUT_TOKEN_MAX = ProviderTransform.OUTPUT_TOKEN_MAX
 
@@ -302,6 +303,9 @@ const live: Layer.Layer<
           // Copilot returns the authoritative billed amount only in provider-specific response fields.
           includeRawChunks: input.model.providerID.includes("github-copilot"),
           async experimental_repairToolCall(failed) {
+            // FORK-SEAM: claude-tools-repair (opencode-claude-auth lowercases the first letter of tool names)
+            const claudeName = ForkClaudeTools.repairName(failed.toolCall.toolName, Object.keys(prepared.tools))
+            if (claudeName) return { ...failed.toolCall, toolName: claudeName }
             const lower = failed.toolCall.toolName.toLowerCase()
             if (lower !== failed.toolCall.toolName && prepared.tools[lower]) {
               return {

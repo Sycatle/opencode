@@ -1,6 +1,7 @@
 import { SessionID, MessageID } from "./schema"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { ForkContext } from "@opencode-fork/core/context"
+import { ForkClaudeTools } from "@opencode-fork/core/claude-tools"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import {
   APIError,
@@ -135,6 +136,7 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
   options?: { stripMedia?: boolean; toolOutputMaxChars?: number },
 ) {
   const result: UIMessage[] = []
+  const claude = ForkClaudeTools.enabled(model)
   const toolNames = new Set<string>()
   // Track media from tool results that need to be injected as user messages
   // for providers that don't support that media type in tool results.
@@ -293,7 +295,11 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
             type: "step-start",
           })
         if (part.type === "tool") {
-          toolNames.add(part.tool)
+          // FORK-SEAM: claude-tools-history (replayed under Claude Code's names, deterministically)
+          const call = claude
+            ? ForkClaudeTools.toModelCall(part.tool, part.state.input)
+            : { tool: part.tool, input: part.state.input }
+          toolNames.add(call.tool)
           if (part.state.status === "completed") {
             const outputText = part.state.time.compacted
               ? // FORK-SEAM: pruned-stub
@@ -319,10 +325,10 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
                 : outputText
 
             assistantMessage.parts.push({
-              type: ("tool-" + part.tool) as `tool-${string}`,
+              type: ("tool-" + call.tool) as `tool-${string}`,
               state: "output-available",
               toolCallId: part.callID,
-              input: part.state.input,
+              input: call.input,
               output,
               ...(part.metadata?.providerExecuted ? { providerExecuted: true } : {}),
               ...(differentModel ? {} : { callProviderMetadata: providerMeta(part.metadata) }),
@@ -332,20 +338,20 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
             const output = part.state.metadata?.interrupted === true ? part.state.metadata.output : undefined
             if (typeof output === "string") {
               assistantMessage.parts.push({
-                type: ("tool-" + part.tool) as `tool-${string}`,
+                type: ("tool-" + call.tool) as `tool-${string}`,
                 state: "output-available",
                 toolCallId: part.callID,
-                input: part.state.input,
+                input: call.input,
                 output,
                 ...(part.metadata?.providerExecuted ? { providerExecuted: true } : {}),
                 ...(differentModel ? {} : { callProviderMetadata: providerMeta(part.metadata) }),
               })
             } else {
               assistantMessage.parts.push({
-                type: ("tool-" + part.tool) as `tool-${string}`,
+                type: ("tool-" + call.tool) as `tool-${string}`,
                 state: "output-error",
                 toolCallId: part.callID,
-                input: part.state.input,
+                input: call.input,
                 errorText: part.state.error,
                 ...(part.metadata?.providerExecuted ? { providerExecuted: true } : {}),
                 ...(differentModel ? {} : { callProviderMetadata: providerMeta(part.metadata) }),
@@ -356,10 +362,10 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
           // Anthropic/Claude APIs require every tool_use to have a corresponding tool_result
           if (part.state.status === "pending" || part.state.status === "running")
             assistantMessage.parts.push({
-              type: ("tool-" + part.tool) as `tool-${string}`,
+              type: ("tool-" + call.tool) as `tool-${string}`,
               state: "output-error",
               toolCallId: part.callID,
-              input: part.state.input,
+              input: call.input,
               errorText: "[Tool execution was interrupted]",
               ...(part.metadata?.providerExecuted ? { providerExecuted: true } : {}),
               ...(differentModel ? {} : { callProviderMetadata: providerMeta(part.metadata) }),

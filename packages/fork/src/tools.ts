@@ -37,7 +37,20 @@ type HistoryPart = {
   state?: { status: string; metadata?: Record<string, unknown> }
 }
 
-export function defer(tools: Record<string, Tool>, deferrable: string[], messages: { parts: readonly HistoryPart[] }[]) {
+// How tools are named and described to the model (the Claude tool profile renames them).
+export interface View {
+  name: (tool: string) => string
+  description: (tool: string, description: string | undefined) => string | undefined
+}
+
+const NATIVE_VIEW: View = { name: (tool) => tool, description: (_tool, description) => description }
+
+export function defer(
+  tools: Record<string, Tool>,
+  deferrable: string[],
+  messages: { parts: readonly HistoryPart[] }[],
+  view = NATIVE_VIEW,
+) {
   if (process.env.OPENCODE_FORK_DEFER_TOOLS === "0") return tools
   const candidates = deferrable.filter((name) => name in tools).toSorted()
   if (!candidates.length) return tools
@@ -46,7 +59,7 @@ export function defer(tools: Record<string, Tool>, deferrable: string[], message
   candidates.filter((name) => !loaded.has(name)).forEach((name) => delete tools[name])
   // Kept even once everything is loaded: earlier turns reference it, and removing
   // it would change the tool block and invalidate the prompt cache.
-  tools[SEARCH] = searchTool(pool)
+  tools[SEARCH] = searchTool(pool, view)
   return tools
 }
 
@@ -64,7 +77,7 @@ export function loadedTools(messages: { parts: readonly HistoryPart[] }[]) {
   )
 }
 
-export function search(pool: Record<string, Tool>, query: string) {
+export function search(pool: Record<string, Tool>, query: string, max = MAX_MATCHES) {
   const names = Object.keys(pool)
   if (query.startsWith("select:"))
     return query
@@ -84,11 +97,11 @@ export function search(pool: Record<string, Tool>, query: string) {
     })
     .filter((item) => item.score > 0)
     .toSorted((a, b) => b.score - a.score)
-    .slice(0, MAX_MATCHES)
+    .slice(0, max)
     .map((item) => item.name)
 }
 
-function searchTool(pool: Record<string, Tool>) {
+function searchTool(pool: Record<string, Tool>, view: View) {
   return tool({
     description: [
       "Load deferred tools so they can be called. The tools listed below exist but their definitions are not loaded; they cannot be called until loaded.",
@@ -96,20 +109,23 @@ function searchTool(pool: Record<string, Tool>) {
       "Loaded tools become callable from your next step. Load every tool you expect to need in one call.",
       "",
       "Deferred tools:",
-      ...Object.keys(pool),
+      ...Object.keys(pool).map(view.name),
     ].join("\n"),
-    inputSchema: jsonSchema<{ query: string }>({
+    inputSchema: jsonSchema<{ query: string; max_results?: number }>({
       type: "object",
-      properties: { query: { type: "string", description: 'Keywords, or "select:<name>[,<name>...]"' } },
+      properties: {
+        query: { type: "string", description: 'Keywords, or "select:<name>[,<name>...]"' },
+        max_results: { type: "number", description: `Maximum keyword matches to load (default ${MAX_MATCHES})` },
+      },
       required: ["query"],
     }),
     async execute(args) {
-      const loaded = search(pool, args.query)
+      const loaded = search(pool, args.query, args.max_results && args.max_results > 0 ? args.max_results : MAX_MATCHES)
       return {
         title: args.query,
         metadata: { loaded },
         output: loaded.length
-          ? `Loaded ${loaded.length} tool(s), callable from your next step:\n${loaded.map((name) => `- ${name}: ${pool[name].description ?? ""}`).join("\n")}`
+          ? `Loaded ${loaded.length} tool(s), callable from your next step:\n${loaded.map((name) => `- ${view.name(name)}: ${view.description(name, pool[name].description) ?? ""}`).join("\n")}`
           : `No deferred tool matches "${args.query}".`,
       }
     },

@@ -11,6 +11,7 @@ import { Session } from "./session"
 import PROMPT_PLAN from "./prompt/plan.txt"
 import BUILD_SWITCH from "./prompt/build-switch.txt"
 import PLAN_MODE from "./prompt/plan-mode.txt"
+import { ForkClaudeTools } from "@opencode-fork/core/claude-tools"
 
 export const apply = Effect.fn("SessionReminders.apply")(function* (input: {
   messages: SessionV1.WithParts[]
@@ -78,15 +79,23 @@ export const apply = Effect.fn("SessionReminders.apply")(function* (input: {
     messageID: userMessage.info.id,
     sessionID: userMessage.info.sessionID,
     type: "text",
-    text: PLAN_MODE.replace("${planInfo}", () =>
-      exists
-        ? `A plan file already exists at ${plan}. You can read it and make incremental edits using the edit tool.`
-        : `No plan file exists yet. You should create your plan at ${plan} using the write tool.`,
+    // FORK-SEAM: claude-tools (the reminder names the tools the model is given)
+    text: reminderTools(
+      userMessage.info.role === "user" ? userMessage.info.model.providerID : "",
+      PLAN_MODE.replace("${planInfo}", () =>
+        exists
+          ? `A plan file already exists at ${plan}. You can read it and make incremental edits using the edit tool.`
+          : `No plan file exists yet. You should create your plan at ${plan} using the write tool.`,
+      ),
     ),
     synthetic: true,
   })
   userMessage.parts.push(part)
   return input.messages
 })
+
+function reminderTools(providerID: string, text: string) {
+  return ForkClaudeTools.enabled({ providerID }) ? ForkClaudeTools.prompt(text) : text
+}
 
 export * as SessionReminders from "./reminders"

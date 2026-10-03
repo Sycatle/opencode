@@ -870,6 +870,61 @@ it.live("session.processor effect tests complete AI SDK tool calls when native f
   ),
 )
 
+it.live("session.processor effect tests persist Claude Code tool calls in opencode's format", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const { processors, session, provider } = yield* boot()
+
+        yield* llm.tool("Edit", { file_path: "/a.ts", old_string: "a", new_string: "b", replace_all: true })
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "tool")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const handle = yield* processors.create({
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        yield* handle.process({
+          user: {
+            id: parent.id,
+            sessionID: chat.id,
+            role: "user",
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: ref.providerID, modelID: ref.modelID },
+          } satisfies SessionV1.User,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user", content: "tool" }],
+          tools: {
+            Edit: tool({
+              description: "Edit a file",
+              inputSchema: z.object({
+                file_path: z.string(),
+                old_string: z.string(),
+                new_string: z.string(),
+                replace_all: z.boolean(),
+              }),
+              execute: async () => ({ title: "Edit", output: "done", metadata: {} }),
+            }),
+          },
+        })
+
+        const call = (yield* MessageV2.parts(msg.id)).find((part): part is SessionV1.ToolPart => part.type === "tool")
+        expect(call?.tool).toBe("edit")
+        expect(call?.state.status).toBe("completed")
+        expect(call?.state.input).toEqual({ filePath: "/a.ts", oldString: "a", newString: "b", replaceAll: true })
+      }),
+    { config: (url) => providerCfg(url) },
+  ),
+)
+
 it.live("session.processor effect tests mark pending tools as aborted on cleanup", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>

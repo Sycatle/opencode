@@ -411,6 +411,55 @@ describe("session.message-v2.toModelMessage", () => {
     ])
   })
 
+  test("replays stored tool calls under Claude Code names for anthropic models only", async () => {
+    const userID = "m-user"
+    const assistantID = "m-assistant"
+    const input: SessionV1.WithParts[] = [
+      {
+        info: userInfo(userID),
+        parts: [{ ...basePart(userID, "u1"), type: "text", text: "edit" }] as SessionV1.Part[],
+      },
+      {
+        info: assistantInfo(assistantID, userID),
+        parts: [
+          {
+            ...basePart(assistantID, "a1"),
+            type: "tool",
+            callID: "call-1",
+            tool: "edit",
+            state: {
+              status: "completed",
+              input: { filePath: "/a.ts", oldString: "a", newString: "b" },
+              output: "ok",
+              title: "Edit",
+              metadata: {},
+              time: { start: 0, end: 1 },
+            },
+          },
+        ] as SessionV1.Part[],
+      },
+    ]
+    const anthropic = {
+      ...model,
+      providerID: ProviderV2.ID.make("anthropic"),
+      api: { ...model.api, npm: "@ai-sdk/anthropic" },
+    }
+    const calls = (messages: Awaited<ReturnType<typeof MessageV2.toModelMessages>>) =>
+      messages.flatMap((message) =>
+        typeof message.content === "string"
+          ? []
+          : message.content.flatMap((part) => (part.type === "tool-call" ? [[part.toolName, part.input]] : [])),
+      )
+
+    expect(calls(await MessageV2.toModelMessages(input, anthropic))).toEqual([
+      ["Edit", { file_path: "/a.ts", old_string: "a", new_string: "b" }],
+    ])
+    expect(calls(await MessageV2.toModelMessages(input, model))).toEqual([
+      ["edit", { filePath: "/a.ts", oldString: "a", newString: "b" }],
+    ])
+    expect(await MessageV2.toModelMessages(input, anthropic)).toEqual(await MessageV2.toModelMessages(input, anthropic))
+  })
+
   test("preserves jpeg tool-result media for anthropic models", async () => {
     const anthropicModel: Provider.Model = {
       ...model,
@@ -483,7 +532,7 @@ describe("session.message-v2.toModelMessage", () => {
     expect(result[2].content[0]).toMatchObject({
       type: "tool-result",
       toolCallId: "call-anthropic-1",
-      toolName: "read",
+      toolName: "Read",
       output: {
         type: "content",
         value: [
@@ -744,7 +793,10 @@ describe("session.message-v2.toModelMessage", () => {
             type: "tool-result",
             toolCallId: "call-1",
             toolName: "bash",
-            output: { type: "text", value: "[Old result of bash Bash cleared (1 lines). Re-run the tool if you need it again.]" },
+            output: {
+              type: "text",
+              value: "[Old result of bash Bash cleared (1 lines). Re-run the tool if you need it again.]",
+            },
           },
         ],
       },

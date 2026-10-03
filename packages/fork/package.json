@@ -31,7 +31,8 @@
     "./workflow": "./src/workflow.ts",
     "./monitor": "./src/monitor.ts",
     "./hooks": "./src/hooks.ts",
-    "./claude-plugins": "./src/claude-plugins.ts"
+    "./claude-plugins": "./src/claude-plugins.ts",
+    "./claude-tools": "./src/claude-tools.ts"
   },
   "dependencies": {
     "@opencode-ai/core": "workspace:*",

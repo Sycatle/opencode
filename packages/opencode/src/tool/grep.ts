@@ -6,6 +6,7 @@ import { Ripgrep } from "@opencode-ai/core/ripgrep"
 import { assertExternalDirectoryEffect } from "./external-directory"
 import DESCRIPTION from "./grep.txt"
 import * as Tool from "./tool"
+import { ForkClaudeTools } from "@opencode-fork/core/claude-tools"
 
 export const Parameters = Schema.Struct({
   pattern: Schema.String.annotate({ description: "The regex pattern to search for in file contents" }),
@@ -15,6 +16,16 @@ export const Parameters = Schema.Struct({
   include: Schema.optional(Schema.String).annotate({
     description: 'File pattern to include in the search (e.g. "*.js", "*.{ts,tsx}")',
   }),
+  // FORK-SEAM: grep-options (Claude tool profile; hidden from the schema of other models)
+  type: Schema.optional(Schema.String),
+  outputMode: Schema.optional(Schema.Literals(["content", "files_with_matches", "count"])),
+  ignoreCase: Schema.optional(Schema.Boolean),
+  lineNumbers: Schema.optional(Schema.Boolean),
+  after: Schema.optional(Schema.Number),
+  before: Schema.optional(Schema.Number),
+  context: Schema.optional(Schema.Number),
+  multiline: Schema.optional(Schema.Boolean),
+  headLimit: Schema.optional(Schema.Number),
 })
 
 export const GrepTool = Tool.define(
@@ -25,7 +36,7 @@ export const GrepTool = Tool.define(
     return {
       description: DESCRIPTION,
       parameters: Parameters,
-      execute: (params: { pattern: string; path?: string; include?: string }, ctx: Tool.Context) =>
+      execute: (params: ForkClaudeTools.GrepParams & { path?: string }, ctx: Tool.Context) =>
         Effect.gen(function* () {
           const empty = {
             title: params.pattern,
@@ -60,6 +71,17 @@ export const GrepTool = Tool.define(
           const search = FSUtil.resolve(requested)
           const info = yield* fs.stat(search).pipe(Effect.catch(() => Effect.succeed(undefined)))
           const cwd = info?.type === "Directory" ? search : path.dirname(search)
+          // FORK-SEAM: grep-options
+          if (params.outputMode) {
+            const lines = yield* ripgrep.search({
+              cwd,
+              pattern: params.pattern,
+              args: ForkClaudeTools.grepArgs(params, search),
+              limit: ForkClaudeTools.grepLimit(params) + 1,
+              signal: ctx.abort,
+            })
+            return ForkClaudeTools.grepResult(params, lines)
+          }
           const result = yield* ripgrep.grep({
             cwd,
             pattern: params.pattern,
