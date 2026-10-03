@@ -80,3 +80,21 @@ test("replaying from cache is chosen only when cheaper than the upstream transcr
   // No cache discount (unknown pricing): never worth it.
   expect(ForkCompaction.worthIt({ context: 150_000, delta: 5_000, legacy: 47_000, cacheRatio: 1 })).toBe(false)
 })
+
+test("the transcript estimate truncates tool outputs like upstream", () => {
+  const huge = { type: "tool", tool: "read", state: { status: "completed", input: {}, output: "x".repeat(100_000) } }
+  const small = ForkCompaction.transcriptTokens([{ parts: [{ type: "text", text: "y".repeat(400) }] }])
+  const withTool = ForkCompaction.transcriptTokens([{ parts: [{ type: "text", text: "y".repeat(400) }, huge] }])
+  expect(withTool - small).toBeLessThan(600)
+  const cleared = { ...huge, state: { ...huge.state, time: { compacted: 1 } } }
+  expect(ForkCompaction.transcriptTokens([{ parts: [cleared] }])).toBeLessThan(withTool)
+})
+
+test("preview reports both costs and the path the arbitration would take", () => {
+  expect(ForkCompaction.preview({ context: 150_000, delta: 5_000, legacy: 47_000, cacheRatio: 0.1 })).toEqual({
+    cached: 20_000,
+    legacy: 47_000,
+    path: "cached",
+  })
+  expect(ForkCompaction.preview({ context: 17_000, delta: 3_000, legacy: 2_700, cacheRatio: 0.1 }).path).toBe("legacy")
+})

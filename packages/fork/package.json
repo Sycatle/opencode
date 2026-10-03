@@ -19,7 +19,9 @@
     "./agents": "./src/agents.ts",
     "./autonomy": "./src/autonomy.ts",
     "./summary": "./src/summary.ts",
-    "./descriptions": "./src/descriptions.ts"
+    "./descriptions": "./src/descriptions.ts",
+    "./cache": "./src/cache.ts",
+    "./pins": "./src/pins.ts"
   },
   "dependencies": {
     "@opencode-ai/core": "workspace:*",

@@ -1,4 +1,5 @@
 import { cmd } from "@/cli/cmd/cmd"
+import { ForkCache } from "@opencode-fork/core/cache"
 import { Rpc } from "@/util/rpc"
 import { type rpc } from "../tui/worker"
 import path from "path"
@@ -142,6 +143,8 @@ export const TuiThreadCommand = cmd({
         hidden: true,
       }),
   handler: async (args) => {
+    // FORK-SEAM: cache-ttl (interactive sessions keep the stable prefix cached for 1h)
+    process.env.OPENCODE_FORK_CACHE_TTL ??= ForkCache.INTERACTIVE_TTL
     if (args.replay === true) {
       UI.error("--replay is not supported; replay is enabled by default")
       process.exitCode = 1

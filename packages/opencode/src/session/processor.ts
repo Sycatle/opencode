@@ -1,4 +1,5 @@
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+import { ForkCache } from "@opencode-fork/core/cache"
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { Image } from "@/image/image"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
@@ -456,6 +457,8 @@ const layer = Layer.effect(
               usage: value.usage ?? new Usage({}),
               metadata: value.providerMetadata,
             })
+            // FORK-SEAM: cache-ttl (1h writes are billed above the 5m rate models.dev knows)
+            usage.cost += ForkCache.extraWriteCost({ metadata: value.providerMetadata, price: ctx.model.cost })
             // FORK-SEAM: telemetry-record
             void ForkTelemetry.record({
               sessionID: ctx.sessionID,

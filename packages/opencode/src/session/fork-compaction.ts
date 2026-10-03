@@ -1,4 +1,5 @@
 import { SessionV1 } from "@opencode-ai/core/v1/session"
+import { ForkPins } from "@opencode-fork/core/pins"
 import { ForkCompaction } from "@opencode-fork/core/compaction"
 import { ForkTelemetry } from "@opencode-fork/core/telemetry"
 import { Usage, type LLMEvent } from "@opencode-ai/llm"
@@ -112,7 +113,9 @@ export const appendFacts = Effect.fn("ForkCompaction.appendFacts")(function* (in
   message: SessionV1.Assistant
 }) {
   const facts = ForkCompaction.facts(input.history)
-  const text = ForkCompaction.formatFacts(facts)
+  const text = [ForkCompaction.formatFacts(facts), ForkPins.format(ForkPins.list(input.message.sessionID))]
+    .filter(Boolean)
+    .join("\n\n")
   if (!text) return
   const now = Date.now()
   yield* input.session.updatePart({

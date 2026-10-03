@@ -81,6 +81,38 @@ export function worthIt(input: { context: number; delta: number; legacy: number;
   return input.context * input.cacheRatio + input.delta < input.legacy
 }
 
+type PreviewPart = {
+  type: string
+  text?: string
+  tool?: string
+  state?: { status: string; input?: unknown; output?: string; error?: string; time?: { compacted?: number } }
+}
+
+const TOOL_OUTPUT_MAX_CHARS = 2000
+const CHARS_PER_TOKEN = 4
+
+// Size of the transcript upstream compaction would send, mirroring its serializer:
+// text, reasoning, tool calls, tool outputs cut to 2000 characters.
+export function transcriptTokens(messages: readonly { parts: readonly PreviewPart[] }[]) {
+  const chars = messages
+    .flatMap((message) => message.parts)
+    .reduce((sum, part) => {
+      if (part.type === "text" || part.type === "reasoning") return sum + (part.text?.length ?? 0)
+      if (part.type !== "tool") return sum
+      const call = JSON.stringify(part.state?.input ?? {}).length + (part.tool?.length ?? 0)
+      if (part.state?.status === "error") return sum + call + (part.state.error?.length ?? 0)
+      if (part.state?.status !== "completed") return sum + call
+      const output = part.state.time?.compacted ? 40 : Math.min(part.state.output?.length ?? 0, TOOL_OUTPUT_MAX_CHARS)
+      return sum + call + output
+    }, 0)
+  return Math.round(chars / CHARS_PER_TOKEN) + Math.round(PROMPT.length / CHARS_PER_TOKEN)
+}
+
+export function preview(input: { context: number; delta: number; legacy: number; cacheRatio: number }) {
+  const cached = Math.round(input.context * input.cacheRatio + input.delta)
+  return { cached, legacy: input.legacy, path: worthIt(input) ? ("cached" as const) : ("legacy" as const) }
+}
+
 export function acceptable(result: { text: string; toolCalls: number }) {
   return result.toolCalls === 0 && result.text.trim().length >= MIN_SUMMARY_CHARS
 }

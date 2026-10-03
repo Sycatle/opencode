@@ -1,4 +1,5 @@
 import type { ModelMessage, ToolResultPart } from "ai"
+import { ForkCache } from "@opencode-fork/core/cache"
 import { mergeDeep, unique } from "remeda"
 import type { JSONSchema7 } from "@ai-sdk/provider"
 import type * as Provider from "./provider"
@@ -380,7 +381,13 @@ function applyCaching(msgs: ModelMessage[], model: Provider.Model): ModelMessage
     },
   }
 
+  // FORK-SEAM: cache-ttl (1h on the stable prefix for interactive sessions)
+  const ttl = ForkCache.systemTtl()
   for (const msg of unique([...system, ...final])) {
+    const options =
+      ttl && msg.role === "system"
+        ? mergeDeep(providerOptions, { anthropic: { cacheControl: { type: "ephemeral", ttl } } })
+        : providerOptions
     const useMessageLevelOptions =
       model.providerID === "anthropic" ||
       model.providerID.includes("bedrock") ||
@@ -395,12 +402,12 @@ function applyCaching(msgs: ModelMessage[], model: Provider.Model): ModelMessage
         lastContent.type !== "tool-approval-request" &&
         lastContent.type !== "tool-approval-response"
       ) {
-        lastContent.providerOptions = mergeDeep(lastContent.providerOptions ?? {}, providerOptions)
+        lastContent.providerOptions = mergeDeep(lastContent.providerOptions ?? {}, options)
         continue
       }
     }
 
-    msg.providerOptions = mergeDeep(msg.providerOptions ?? {}, providerOptions)
+    msg.providerOptions = mergeDeep(msg.providerOptions ?? {}, options)
   }
 
   return msgs

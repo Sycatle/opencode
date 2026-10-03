@@ -248,7 +248,8 @@ function insert(usage: Usage, measured: Measure | undefined) {
 
 let handle: Database | undefined
 
-function db() {
+// Shared with other fork modules that keep their own tables in the same file.
+export function db() {
   if (handle) return handle
   handle = new Database(process.env.OPENCODE_FORK_DB ?? path.join(Global.Path.data, "fork.db"), { create: true })
   handle.run("PRAGMA journal_mode = WAL")

@@ -20,8 +20,9 @@ Le code du fork vit dans `packages/fork`. Les seuls points de contact avec le co
 | `subagent-model-routing` | `packages/opencode/src/tool/task.ts` | `explore` tourne sur le petit modèle du provider (`OPENCODE_FORK_ROUTE_SUBAGENTS=0` pour couper) |
 | `worktree-isolation` | `packages/opencode/src/tool/task.ts` | Paramètre `isolation: "worktree"` : le sous-agent tourne dans un worktree git, ses changements reviennent en commit sur une branche `opencode/<nom>` |
 | `run-wait-background` | `packages/opencode/src/cli/cmd/run.ts` | `opencode run` attend les sous-agents d'arrière-plan avant de quitter |
-| `tui-widgets` | `packages/tui/src/feature-plugins/builtins.ts` | Enregistre les widgets TUI du fork : section Usage, section Subagents, budget à droite du prompt |
+| `tui-widgets` | `packages/tui/src/feature-plugins/builtins.ts` | Enregistre les plugins TUI du fork : Usage, Subagents, budget, commandes « Pin messages for compaction » et « Compaction preview » |
 | `slim-tool-descriptions` | `packages/opencode/src/tool/registry.ts` | Descriptions d'outils compactes (−47 % sur les définitions natives ; `OPENCODE_FORK_SLIM_TOOLS=0` pour couper) |
+| `cache-ttl` | `provider/transform.ts`, `session/processor.ts`, `cli/cmd/tui.ts` | TTL 1h sur le préfixe stable (outils + système) en session interactive, coût des écritures 1h corrigé. Sans effet avec `opencode-claude-auth` : le plugin déplace le prompt système dans le premier message et retire son `cache_control` |
 | `usage-command` | `packages/opencode/src/index.ts` | Enregistre les commandes `opencode usage` et `opencode auto` |
 
 Fichiers ajoutés par le fork (sans conflit possible) :
@@ -30,6 +31,7 @@ Fichiers ajoutés par le fork (sans conflit possible) :
 - `packages/opencode/src/cli/cmd/auto.ts`
 - `packages/opencode/src/tool/fork-worktree.ts`
 - `packages/tui/src/feature-plugins/fork/usage.tsx`
+- `packages/tui/src/feature-plugins/fork/compaction.tsx`
 - `packages/opencode/src/session/fork-compaction.ts`
 - `script/fork-sync.sh`
 
