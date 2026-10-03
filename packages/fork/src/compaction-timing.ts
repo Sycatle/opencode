@@ -1,4 +1,5 @@
 import type { ForkJev } from "./jev"
+import { ForkCache } from "./cache"
 import { writeCost, type Price } from "./route"
 
 // When to compact. Upstream compacts at overflow, usually in the middle of a tool loop. This policy
@@ -12,9 +13,8 @@ export const COLD_AT = 0.3
 export const MIN_TURNS = 3
 // Estimated size of a summary (output tokens of the summary turn, and its size in the new prefix).
 export const SUMMARY_TOKENS = 2_000
-// Anthropic cache TTL without the 1h option, minus a margin (see compaction.ts WARM_MS).
-export const WARM_TTL_MS = 4.5 * 60 * 1000
-export const LONG_TTL_MS = 55 * 60 * 1000
+// The history cache TTL, minus a margin: the compaction rewrites the history, the prefix stays.
+export const WARM_TTL_MS = ForkCache.HISTORY_WARM_MS
 
 // Jev's probability that the exchange closes a task. Below the first value, and while the window is under the
 // second, the compaction waits for a better moment; the overflow compaction stays the safety net.

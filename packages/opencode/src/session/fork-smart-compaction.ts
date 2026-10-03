@@ -1,5 +1,4 @@
 import { SessionV1 } from "@opencode-ai/core/v1/session"
-import { ForkCache } from "@opencode-fork/core/cache"
 import { ForkCompaction } from "@opencode-fork/core/compaction"
 import { ForkJev } from "@opencode-fork/core/jev"
 import { ForkCompactionLog } from "@opencode-fork/core/compaction-log"
@@ -119,7 +118,7 @@ function snapshot(
       cacheWrite: cost.cache?.write ?? cost.input,
     },
     idleMs: Date.now() - (assistant.time.completed ?? assistant.time.created),
-    ttlMs: ForkCache.systemTtl() ? ForkCompactionTiming.LONG_TTL_MS : ForkCompactionTiming.WARM_TTL_MS,
+    ttlMs: ForkCompactionTiming.WARM_TTL_MS,
     toolLoop:
       ["tool-calls", "unknown"].includes(assistant.finish ?? "") ||
       (lastMessage?.parts.some((part) => part.type === "tool" && !part.metadata?.providerExecuted) ?? false),

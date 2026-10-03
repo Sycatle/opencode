@@ -7,9 +7,11 @@
 // Facts that structured data already holds (modified files, todo list, recent tool
 // errors) are not left to the model: they are appended verbatim to the summary.
 
-// Anthropic's default cache TTL is 5 minutes; past this the cache is likely cold
-// and the upstream path (truncated transcript) is cheaper.
-export const WARM_MS = 4.5 * 60 * 1000
+import { ForkCache } from "./cache"
+
+// The replayed request is read from the history cache (see ForkCache.HISTORY_WARM_MS); past this the
+// cache is likely cold and the upstream path (truncated transcript) is cheaper.
+export const WARM_MS = ForkCache.HISTORY_WARM_MS
 const MIN_SUMMARY_CHARS = 200
 const MAX_FILES = 60
 const MAX_ERROR_CHARS = 300

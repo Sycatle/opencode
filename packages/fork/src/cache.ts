@@ -10,6 +10,17 @@ export function systemTtl() {
   return process.env.OPENCODE_FORK_CACHE_TTL === "1h" ? ("1h" as const) : undefined
 }
 
+// How long each part of a request stays cached, minus a margin. Only the stable prefix gets the 1h TTL: the
+// history breakpoints keep 5 minutes, so after a 5-minute pause the history is written again whatever the
+// session. Decisions about the history (cold-cache compaction, model switch cost) use HISTORY_WARM_MS;
+// decisions about the tool block or the system prompt use prefixWarmMs().
+export const HISTORY_WARM_MS = 4.5 * 60_000
+const LONG_WARM_MS = 55 * 60_000
+
+export function prefixWarmMs() {
+  return systemTtl() ? LONG_WARM_MS : HISTORY_WARM_MS
+}
+
 // `opencode-claude-auth` (Claude subscription) rewrites the request inside its own
 // fetch, which opencode wraps: it moves every system block except the billing header
 // and the Claude Code identity into the first user message and drops their

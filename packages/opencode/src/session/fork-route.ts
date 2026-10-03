@@ -118,8 +118,8 @@ export const resolve = Effect.fn("ForkRouteTurn.resolve")(function* (input: {
   const floor =
     turn.floor ?? (continuation && mode.kind === "auto" && view && ForkRoute.struggling(calls) ? ForkRoute.above(view.tier) : undefined)
 
-  // Interactive sessions cache the stable prefix for an hour (seam cache-ttl), others for five minutes.
-  const ttl = ForkCache.systemTtl() ? 60 * 60_000 : 5 * 60_000
+  // Coldness and model-switch cost are about the history, cached for five minutes even when the prefix has an hour.
+  const ttl = ForkCache.HISTORY_WARM_MS
   const cold = lastTurn?.time.completed !== undefined && now - lastTurn.time.completed > ttl
   const recent = assistants.slice(-5)
   const choice = ForkRoute.choose(
