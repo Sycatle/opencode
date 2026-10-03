@@ -11,6 +11,11 @@ process.env.OPENCODE_FORK_BUDGET_USD = "0.05"
 const { ForkTelemetry } = await import("@opencode-fork/core/telemetry")
 const { default: plugin } = await import("../../src/feature-plugins/fork/usage")
 
+// Unique per run: OPENCODE_FORK_DB may point to a database filled by earlier runs.
+const run = `${process.pid}-${Date.now()}`
+const ROOT = `root-${run}`
+const CHILD = `child-${run}`
+
 type Slots = Record<string, (ctx: unknown, props: { session_id: string }) => unknown>
 
 async function turn(sessionID: string, agent: string, cost: number, parentSessionID?: string) {
@@ -35,9 +40,9 @@ async function turn(sessionID: string, agent: string, cost: number, parentSessio
 }
 
 test("sidebar shows the last turn breakdown, subagents and the budget", async () => {
-  await turn("root", "build", 0.03)
-  await turn("child", "explore", 0.012, "root")
-  await turn("root", "build", 0.004)
+  await turn(ROOT, "build", 0.03)
+  await turn(CHILD, "explore", 0.012, ROOT)
+  await turn(ROOT, "build", 0.004)
 
   const registered: Slots[] = []
   const navigated: unknown[] = []
@@ -47,7 +52,7 @@ test("sidebar shows the last turn breakdown, subagents and the budget", async ()
         session: {
           messages: () => [],
           status: () => undefined,
-          get: (id: string) => (id === "child" ? { title: "Find discount code (@explore subagent)" } : undefined),
+          get: (id: string) => (id === CHILD ? { title: "Find discount code (@explore subagent)" } : undefined),
         } as unknown as Partial<TuiPluginApi["state"]["session"]>,
       },
     }),
@@ -61,7 +66,7 @@ test("sidebar shows the last turn breakdown, subagents and the budget", async ()
       <box flexDirection="column">
         {registered.map((slots) => {
           const render = slots.sidebar_content ?? slots.session_prompt_right
-          return render?.({}, { session_id: "root" }) as never
+          return render?.({}, { session_id: ROOT }) as never
         })}
       </box>
     ),

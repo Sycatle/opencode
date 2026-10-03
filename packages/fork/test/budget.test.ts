@@ -2,7 +2,8 @@ import { afterEach, expect, test } from "bun:test"
 import os from "os"
 import path from "path"
 
-process.env.OPENCODE_FORK_DB ??= path.join(os.tmpdir(), `fork-budget-${process.pid}-${Date.now()}.db`)
+// Always a fresh database: an inherited OPENCODE_FORK_DB may hold rows from earlier runs.
+process.env.OPENCODE_FORK_DB = path.join(os.tmpdir(), `fork-budget-${process.pid}-${Date.now()}.db`)
 const { ForkTelemetry } = await import("../src/telemetry")
 const { ForkBudget } = await import("../src/budget")
 

@@ -9,6 +9,9 @@ process.env.OPENCODE_FORK_DB ??= path.join(os.tmpdir(), `fork-tui-compaction-${p
 const { ForkPins } = await import("@opencode-fork/core/pins")
 const { default: plugin } = await import("../../src/feature-plugins/fork/compaction")
 
+// Unique per run: OPENCODE_FORK_DB may point to a database filled by earlier runs.
+const SESSION = `s1-${process.pid}-${Date.now()}`
+
 type Command = { name: string; run: () => void }
 type Option = { title: string; footer?: string; onSelect: () => void }
 
@@ -44,7 +47,7 @@ function setup() {
         },
       ],
     },
-    route: { current: { name: "session", params: { sessionID: "s1" } } },
+    route: { current: { name: "session", params: { sessionID: SESSION } } },
     keymap: { registerLayer: (layer: { commands: Command[] }) => commands.push(...layer.commands) },
     ui: {
       ...base.ui,
@@ -66,7 +69,7 @@ test("registers the pin and preview commands in the palette", async () => {
 test("preview shows both costs, the chosen path and pinned messages", async () => {
   const { api, commands, dialogs } = setup()
   await plugin.tui(api, undefined, { id: plugin.id } as never)
-  ForkPins.toggle("s1", "u1", "Always use pnpm, never npm.")
+  ForkPins.toggle(SESSION, "u1", "Always use pnpm, never npm.")
   commands.find((command) => command.name === "fork.compaction.preview")!.run()
   const message = String(dialogs.at(-1)?.props.message)
   expect(message).toContain("Messages since last compaction: 2")
@@ -74,7 +77,7 @@ test("preview shows both costs, the chosen path and pinned messages", async () =
   expect(message).toContain("upstream transcript")
   expect(message).toContain("<- used")
   expect(message).toContain("Pinned: 1 message(s)")
-  ForkPins.toggle("s1", "u1", "")
+  ForkPins.toggle(SESSION, "u1", "")
 })
 
 test("selecting a message in the pin dialog toggles its pin", async () => {
@@ -84,7 +87,7 @@ test("selecting a message in the pin dialog toggles its pin", async () => {
   const options = dialogs.at(-1)?.props.options as Option[]
   expect(options.map((option) => option.title)).toEqual(["Understood.", "Always use pnpm, never npm."])
   options[1].onSelect()
-  expect(ForkPins.list("s1").map((pin) => pin.text)).toEqual(["Always use pnpm, never npm."])
+  expect(ForkPins.list(SESSION).map((pin) => pin.text)).toEqual(["Always use pnpm, never npm."])
   const refreshed = dialogs.at(-1)?.props.options as Option[]
   expect(refreshed[1].footer).toBe("pinned")
 })
