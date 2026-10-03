@@ -34,11 +34,12 @@ Le code du fork vit dans `packages/fork`. Les seuls points de contact avec le co
 | `monitor` | `packages/opencode/src/tool/registry.ts` | Outil `monitor` (`tool/monitor.ts`) : attend un motif dans la sortie d'un job shell, sa fin, ou le succès d'une commande relancée via l'outil bash |
 | `plan-default` | `packages/opencode/src/effect/runtime-flags.ts` | Plan mode actif par défaut pour le client `cli` (ou avec `OPENCODE_EXPERIMENTAL`), `OPENCODE_EXPERIMENTAL_PLAN_MODE=false` pour couper |
 | `plan-enter` | `packages/opencode/src/tool/registry.ts` | Enregistre l'outil `plan_enter` (`tool/plan.ts`) à côté de `plan_exit` |
-| `hooks-config` | `packages/core/src/config.ts`, `core/src/v1/config/config.ts`, `core/src/v1/config/migrate.ts` | Clé `hooks` de la config (PreToolUse, PostToolUse, UserPromptSubmit, SessionStart, Stop, PreCompact, PermissionRequest) |
+| `hooks-config` | `packages/core/src/config.ts`, `core/src/v1/config/config.ts`, `core/src/v1/config/migrate.ts` | Clé `hooks` de la config (PreToolUse, PostToolUse, PostToolUseFailure, UserPromptSubmit, SessionStart, SessionEnd, Stop, SubagentStop, PreCompact, PermissionRequest, Notification ; types `command`, `http`, `prompt`) |
 | `hooks-plugin` | `packages/opencode/src/plugin/index.ts` | Enregistre `ForkHooksPlugin` (hooks shell déclaratifs, `OPENCODE_FORK_HOOKS=0` pour couper) |
 | `permission-ask-hook` | `packages/opencode/src/session/tools.ts`, `session/processor.ts` | Les demandes de permission passent par `askWithPlugins`, qui déclenche le hook plugin `permission.ask` (un `deny` du ruleset l'emporte toujours) |
 | `statusline-config` | `packages/tui/src/config/index.tsx`, `packages/plugin/src/tui.ts` | Clé `statusline { command, interval }` de la config TUI ; la commande reçoit sur stdin `{ sessionID, model, agent, cwd, quota? }` (`quota` : fenêtres 5h et 7j de l'abonnement, utilization 0-1 et reset en ms, si vues depuis moins de 6 h) |
 | `quota-headers` | `packages/opencode/src/provider/provider.ts` | Lit les en-têtes `anthropic-ratelimit-unified-*` (fenêtres 5h et hebdo de l'abonnement) dans `timeoutFetch` ; alimente l'affichage Quota, le budget `--budget 20%` et l'attente de remise à zéro d'`opencode auto` |
+| `tool-failure-hook` | `packages/plugin/src/index.ts`, `packages/opencode/src/session/processor.ts` | Hook plugin `tool.execute.failure` déclenché par `failToolCall` (sauf refus utilisateur) ; alimente `PostToolUseFailure`, qui peut ajouter du contexte à l'erreur |
 | `prompt-block-hook` | `packages/opencode/src/session/prompt.ts` | Un `UserPromptSubmit` bloquant est signalé par un part marqué : le seam publie `session.error` avec la raison et arrête le prompt avant persistance (contrat des hooks : `docs/fork/hooks.md`) |
 | `usage-command` | `packages/opencode/src/index.ts` | Enregistre les commandes `opencode usage`, `auto`, `schedule` et `workflow` (un run dont le process est mort passe en `interrupted` ; son coût est lu dans `fork_usage` par session d'étape) |
 
@@ -50,6 +51,7 @@ Fichiers ajoutés par le fork (sans conflit possible) :
 - `packages/opencode/src/tool/shell-background.ts`
 - `packages/opencode/src/tool/monitor.ts`
 - `packages/opencode/src/plugin/fork-hooks.ts`
+- `packages/opencode/src/plugin/fork-hooks-model.ts`
 - `packages/opencode/src/session/fork-permission.ts`
 - `packages/opencode/src/cli/cmd/schedule.ts`
 - `packages/opencode/src/cli/cmd/workflow.ts`
