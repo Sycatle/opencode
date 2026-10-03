@@ -265,6 +265,9 @@ export type ChooseInput = DecideInput & {
   output: number
   // The prompt cache has already expired: a switch rewrites nothing that would not be rewritten anyway.
   cold: boolean
+  // Context tokens still cached per model ("provider/model") from its own earlier turns in this session:
+  // switching back to such a model only rewrites what was added since.
+  warm?: Record<string, number>
 }
 
 export type Choice = Decision & {
@@ -293,11 +296,12 @@ export function downgradePays(i: {
   remaining: number
   output: number
   cold: boolean
+  cached?: number
 }): Pays {
   const perTurn = turnCost(i.from, i.context, i.output) - turnCost(i.to, i.context, i.output)
   const avoided = i.cold ? writeCost(i.from, i.context) : 0
   const saving = perTurn * i.remaining + avoided
-  const rewrite = writeCost(i.to, i.context)
+  const rewrite = writeCost(i.to, Math.max(0, i.context - (i.cached ?? 0)))
   return { pays: saving > rewrite, saving, rewrite }
 }
 
@@ -327,6 +331,7 @@ export function choose(i: ChooseInput, catalog: Catalog, cfg: Config = DEFAULTS)
     remaining: i.remaining,
     output: i.output,
     cold: i.cold,
+    cached: i.warm?.[target.id],
   })
   if (cost.pays) return { ...picked, switched, reason: `${decision.reason}; switch pays (${usd(cost.saving)} > ${usd(cost.rewrite)} rewrite)` }
   return {

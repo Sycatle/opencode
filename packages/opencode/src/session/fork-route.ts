@@ -1,3 +1,4 @@
+import { ForkCache } from "@opencode-fork/core/cache"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
@@ -25,7 +26,6 @@ type Turn = { candidates: string[]; attempts: number; excluded: Set<string>; err
 const turns = new Map<string, Turn>()
 
 const MAX_REROUTES = 4
-const CACHE_TTL_MS = 5 * 60_000
 // System prompt and tool definitions of a session that has not run a turn yet.
 const FIXED_CONTEXT = 12_000
 const SIGNALS_TIMEOUT = "20 seconds"
@@ -92,6 +92,8 @@ export const resolve = Effect.fn("ForkRouteTurn.resolve")(function* (input: {
       })
     : undefined
 
+  // Interactive sessions cache the stable prefix for an hour (seam cache-ttl), others for five minutes.
+  const ttl = ForkCache.systemTtl() ? 60 * 60_000 : 5 * 60_000
   const recent = assistants.slice(-5)
   const choice = ForkRoute.choose(
     {
@@ -105,7 +107,15 @@ export const resolve = Effect.fn("ForkRouteTurn.resolve")(function* (input: {
       context,
       remaining: Number(process.env.OPENCODE_FORK_ROUTE_TURNS) || 6,
       output: recent.length ? recent.reduce((sum, m) => sum + m.tokens.output + m.tokens.reasoning, 0) / recent.length : 1500,
-      cold: lastTurn?.time.completed !== undefined && now - lastTurn.time.completed > CACHE_TTL_MS,
+      cold: lastTurn?.time.completed !== undefined && now - lastTurn.time.completed > ttl,
+      warm: Object.fromEntries(
+        assistants
+          .filter((m) => m.time.completed !== undefined && now - m.time.completed <= ttl)
+          .map((m) => [
+            `${m.providerID}/${m.modelID}`,
+            m.tokens.input + m.tokens.cache.read + m.tokens.cache.write + m.tokens.output,
+          ]),
+      ),
     },
     catalog,
   )

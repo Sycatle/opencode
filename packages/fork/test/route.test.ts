@@ -314,6 +314,15 @@ test("downgradePays compares saving and rewrite", () => {
   expect(r.pays).toBe(true)
 })
 
+test("switching back to a model with a warm cache only rewrites what was added since", () => {
+  const input = { from: sonnet.price, to: haiku.price, context: 100_000, remaining: 10, output: 1000, cold: false }
+  expect(ForkRoute.downgradePays({ ...input, cached: 90_000 }).rewrite).toBeCloseTo(
+    ForkRoute.downgradePays({ ...input, context: 10_000 }).rewrite,
+    6,
+  )
+  expect(ForkRoute.downgradePays({ ...input, cached: 200_000 }).rewrite).toBe(0)
+})
+
 // ---------------------------------------------------------------- tiers, signals, quota
 
 const known = (
