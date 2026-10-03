@@ -1,0 +1,38 @@
+name: fork-sync
+
+# Nightly: merge upstream dev into the fork line and run the fork checks (script/fork-sync.sh), without pushing.
+# A failure is the early warning that an upstream change broke a seam (docs/fork/seams.md).
+# GitHub only runs scheduled workflows from the repository's default branch.
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  sync:
+    if: github.repository == 'Sycatle/opencode'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fork line
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: ./.github/actions/setup-bun
+
+      - name: Install bubblewrap for the sandbox tests
+        run: sudo apt-get update -q && sudo apt-get install -yq bubblewrap
+
+      - name: Merge upstream and verify
+        run: |
+          git config user.name "fork-sync"
+          git config user.email "fork-sync@users.noreply.github.com"
+          git remote add upstream https://github.com/anomalyco/opencode.git
+          ./script/fork-sync.sh
+
+      - name: Report the merge conflict
+        if: failure()
+        run: git diff --name-only --diff-filter=U || true
