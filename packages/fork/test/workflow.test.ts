@@ -190,3 +190,72 @@ test("the cost of an agent killed mid-turn counts for the run", async () => {
   ForkWorkflow.finishRun("r7", "failed")
   expect(ForkWorkflow.listRuns().find((run) => run.id === "r7")?.cost).toBe(0.25)
 })
+
+const inline = `export const meta = {
+  name: "Two Agents!",
+  description: 'a "quoted" {brace} description',
+  phases: ["a", "b"],
+}
+export default async function ({ agent }) { return agent("hi") }
+`
+
+test("an inline script is saved under the data dir and its meta read without running it", async () => {
+  const saved = await ForkWorkflow.writeScript(inline)
+  expect(saved.meta).toEqual({ name: "Two Agents!", description: 'a "quoted" {brace} description' })
+  expect(path.dirname(saved.path)).toBe(ForkWorkflow.scriptsDir())
+  expect(path.basename(saved.path)).toMatch(/^two-agents-[0-9a-f]{8}\.js$/)
+  expect(await Bun.file(saved.path).text()).toBe(inline)
+  expect((await ForkWorkflow.writeScript(inline)).path).toBe(saved.path)
+  expect(await ForkWorkflow.readMeta(saved.path)).toEqual({ ok: true, meta: saved.meta })
+})
+
+test("meta must come first inline and be a pure literal", () => {
+  const first = (source: string) => ForkWorkflow.parseMeta(source, { first: true })
+  expect(first(`// comment\n/* more */\nexport const meta = { name: "x" }`).ok).toBe(true)
+  expect(first(`const a = 1\nexport const meta = { name: "x" }`).ok).toBe(false)
+  expect(ForkWorkflow.parseMeta(`const a = 1\nexport const meta = { name: "x" }`).ok).toBe(true)
+  expect(first(`export default async () => 1`).ok).toBe(false)
+  expect(first(`const n = "x"\nexport const meta = { name: n }`).ok).toBe(false)
+  expect(first(`export const meta = { name: "x".toUpperCase() }`).ok).toBe(false)
+  expect(first(`export const meta = { name: process.exit(1) }`).ok).toBe(false)
+  expect(first(`export const meta = { description: "no name" }`).ok).toBe(false)
+  expect(first(`export const meta = { name: "  " }`).ok).toBe(false)
+  expect(first(`export const meta = foo`).ok).toBe(false)
+})
+
+test("a script without meta is not written", async () => {
+  await expect(ForkWorkflow.writeScript("export default async () => 1")).rejects.toThrow("export const meta")
+  expect(await ForkWorkflow.readMeta("/nonexistent/x.js")).toMatchObject({ ok: false })
+})
+
+test("describeRun lists finished and running steps; the message truncates the result", () => {
+  ForkWorkflow.startRun("wf_desc", "/tmp/s.js", "desc")
+  ForkWorkflow.saveStep("wf_desc", { key: "k1", label: "first", session_id: "ses_a", result_json: '"x"', cost: 0.25 })
+  ForkWorkflow.saveStep("wf_desc", { key: "started:k2:ses_b", label: "second", session_id: "ses_b", result_json: "null", cost: 0 })
+  const text = ForkWorkflow.describeRun("wf_desc")
+  expect(text).toContain("wf_desc · desc · running")
+  expect(text).toContain("done     first  $0.2500")
+  expect(text).toContain("running  second")
+  expect(ForkWorkflow.describeRun("nope")).toBe("No workflow run nope.")
+  const message = ForkWorkflow.renderMessage({
+    runID: "wf_desc",
+    name: "desc",
+    state: "completed",
+    result: "y".repeat(5000),
+    cost: 1.5,
+    script: "/tmp/s.js",
+  })
+  expect(message).toContain('cost="$1.5000"')
+  expect(message).toContain("(truncated)")
+  expect(message.length).toBeLessThan(4400)
+})
+
+test("remainingBudget is undefined without a budget and never negative", () => {
+  const previous = process.env.OPENCODE_FORK_BUDGET_USD
+  delete process.env.OPENCODE_FORK_BUDGET_USD
+  expect(ForkWorkflow.remainingBudget("ses_none")).toBeUndefined()
+  process.env.OPENCODE_FORK_BUDGET_USD = "5"
+  expect(ForkWorkflow.remainingBudget("ses_none")).toBe(5)
+  if (previous === undefined) delete process.env.OPENCODE_FORK_BUDGET_USD
+  else process.env.OPENCODE_FORK_BUDGET_USD = previous
+})

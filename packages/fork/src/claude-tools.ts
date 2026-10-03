@@ -442,7 +442,7 @@ const SPECS: Spec[] = [
     keys: { task_id: "id" },
     schema: object({ task_id: str(`Id of the background job. ${TASK_ID_NOTE}`) }, ["task_id"]),
     description: [
-      "Returns the most recent output of a background Bash job, without waiting for it to end.",
+      "Returns the most recent output of a background Bash job, or the step states of a Workflow run, without waiting for it to end.",
       "- Do not poll in a loop; you are notified when the job exits.",
     ].join("\n"),
   },
@@ -454,6 +454,7 @@ const SPECS: Spec[] = [
     description: "Stops a running background Bash job.",
   },
   { native: "monitor", cc: "Monitor" },
+  { native: "workflow", cc: "Workflow" },
   { native: "lsp", cc: "LSP" },
   { native: "list_mcp_resources", cc: "ListMcpResourcesTool" },
   { native: "read_mcp_resource", cc: "ReadMcpResourceTool" },

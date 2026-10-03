@@ -4,6 +4,7 @@ import * as Tool from "./tool"
 import { BackgroundJob } from "@/background/job"
 import { PositiveInt } from "@opencode-ai/core/schema"
 import { ForkShell } from "@opencode-fork/core/shell"
+import { ForkWorkflow } from "@opencode-fork/core/workflow"
 
 const OutputParameters = Schema.Struct({
   id: Schema.String.annotate({ description: "Job id returned by a background bash command" }),
@@ -20,7 +21,7 @@ export const find = Effect.fn("ShellBackground.find")(function* (
   ctx: Tool.Context,
 ) {
   const job = yield* background.get(id)
-  if (!job || job.type !== ForkShell.JOB_TYPE || job.metadata?.sessionId !== ctx.sessionID) return
+  if (!job || ![ForkShell.JOB_TYPE, ForkWorkflow.JOB_TYPE].includes(job.type) || job.metadata?.sessionId !== ctx.sessionID) return
   return job
 })
 
@@ -38,11 +39,12 @@ export const ShellOutputTool = Tool.define(
           if (!job) return { title: params.id, metadata: {}, output: `No background shell job ${params.id}.` }
           const file = String(job.metadata?.outputPath)
           const text = yield* Effect.promise(() => Bun.file(file).slice(-262144).text())
-          const exit = job.status === "completed" ? ForkShell.parseResult(job.output ?? "").exit : null
+          const exit = job.status === "completed" && job.type === ForkShell.JOB_TYPE ? ForkShell.parseResult(job.output ?? "").exit : null
           return {
             title: params.id,
             metadata: {},
             output: [
+              ...(job.type === ForkWorkflow.JOB_TYPE ? [ForkWorkflow.describeRun(String(job.metadata?.runId)), ""] : []),
               `status: ${job.status}`,
               ...(exit === null ? [] : [`exit: ${exit}`]),
               `output file: ${file}`,

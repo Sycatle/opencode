@@ -17,7 +17,8 @@ const RunCommand = cmd({
       .option("args", { type: "string", describe: "JSON passed to the script as `args`" })
       .option("budget", { type: "number", describe: "stop launching agents once this many USD are spent" })
       .option("concurrency", { type: "number", default: 4, describe: "maximum agents running at once" })
-      .option("dir", { type: "string", describe: "directory to run in" }),
+      .option("dir", { type: "string", describe: "directory to run in" })
+      .option("id", { type: "string", hidden: true, describe: "run id for a new run (the workflow tool picks it before launching)" }),
   handler: async (args) => {
     const scriptArgs = ForkWorkflow.parseScriptArgs(args.args)
     if (!scriptArgs.ok) return fail(scriptArgs.message)
@@ -29,7 +30,7 @@ const RunCommand = cmd({
     if (args.resume && !ForkWorkflow.hasRun(args.resume)) return fail(`unknown run id ${args.resume}`)
     if (args.resume && ForkWorkflow.isRunning(args.resume)) return fail(`run ${args.resume} is still running`)
 
-    const runID = args.resume ?? `wf_${crypto.randomUUID().slice(0, 8)}`
+    const runID = args.resume ?? args.id ?? ForkWorkflow.newRunID()
     ForkWorkflow.startRun(runID, file, mod.meta.name)
     console.error(`run ${runID} · ${mod.meta.name}${args.resume ? " (resumed)" : ""}`)
     ;(["SIGINT", "SIGTERM"] as const).forEach((signal) =>

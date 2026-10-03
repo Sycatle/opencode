@@ -46,6 +46,7 @@ const CALLS: Record<string, Record<string, unknown>> = {
   TaskOutput: { task_id: "job_1" },
   TaskStop: { task_id: "job_1" },
   Monitor: { id: "job_1", until: "exit" },
+  Workflow: { scriptPath: "/a/flow.js", args: { target: "src" }, resumeFromRunId: "wf_1" },
   LSP: { operation: "hover", filePath: "/a/b.ts", line: 1, character: 2 },
   ListMcpResourcesTool: { server: "s" },
   ReadMcpResourceTool: { server: "s", uri: "file:///x" },

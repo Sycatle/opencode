@@ -1,0 +1,14 @@
+Run a scripted multi-agent workflow in the background. Use it when the work is several agents in parallel or in a pipeline (fan-out review, per-file analysis, map then merge), and only when the user asked for a workflow or a multi-agent run. For one delegated job use the task tool.
+
+Give either `script` (inline source) or `scriptPath` (a script saved earlier; inline scripts are saved and their path is returned). The script must start with a pure literal, with no variables or calls:
+
+export const meta = { name: "review", description: "what it does", phases: ["review", "merge"] }
+export default async function ({ agent, parallel, pipeline, phase, args, log }) { ... return value }
+
+- agent(prompt, { label?, agent?, model?, schema? }) runs one agent and returns its text, or the parsed JSON when schema (JSON Schema) is set. Agents are real sessions that can edit files, so say when they must stay read-only.
+- parallel([() => agent(...), ...]) runs thunks concurrently; a failed one yields null.
+- pipeline(items, stage1, stage2, ...) walks each item through the stages on its own; a failed item yields null.
+- phase(title) labels progress; log(text) writes a line; args is the `args` parameter.
+- The returned value is delivered to you when the run ends.
+
+The call returns at once with a run id. You are notified with the returned value and the cost when the run ends; do not poll. TaskOutput shows the step states, TaskStop stops the run. Pass resumeFromRunId (with scriptPath, or alone) to continue an interrupted or failed run without re-running finished agents. The run inherits what is left of the session budget.

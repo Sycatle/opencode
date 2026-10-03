@@ -491,6 +491,30 @@ exports[`tool parameters JSON Schema (wire shape) websearch 1`] = `
 }
 `;
 
+exports[`tool parameters JSON Schema (wire shape) workflow 1`] = `
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "args": {
+      "description": "JSON value passed to the script as \`args\`.",
+    },
+    "resumeFromRunId": {
+      "description": "Id of an interrupted or failed run to continue; its finished agent calls are not run again.",
+      "type": "string",
+    },
+    "script": {
+      "description": "Inline workflow source. It must begin with \`export const meta = { name, description }\` (a pure literal) and export a default async function. It is saved and its path returned.",
+      "type": "string",
+    },
+    "scriptPath": {
+      "description": "Path of a workflow script to run (relative to the project), e.g. one saved by an earlier inline call.",
+      "type": "string",
+    },
+  },
+  "type": "object",
+}
+`;
+
 exports[`tool parameters JSON Schema (wire shape) write 1`] = `
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",

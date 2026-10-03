@@ -1,5 +1,16 @@
 import { createHash } from "crypto"
+import { mkdirSync } from "fs"
+import path from "path"
+import { Global } from "@opencode-ai/core/global"
+import { ForkBudget } from "./budget"
 import { ForkTelemetry } from "./telemetry"
+
+export const JOB_TYPE = "workflow"
+
+// The workflow tool is on unless OPENCODE_FORK_WORKFLOW_TOOL=0.
+export function toolEnabled() {
+  return process.env.OPENCODE_FORK_WORKFLOW_TOOL !== "0"
+}
 
 export type Schema = {
   type?: string
@@ -330,6 +341,159 @@ export function createRuntime(input: {
       ),
     pipeline: (items: readonly unknown[], ...stages: Stage[]) => pipeline(items, stages, report),
   }
+}
+
+export type Meta = { name: string; description?: string }
+
+type MetaResult = { ok: true; meta: Meta } | { ok: false; message: string }
+
+const META_START = /export\s+const\s+meta\s*=\s*/
+
+// `meta` must be a pure literal: it is read without running the script (permission pattern, validation).
+export function parseMeta(source: string, options: { first?: boolean } = {}): MetaResult {
+  const start = META_START.exec(source)
+  if (!start) return { ok: false, message: "a workflow script must contain `export const meta = { name, description }`" }
+  if (options.first && source.slice(0, start.index).replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "").trim())
+    return { ok: false, message: "an inline script must begin with `export const meta = { ... }`" }
+  const begin = start.index + start[0].length
+  const end = literalEnd(source, begin)
+  if (end === undefined) return { ok: false, message: "`meta` must be an object literal" }
+  return metaOf(parseLiteral(source.slice(begin, end).replaceAll(/`([^`$\\]*)`/g, (_, text: string) => JSON.stringify(text))))
+}
+
+// JSON5 accepts unquoted keys, single quotes and trailing commas, and nothing executable.
+function parseLiteral(text: string): unknown {
+  try {
+    return Bun.JSON5.parse(text)
+  } catch {
+    return undefined
+  }
+}
+
+function metaOf(value: unknown): MetaResult {
+  const record = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : undefined
+  if (typeof record?.name !== "string" || !record.name.trim())
+    return { ok: false, message: "`meta` must be a pure literal (no variables or calls) with a string `name`" }
+  return {
+    ok: true,
+    meta: { name: record.name, description: typeof record.description === "string" ? record.description : undefined },
+  }
+}
+
+// End (exclusive) of the object literal starting at `begin`, skipping braces inside strings.
+function literalEnd(source: string, begin: number) {
+  if (source[begin] !== "{") return undefined
+  const state = { depth: 0, quote: "", escaped: false }
+  for (let i = begin; i < source.length; i++) {
+    const char = source[i]
+    if (state.quote) {
+      state.escaped = !state.escaped && char === "\\"
+      if (!state.escaped && char === state.quote) state.quote = ""
+      continue
+    }
+    if (char === '"' || char === "'" || char === "`") state.quote = char
+    if (char === "{") state.depth++
+    if (char === "}" && --state.depth === 0) return i + 1
+  }
+  return undefined
+}
+
+export function scriptsDir() {
+  const dir = path.join(Global.Path.data, "workflows")
+  mkdirSync(dir, { recursive: true })
+  return dir
+}
+
+// The same source always lands in the same file, so a script can be reused through its path.
+export async function writeScript(source: string) {
+  const parsed = parseMeta(source, { first: true })
+  if (!parsed.ok) throw new Error(parsed.message)
+  const slug = parsed.meta.name.toLowerCase().replaceAll(/[^a-z0-9]+/g, "-").replaceAll(/^-|-$/g, "").slice(0, 40) || "workflow"
+  const file = path.join(scriptsDir(), `${slug}-${createHash("sha256").update(source).digest("hex").slice(0, 8)}.js`)
+  await Bun.write(file, source)
+  return { path: file, meta: parsed.meta }
+}
+
+export async function readMeta(file: string) {
+  const handle = Bun.file(file)
+  if (!(await handle.exists())) return { ok: false as const, message: `no such script: ${file}` }
+  return parseMeta(await handle.text())
+}
+
+export function newRunID() {
+  return `wf_${crypto.randomUUID().slice(0, 8)}`
+}
+
+// What the session still has to spend, so the run cannot outspend its parent.
+export function remainingBudget(sessionID: string) {
+  const limit = ForkBudget.limit()
+  if (limit === undefined) return undefined
+  return Math.max(0, limit - ForkTelemetry.treeCost(ForkTelemetry.rootOf(sessionID)))
+}
+
+export function getRun(id: string) {
+  reapRuns()
+  return (
+    table()
+      .query<Run & { script: string }, [string]>(
+        "SELECT id, script, name, status, cost, started, finished, pid FROM fork_workflow_runs WHERE id = ?",
+      )
+      .get(id) ?? undefined
+  )
+}
+
+export function runSteps(id: string) {
+  return table()
+    .query<Step, [string]>(
+      "SELECT key, label, session_id, result_json, cost FROM fork_workflow_steps WHERE run_id = ? ORDER BY time",
+    )
+    .all(id)
+}
+
+// Completed steps carry a result; `started:` placeholders without a completed twin are agents still running.
+export function describeRun(id: string) {
+  const run = getRun(id)
+  if (!run) return `No workflow run ${id}.`
+  const steps = runSteps(id)
+  const done = steps.filter((step) => !step.key.startsWith("started:"))
+  const doneSessions = new Set(done.map((step) => step.session_id))
+  const running = steps.filter((step) => step.key.startsWith("started:") && !doneSessions.has(step.session_id))
+  return [
+    `run ${run.id} · ${run.name} · ${run.status} · $${run.cost.toFixed(4)}`,
+    `script: ${run.script}`,
+    ...done.map((step) => `done     ${step.label}  $${step.cost.toFixed(4)}`),
+    ...(run.status === "running" ? running.map((step) => `running  ${step.label}`) : []),
+    ...(done.length + running.length ? [] : ["(no agent started yet)"]),
+  ].join("\n")
+}
+
+const RESULT_LIMIT = 4000
+
+export function renderMessage(input: {
+  runID: string
+  name: string
+  state: "completed" | "error"
+  result: string
+  cost: number
+  script: string
+}) {
+  const text = input.result.length > RESULT_LIMIT ? `${input.result.slice(0, RESULT_LIMIT)}\n... (truncated)` : input.result
+  return [
+    `<workflow id="${input.runID}" name="${input.name}" state="${input.state}" cost="$${input.cost.toFixed(4)}">`,
+    input.state === "completed" ? "Background workflow finished. Returned value:" : "Background workflow did not finish:",
+    text,
+    `Script: ${input.script}. Retry or continue with scriptPath and resumeFromRunId "${input.runID}" (finished agent calls are not re-run).`,
+    "</workflow>",
+  ].join("\n")
+}
+
+export function startedMessage(input: { runID: string; jobID: string; script: string; log: string; resumed: boolean }) {
+  return [
+    `Workflow run ${input.runID} ${input.resumed ? "resumed" : "started"} in the background (job ${input.jobID}).`,
+    `Script: ${input.script} (reuse it with scriptPath).`,
+    `Progress log: ${input.log}. Step states: TaskOutput / shell_output (id: "${input.jobID}"); stop with TaskStop / shell_kill (a stopped run can be resumed with resumeFromRunId "${input.runID}").`,
+    "You will be notified automatically with the returned value and the cost when it ends. Do not poll or sleep waiting for it.",
+  ].join("\n")
 }
 
 let ready = false
