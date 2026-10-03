@@ -26,7 +26,7 @@ function payload(api: TuiPluginApi, session: string) {
     name: ForkMessaging.enabled() ? ForkMessaging.nameOf(session) : undefined,
     model: last ? { providerID: last.providerID, modelID: last.modelID } : undefined,
     agent: last?.agent,
-    cwd: api.state.path.directory,
+    cwd: last?.path.cwd ?? api.state.path.directory,
     quota: last ? ForkStatusline.quota(ForkQuota.fresh(last.providerID)) : undefined,
     wakeup: wakeup && { due: wakeup.due, reason: wakeup.reason || undefined, repeat: wakeup.every !== null },
   })

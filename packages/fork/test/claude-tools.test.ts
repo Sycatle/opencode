@@ -50,6 +50,8 @@ const CALLS: Record<string, Record<string, unknown>> = {
   ListAgents: {},
   SendMessage: { to: "refactor-auth", message: "Tests are green", summary: "Tests green" },
   ScheduleWakeup: { delaySeconds: 300, prompt: "check the build", reason: "waiting for CI" },
+  EnterWorktree: { name: "login-fix" },
+  ExitWorktree: { action: "merge" },
   LSP: { operation: "hover", filePath: "/a/b.ts", line: 1, character: 2 },
   ListMcpResourcesTool: { server: "s" },
   ReadMcpResourceTool: { server: "s", uri: "file:///x" },

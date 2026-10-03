@@ -458,6 +458,32 @@ const SPECS: Spec[] = [
   { native: "list_agents", cc: "ListAgents" },
   { native: "send_message", cc: "SendMessage" },
   { native: "schedule_wakeup", cc: "ScheduleWakeup" },
+  {
+    native: "enter_worktree",
+    cc: "EnterWorktree",
+    schema: object({ name: str("Optional name for the worktree (default: random).") }),
+    description: [
+      "Creates an isolated git worktree on a new branch from the last commit and switches the session into it.",
+      "- Use it only when the user explicitly asks for a worktree.",
+      "- File tools, Bash, Glob, Grep and LSP then work in the worktree until ExitWorktree.",
+    ].join("\n"),
+  },
+  {
+    native: "exit_worktree",
+    cc: "ExitWorktree",
+    schema: object(
+      {
+        action: {
+          type: "string",
+          enum: ["keep", "merge", "discard"],
+          description:
+            '"keep" leaves the worktree and branch on disk; "merge" commits, merges the branch into the original one and removes the worktree; "discard" deletes both (the user is asked).',
+        },
+      },
+      ["action"],
+    ),
+    description: "Leaves the worktree entered with EnterWorktree and returns to the original directory.",
+  },
   { native: "lsp", cc: "LSP" },
   { native: "list_mcp_resources", cc: "ListMcpResourcesTool" },
   { native: "read_mcp_resource", cc: "ReadMcpResourceTool" },

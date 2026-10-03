@@ -7,6 +7,7 @@ import type { Permission } from "../permission"
 import type { SessionID, MessageID } from "../session/schema"
 import * as Truncate from "./truncate"
 import { Agent } from "@/agent/agent"
+import { ForkSessionCwd } from "./fork-session-cwd"
 
 interface Metadata {
   [key: string]: any
@@ -127,7 +128,10 @@ function wrap<Parameters extends Schema.Decoder<unknown>, Result extends Metadat
                 }),
             ),
           )
-          const result = yield* execute(decoded as Schema.Schema.Type<Parameters>, ctx)
+          // FORK-SEAM: session-worktree (a session inside a worktree runs its tools there)
+          const result = yield* ForkSessionCwd.run(id, ctx, (c) =>
+            execute(decoded as Schema.Schema.Type<Parameters>, c),
+          )
           if (result.metadata.truncated !== undefined) {
             return result
           }

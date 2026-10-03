@@ -18,9 +18,13 @@ function View(props: { api: TuiPluginApi; sessionID: string }) {
   const show = createMemo(() => !has() && !done())
   const path = createMemo(() => {
     const session = props.api.state.session.get(props.sessionID)
-    const dir = session?.directory || props.api.state.path.directory || paths.cwd
+    // FORK-SEAM: session-worktree (the directory shown follows the worktree the session works in)
+    const worktree = props.api.state.session
+      .messages(props.sessionID)
+      .findLast((item) => item.role === "assistant")?.path.cwd
+    const dir = worktree || session?.directory || props.api.state.path.directory || paths.cwd
     const out = abbreviateHome(dir, paths.home)
-    const branch = session?.directory === props.api.state.path.directory ? props.api.state.vcs?.branch : undefined
+    const branch = dir === props.api.state.path.directory ? props.api.state.vcs?.branch : undefined
     const text = branch ? out + ":" + branch : out
     const list = text.split("/")
     return {

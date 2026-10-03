@@ -42,6 +42,8 @@ import { LLM } from "./llm"
 import { ForkRouteTurn } from "./fork-route"
 import { ForkSmartCompaction } from "./fork-smart-compaction"
 import { BackgroundJob } from "@/background/job"
+import { ForkSessionCwd } from "@/tool/fork-session-cwd"
+import { ForkSessionWorktree } from "@opencode-fork/core/session-worktree"
 import { Shell } from "@opencode-ai/core/shell"
 import { ShellID } from "@/tool/shell/id"
 import { FSUtil } from "@opencode-ai/core/fs-util"
@@ -1279,7 +1281,8 @@ const layer = Layer.effect(
             mode: agent.name,
             agent: agent.name,
             variant: lastUser.model.variant,
-            path: { cwd: ctx.directory, root: ctx.worktree },
+            // FORK-SEAM: session-worktree (the message records where the session works)
+            path: ForkSessionWorktree.pathOf(sessionID, { cwd: ctx.directory, root: ctx.worktree }),
             cost: 0,
             tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
             modelID: model.id,
@@ -1345,7 +1348,8 @@ const layer = Layer.effect(
 
             const [skills, env, instructions, mcpInstructions, modelMsgs] = yield* Effect.all([
               sys.skills(agent),
-              sys.environment(model),
+              // FORK-SEAM: session-worktree (the environment block names the worktree as the working directory)
+              sys.environment(model).pipe(ForkSessionCwd.at(sessionID)),
               // FORK-SEAM: memory-index (session ID keys the memory snapshot)
               instruction.system(sessionID).pipe(Effect.orDie),
               sys.mcp(agent, session.permission),

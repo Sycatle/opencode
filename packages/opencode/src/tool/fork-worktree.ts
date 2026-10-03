@@ -67,7 +67,7 @@ export const close = Effect.fn("ForkWorktree.close")(function* (input: {
   ].join("\n")
 })
 
-const git = (args: string[], cwd: string) =>
+export const git = (args: string[], cwd: string) =>
   Effect.promise(async () => {
     const proc = Bun.spawn(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe", stdin: "ignore" })
     const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()])

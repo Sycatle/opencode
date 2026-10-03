@@ -133,9 +133,10 @@ function safeJson(text: string): unknown {
   }
 }
 
-// Never approved without the user, whatever the mode (auto, accept edits, --yolo): leaving the bash sandbox.
+// Never approved without the user, whatever the mode (auto, accept edits, --yolo): leaving the bash sandbox
+// and deleting a session worktree.
 export function neverAuto(permission: string) {
-  return permission === "sandbox_escape"
+  return permission === "sandbox_escape" || permission === "worktree_discard"
 }
 
 // Accept-edits mode approves file edits and writes only (both use the "edit" permission).

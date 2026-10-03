@@ -127,6 +127,8 @@ const layer = Layer.effect(
           question: "deny",
           plan_enter: "deny",
           plan_exit: "deny",
+          // FORK-SEAM: session-worktree (a "*" allow must not skip the question before a worktree is deleted)
+          worktree_discard: "ask",
           // mirrors github.com/github/gitignore Node.gitignore pattern for .env files
           read: {
             "*": "allow",
@@ -168,6 +170,11 @@ const layer = Layer.effect(
                 task: {
                   general: "deny",
                 },
+                // FORK-SEAM: session-worktree (plan mode neither enters nor leaves worktrees)
+                worktree: "deny",
+                worktree_discard: "deny",
+                enter_worktree: "deny",
+                exit_worktree: "deny",
                 external_directory: {
                   [path.join(Global.Path.data, "plans", "*")]: "allow",
                 },
