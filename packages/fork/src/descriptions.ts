@@ -92,5 +92,33 @@ function slimShell(original: string) {
   ].join("\n")
 }
 
+// The skill list sits in the system prompt of every turn. Upstream gives each skill its location, which the
+// model never needs (the skill tool loads by name and returns the base directory), and plugin skills can carry
+// descriptions of a thousand characters. One line per skill, descriptions cut at a word boundary.
+const SKILL_DESCRIPTION_MAX = 400
+
+export function skills(list: { name: string; description?: string }[]) {
+  const described = list.filter((skill) => skill.description !== undefined)
+  if (described.length === 0) return "No skills are currently available."
+  return [
+    "<available_skills>",
+    ...described
+      .toSorted((a, b) => a.name.localeCompare(b.name))
+      .map((skill) => `- ${skill.name}: ${cut(skill.description ?? "", SKILL_DESCRIPTION_MAX)}`),
+    "</available_skills>",
+  ].join("\n")
+}
+
+export function skillsEnabled() {
+  return ForkFlags.on("SLIM_SKILLS")
+}
+
+function cut(text: string, max: number) {
+  const flat = text.replace(/\s+/g, " ").trim()
+  if (flat.length <= max) return flat
+  const space = flat.lastIndexOf(" ", max)
+  return `${flat.slice(0, space > 0 ? space : max)}…`
+}
+
 export * as ForkDescriptions from "./descriptions"
 import { ForkFlags } from "./flags"

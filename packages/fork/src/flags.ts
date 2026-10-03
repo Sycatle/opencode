@@ -28,6 +28,7 @@ export const FLAGS = {
     description: "Native tools to defer: 0 disables, a comma-separated list overrides",
   },
   SLIM_TOOLS: { kind: "switch", default: "on", description: "Compact descriptions of the native tools" },
+  SLIM_SKILLS: { kind: "switch", default: "on", description: "One line per skill in the system prompt, no location" },
   CACHE_TTL: { kind: "text", default: "1h in the TUI", description: "Prompt cache TTL of the stable prefix (set by the TUI)" },
   AUTH_CACHE: {
     kind: "switch",

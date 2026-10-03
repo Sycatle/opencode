@@ -21,6 +21,7 @@ import { Skill } from "@/skill"
 import { ForkSystemPrompt } from "@opencode-fork/core/system-prompt"
 import { ForkClaudeTools } from "@opencode-fork/core/claude-tools"
 import { ForkTools } from "@opencode-fork/core/tools"
+import { ForkDescriptions } from "@opencode-fork/core/descriptions"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { Location } from "@opencode-ai/core/location"
 import { LocationServiceMap, locationServiceMapLayer } from "@opencode-ai/core/location-services"
@@ -125,7 +126,8 @@ const layer = Layer.effect(
           "Use the skill tool to load a skill when a task matches its description.",
           // the agents seem to ingest the information about skills a bit better if we present a more verbose
           // version of them here and a less verbose version in tool description, rather than vice versa.
-          Skill.fmt(list, { verbose: true }),
+          // FORK-SEAM: slim-skills (one line per skill, no location)
+          ForkDescriptions.skillsEnabled() ? ForkDescriptions.skills(list) : Skill.fmt(list, { verbose: true }),
         ].join("\n")
       }),
 
