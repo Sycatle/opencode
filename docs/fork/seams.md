@@ -36,8 +36,9 @@ Le code du fork vit dans `packages/fork`. Les seuls points de contact avec le co
 | `hooks-config` | `packages/core/src/config.ts`, `core/src/v1/config/config.ts`, `core/src/v1/config/migrate.ts` | Clé `hooks` de la config (PreToolUse, PostToolUse, UserPromptSubmit, SessionStart, Stop, PreCompact, PermissionRequest) |
 | `hooks-plugin` | `packages/opencode/src/plugin/index.ts` | Enregistre `ForkHooksPlugin` (hooks shell déclaratifs, `OPENCODE_FORK_HOOKS=0` pour couper) |
 | `permission-ask-hook` | `packages/opencode/src/session/tools.ts`, `session/processor.ts` | Les demandes de permission passent par `askWithPlugins`, qui déclenche le hook plugin `permission.ask` (un `deny` du ruleset l'emporte toujours) |
-| `statusline-config` | `packages/tui/src/config/index.tsx` | Clé `statusline { command, interval }` de la config TUI |
+| `statusline-config` | `packages/tui/src/config/index.tsx`, `packages/plugin/src/tui.ts` | Clé `statusline { command, interval }` de la config TUI |
 | `quota-headers` | `packages/opencode/src/provider/provider.ts` | Lit les en-têtes `anthropic-ratelimit-unified-*` (fenêtres 5h et hebdo de l'abonnement) dans `timeoutFetch` ; alimente l'affichage Quota, le budget `--budget 20%` et l'attente de remise à zéro d'`opencode auto` |
+| `prompt-block-hook` | `packages/opencode/src/session/prompt.ts` | Un `UserPromptSubmit` bloquant est signalé par un part marqué : le seam publie `session.error` avec la raison et arrête le prompt avant persistance (contrat des hooks : `docs/fork/hooks.md`) |
 | `usage-command` | `packages/opencode/src/index.ts` | Enregistre les commandes `opencode usage`, `auto`, `schedule` et `workflow` |
 
 Fichiers ajoutés par le fork (sans conflit possible) :
