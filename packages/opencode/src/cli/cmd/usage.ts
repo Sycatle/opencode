@@ -1,5 +1,6 @@
 import type { ForkRoute } from "@opencode-fork/core/route"
 import { ForkCompactionLog } from "@opencode-fork/core/compaction-log"
+import { ForkJev } from "@opencode-fork/core/jev"
 import { ForkRouteLog } from "@opencode-fork/core/route-log"
 import { ForkTelemetry } from "@opencode-fork/core/telemetry"
 import { cmd } from "./cmd"
@@ -14,8 +15,10 @@ export const UsageCommand = cmd({
       .option("steps", { type: "boolean", default: false, describe: "print every provider turn" })
       .option("tools", { type: "boolean", default: false, describe: "print tool definition sizes of the last turn" })
       .option("route", { type: "boolean", default: false, describe: "print the Router decision journal (signals, tier, model, reason, fallback)" })
+      .option("jev", { type: "boolean", default: false, describe: "print Jev (TypeSafe) calls per use: success rate, latency, decisions, agreement with the old path" })
       .option("json", { type: "boolean", default: false, describe: "print raw rows as JSON" }),
   handler: (args) => {
+    if (args.jev) return jev(args.json)
     if (args.route) return route(args.session, args.json)
     if (!args.session) {
       const rows = ForkTelemetry.recentSessions(15)
@@ -91,6 +94,29 @@ export const UsageCommand = cmd({
     )
   },
 })
+
+function jev(json: boolean) {
+  const rows = ForkJev.recent(2000)
+  if (json) return console.log(JSON.stringify(rows.toReversed(), null, 2))
+  if (!rows.length) return console.log("No Jev calls yet. Set TYPESAFE_API_KEY.")
+  const percentile = (values: number[], at: number) => values.toSorted((a, b) => a - b)[Math.floor((values.length - 1) * at)] ?? 0
+  console.log(`Jev, last ${rows.length} calls`)
+  Object.entries(Object.groupBy(rows, (row) => row.feature)).forEach(([feature, group = []]) => {
+    const ms = group.map((row) => row.ms)
+    const compared = group.filter((row) => row.ok && row.other !== null)
+    console.log(
+      `  ${feature.padEnd(14)} ${String(group.length).padStart(5)} calls  ok ${pct(group.filter((row) => row.ok).length, group.length).padStart(5)}  p50 ${percentile(ms, 0.5)}ms  p95 ${percentile(ms, 0.95)}ms${
+        compared.length ? `  agree ${pct(compared.filter((row) => row.decision === row.other).length, compared.length)} of ${compared.length}` : ""
+      }`,
+    )
+    const decisions = Object.entries(Object.groupBy(group.filter((row) => row.decision), (row) => row.decision ?? "")).map(
+      ([name, items = []]) => `${name} ${items.length}`,
+    )
+    if (decisions.length) console.log(`    ${decisions.join("  ")}`)
+    const error = group.find((row) => row.error)?.error
+    if (error) console.log(`    last error: ${error}`)
+  })
+}
 
 function route(session: string | undefined, json: boolean) {
   const rows = ForkRouteLog.recent(session ? 200 : 30, session).toReversed()

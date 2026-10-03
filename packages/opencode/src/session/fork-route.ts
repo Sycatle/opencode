@@ -3,6 +3,7 @@ import { ModelV2 } from "@opencode-ai/core/model"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { LLMEvent } from "@opencode-ai/llm"
+import { ForkJev } from "@opencode-fork/core/jev"
 import { ForkQuota } from "@opencode-fork/core/quota"
 import { ForkRoute } from "@opencode-fork/core/route"
 import { ForkRouteJev } from "@opencode-fork/core/route-jev"
@@ -240,13 +241,20 @@ const classify = Effect.fn("ForkRouteTurn.classify")(function* (input: {
 
   // Jev first when TYPESAFE_API_KEY is set; any failure falls back to the small model below.
   if (ForkRouteJev.enabled()) {
-    const started = Date.now()
     const jev = yield* Effect.promise(() => ForkRouteJev.call({ prompt: input.prompt, summary, size }))
+    ForkJev.journal({
+      feature: "route",
+      session_id: input.sessionID,
+      ms: jev.ms,
+      ok: !!jev.signals,
+      error: jev.error,
+      decision: jev.signals?.task_type,
+    })
     if (jev.signals) {
-      yield* Effect.logInfo("router signals", { source: "jev", ms: Date.now() - started })
+      yield* Effect.logInfo("router signals", { source: "jev", ms: jev.ms })
       return { ...jev.signals, source: "jev" } as const
     }
-    yield* Effect.logWarning("router signals", { source: "small-model", jev_error: jev.error, ms: Date.now() - started })
+    yield* Effect.logWarning("router signals", { source: "small-model", jev_error: jev.error, ms: jev.ms })
   }
 
   // The small model of the provider the turn is most likely to run on.
