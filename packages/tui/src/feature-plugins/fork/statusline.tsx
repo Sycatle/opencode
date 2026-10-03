@@ -1,5 +1,6 @@
 import type { AssistantMessage } from "@opencode-ai/sdk/v2"
 import type { TuiPlugin, TuiPluginApi } from "@opencode-ai/plugin/tui"
+import { ForkMessaging } from "@opencode-fork/core/messaging"
 import { ForkQuota } from "@opencode-fork/core/quota"
 import { ForkStatusline } from "@opencode-fork/core/statusline"
 import { useTerminalDimensions } from "@opentui/solid"
@@ -20,6 +21,7 @@ function payload(api: TuiPluginApi, session: string) {
     .findLast((item): item is AssistantMessage => item.role === "assistant")
   return ForkStatusline.input({
     sessionID: session,
+    name: ForkMessaging.enabled() ? ForkMessaging.nameOf(session) : undefined,
     model: last ? { providerID: last.providerID, modelID: last.modelID } : undefined,
     agent: last?.agent,
     cwd: api.state.path.directory,
@@ -95,6 +97,18 @@ const tui: TuiPlugin = async (api) => {
           return <Line api={api} config={config} />
         },
       },
+    })
+  }
+
+  if (ForkMessaging.enabled()) {
+    const delivered = new Set<string>()
+    api.event.on("message.part.updated", (event) => {
+      const part = event.properties.part
+      if (part.type !== "text" || !part.synthetic || delivered.has(part.id)) return
+      const sender = ForkMessaging.received(part.text)
+      if (!sender) return
+      delivered.add(part.id)
+      api.ui.toast({ variant: "info", title: `Message from ${sender.from}`, message: sender.preview })
     })
   }
 

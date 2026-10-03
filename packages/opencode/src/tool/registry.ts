@@ -10,6 +10,8 @@ import { ShellKillTool, ShellOutputTool } from "./shell-background"
 import { MonitorTool } from "./monitor"
 import { WorkflowTool } from "./workflow"
 import { ForkWorkflow } from "@opencode-fork/core/workflow"
+import { ListAgentsTool, SendMessageTool } from "./fork-messaging"
+import { ForkMessaging } from "@opencode-fork/core/messaging"
 import { ForkShell } from "@opencode-fork/core/shell"
 import { EditTool } from "./edit"
 import { GlobTool } from "./glob"
@@ -119,6 +121,8 @@ const layer = Layer.effect(
     const shellKill = yield* ShellKillTool
     const monitor = yield* MonitorTool
     const workflow = yield* WorkflowTool
+    const listAgents = yield* ListAgentsTool
+    const sendMessage = yield* SendMessageTool
     const globtool = yield* GlobTool
     const writetool = yield* WriteTool
     const edit = yield* EditTool
@@ -224,6 +228,8 @@ const layer = Layer.effect(
           shellKill: Tool.init(shellKill),
           monitor: Tool.init(monitor),
           workflow: Tool.init(workflow),
+          listAgents: Tool.init(listAgents),
+          sendMessage: Tool.init(sendMessage),
           read: Tool.init(read),
           glob: Tool.init(globtool),
           grep: Tool.init(greptool),
@@ -254,6 +260,8 @@ const layer = Layer.effect(
             ...(ForkShell.enabled() ? [tool.monitor] : []),
             // FORK-SEAM: workflow-tool
             ...(ForkWorkflow.toolEnabled() ? [tool.workflow] : []),
+            // FORK-SEAM: messaging
+            ...(ForkMessaging.enabled() ? [tool.listAgents, tool.sendMessage] : []),
             tool.read,
             tool.glob,
             tool.grep,

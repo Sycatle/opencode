@@ -22,6 +22,8 @@ export type Quota = {
 
 export function input(data: {
   sessionID: string
+  // Messaging name of the session (see ForkMessaging), when it is registered.
+  name?: string
   model?: { providerID: string; modelID: string }
   agent?: string
   cwd: string

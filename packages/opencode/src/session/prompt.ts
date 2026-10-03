@@ -18,6 +18,7 @@ import { Instruction } from "./instruction"
 import { Plugin } from "../plugin"
 import { MAX_STEPS_PROMPT } from "@opencode-ai/core/session/runner/max-steps"
 import { ForkBudget } from "@opencode-fork/core/budget"
+import { ForkSessionMessaging } from "./fork-messaging"
 import { ForkHooks } from "@opencode-fork/core/hooks"
 import { ToolRegistry } from "@/tool/registry"
 import { MCP } from "../mcp"
@@ -1088,6 +1089,9 @@ const layer = Layer.effect(
       throw new Error("Impossible")
     })
 
+    // FORK-SEAM: messaging
+    const messaging = ForkSessionMessaging.make({ scope, prompt, title: (id) => sessions.get(id) })
+
     const runLoop: (sessionID: SessionID) => Effect.Effect<SessionV1.WithParts> = Effect.fn("SessionPrompt.run")(
       function* (sessionID: SessionID) {
         const ctx = yield* InstanceState.context
@@ -1106,6 +1110,14 @@ const layer = Layer.effect(
           const { user: lastUser, assistant: lastAssistant, finished: lastFinished, tasks } = MessageV2.latest(msgs)
 
           if (!lastUser) throw new Error("No user message found in stream. This should never happen.")
+          // FORK-SEAM: messaging
+          yield* messaging.touch({
+            sessionID,
+            cwd: ctx.directory,
+            agent: lastUser.agent,
+            title: session.title,
+            parentID: session.parentID,
+          })
 
           const lastAssistantMsg = msgs.findLast(
             (msg) => msg.info.role === "assistant" && msg.info.id === lastAssistant?.id,
