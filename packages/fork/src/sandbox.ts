@@ -6,7 +6,7 @@ import path from "path"
 export const DEFAULT_READ_DENY = ["~/.ssh", "~/.aws", "~/.gnupg", "~/.config/gh"]
 
 export const UNAVAILABLE_WARNING =
-  "Sandbox is enabled but bubblewrap (bwrap) is not usable on this machine: bash commands run without a sandbox."
+  "Sandbox is enabled but bubblewrap (bwrap) is not usable on this machine: bash commands run without a sandbox. Install it (apt install bubblewrap) or allow unprivileged user namespaces."
 
 export const ESCAPE_PERMISSION = "sandbox_escape"
 
