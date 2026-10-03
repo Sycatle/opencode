@@ -4,8 +4,8 @@ import { Schema } from "effect"
 import { PositiveInt } from "../schema"
 
 export class Entry extends Schema.Class<Entry>("ConfigV2.Hooks.Entry")({
-  type: Schema.Literals(["command", "http", "prompt"]).pipe(Schema.optional).annotate({
-    description: "Hook type (default command). command needs `command`, http needs `url`, prompt needs `prompt`",
+  type: Schema.Literals(["command", "http", "prompt", "classify"]).pipe(Schema.optional).annotate({
+    description: "Hook type (default command). command needs `command`, http needs `url`, prompt needs `prompt`, classify needs `question`",
   }),
   matcher: Schema.String.pipe(Schema.optional).annotate({
     description: "Regular expression matched against the tool name (or permission name). Omit to match everything",
@@ -23,6 +23,16 @@ export class Entry extends Schema.Class<Entry>("ConfigV2.Hooks.Entry")({
   prompt: Schema.String.pipe(Schema.optional).annotate({
     description:
       'type prompt: prompt sent to the provider\'s small model, $ARGUMENTS is replaced by the event JSON. The model must answer {"ok": boolean, "reason"?: string}; ok=false blocks',
+  }),
+  question: Schema.String.pipe(Schema.optional).annotate({
+    description:
+      "type classify: yes/no question about the event JSON, answered by Jev (TypeSafe) as a probability. Needs TYPESAFE_API_KEY",
+  }),
+  threshold: Schema.Number.pipe(Schema.optional).annotate({
+    description: "type classify: probability from which the hook blocks (0..1, default 0.5)",
+  }),
+  reason: Schema.String.pipe(Schema.optional).annotate({
+    description: "type classify: block reason shown to the model (default \"Blocked by classify hook\")",
   }),
   timeout: PositiveInt.pipe(Schema.optional).annotate({ description: "Timeout in milliseconds (default 60000)" }),
 }) {}

@@ -1,6 +1,6 @@
 # Hooks déclaratifs
 
-Hooks (commande shell, POST HTTP ou prompt au petit modèle) déclarés dans la clé `hooks` de `opencode.json`.
+Hooks (commande shell, POST HTTP, prompt au petit modèle ou question à Jev) déclarés dans la clé `hooks` de `opencode.json`.
 Logique pure et runner : `packages/fork/src/hooks.ts` ; plugin : `packages/opencode/src/plugin/fork-hooks.ts` ;
 appel du petit modèle : `packages/opencode/src/plugin/fork-hooks-model.ts`. `OPENCODE_FORK_HOOKS=0` coupe tout.
 
@@ -55,6 +55,12 @@ Matcher : absent, `""` ou `*` = tout. Sinon regex insensible à la casse sur le 
   provider de la session (`Provider.getSmallModel`, repli sur le modèle de la session, puis le modèle par défaut).
   Le modèle doit répondre `{ "ok": boolean, "reason"?: string }` ; `ok: false` = blocage avec `reason`. Réponse non
   conforme, échec du modèle ou timeout : erreur non bloquante.
+
+- `classify` : `question` obligatoire (question oui/non sur le JSON de l'événement, tronqué à 3000 caractères),
+  `threshold` (0..1, défaut 0,5) et `reason` optionnels. Envoyé à Jev (TypeSafe), qui répond une probabilité ;
+  `probabilité ≥ threshold` = blocage avec `reason` (`(p=0.82)` ajouté). Sans `TYPESAFE_API_KEY`, Jev en échec ou
+  timeout (1,5 s par défaut, `timeout` de l'entrée sinon) : erreur non bloquante. Le type `prompt` libre reste sur
+  le petit modèle. Voir `docs/fork/jev.md`.
 
 ## Exécution (command)
 

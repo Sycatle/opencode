@@ -1,3 +1,5 @@
+import { ForkJev } from "./jev"
+
 export * as ForkHooks from "./hooks"
 
 export const EVENTS = [
@@ -37,7 +39,15 @@ export interface PromptEntry extends Base {
   prompt: string
 }
 
-export type Entry = CommandEntry | HttpEntry | PromptEntry
+// Asks Jev one yes/no question about the event JSON; blocks when its probability reaches `threshold`.
+export interface ClassifyEntry extends Base {
+  type: "classify"
+  question: string
+  threshold?: number
+  reason?: string
+}
+
+export type Entry = CommandEntry | HttpEntry | PromptEntry | ClassifyEntry
 
 export type Hooks = Partial<Record<Event, Entry[]>>
 
@@ -73,6 +83,7 @@ export type Ask = (prompt: string, event: Payload) => Promise<string>
 
 export interface Deps {
   ask?: Ask
+  fetch?: typeof fetch
 }
 
 // Contract: SessionStart (session.created), Stop and SubagentStop (session.idle), SessionEnd and Notification
@@ -87,6 +98,7 @@ export function enabled() {
 export function describe(entry: Entry) {
   if (entry.type === "http") return entry.url
   if (entry.type === "prompt") return entry.prompt
+  if (entry.type === "classify") return entry.question
   return entry.command
 }
 
@@ -118,6 +130,20 @@ export function parse(input: unknown): Hooks {
         if (type === "prompt") {
           if (typeof entry.prompt !== "string" || !entry.prompt.trim()) return []
           return [{ type, prompt: entry.prompt, ...base }]
+        }
+        if (type === "classify") {
+          if (typeof entry.question !== "string" || !entry.question.trim()) return []
+          return [
+            {
+              type,
+              question: entry.question,
+              ...(typeof entry.threshold === "number" && entry.threshold > 0 && entry.threshold <= 1
+                ? { threshold: entry.threshold }
+                : {}),
+              ...(typeof entry.reason === "string" && entry.reason ? { reason: entry.reason } : {}),
+              ...base,
+            },
+          ]
         }
         return []
       })
@@ -241,6 +267,7 @@ export function promptBlockReason(parts: readonly { type: string; text?: string;
 export async function run(entry: Entry, event: Payload, deps?: Deps): Promise<Outcome> {
   if (entry.type === "http") return runHttp(entry, event)
   if (entry.type === "prompt") return runPrompt(entry, event, deps?.ask)
+  if (entry.type === "classify") return runClassify(entry, event, deps?.fetch)
   return runCommand(entry, event)
 }
 
@@ -301,6 +328,32 @@ async function runHttp(entry: HttpEntry, event: Payload): Promise<Outcome> {
   if (typeof response === "string") return { error: response }
   if (!response.ok) return { error: `hook returned HTTP ${response.status}` }
   return interpretJson(await response.text().catch(() => ""))
+}
+
+const CLASSIFY_STATE_CHARS = 3000
+
+// Jev answers with a probability; no key or a Jev failure is a non-blocking error, like a prompt hook.
+async function runClassify(entry: ClassifyEntry, event: Payload, fetcher?: typeof fetch): Promise<Outcome> {
+  if (!process.env.TYPESAFE_API_KEY) return { error: "classify hooks need TYPESAFE_API_KEY" }
+  const response = await ForkJev.ask(
+    { state: payload(event).slice(0, CLASSIFY_STATE_CHARS), questions: { match: { type: "noul", instructions: entry.question } } },
+    process.env,
+    fetcher,
+    entry.timeout,
+  )
+  const noul = response.answers?.match?.noul
+  ForkJev.journal({
+    feature: "hooks",
+    session_id: event.sessionID,
+    ms: response.ms,
+    ok: noul !== undefined,
+    error: response.error,
+    decision: noul === undefined ? undefined : noul >= (entry.threshold ?? 0.5) ? "block" : "allow",
+  })
+  if (response.error !== undefined) return { error: response.error }
+  if (noul === undefined) return { error: "Jev response unusable" }
+  if (noul < (entry.threshold ?? 0.5)) return {}
+  return { decision: "block", reason: `${entry.reason ?? "Blocked by classify hook"} (p=${noul.toFixed(2)})` }
 }
 
 const PROMPT_INSTRUCTIONS =
