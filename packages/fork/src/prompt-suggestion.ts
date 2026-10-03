@@ -1,3 +1,4 @@
+import type { ForkJev } from "./jev"
 import { ForkTelemetry } from "./telemetry"
 
 // Prompt suggestion: at the end of an assistant turn the small model proposes the user's likely next request
@@ -61,6 +62,38 @@ export function prompt(input: { turns: readonly Turn[]; todos?: readonly Todo[] 
     .join("\n\n")
   // The system text always fits; the data is cut from its start so the end of the reply survives.
   return `${SYSTEM}\n\n${tail(body, MAX_INPUT_CHARS - SYSTEM.length - ASK.length - 4)}\n\n${ASK}`
+}
+
+const JEV_MIN = 0.35
+const JEV_USER = 800
+const JEV_REPLY = 1_500
+
+// Jev decides before the small model whether a suggestion is worth asking for. Below this probability that
+// the next message is a short, predictable follow-up, no call is made.
+export function jevMin(env: Record<string, string | undefined> = process.env) {
+  const value = Number(env.OPENCODE_FORK_PROMPT_SUGGESTION_JEV_MIN)
+  return Number.isFinite(value) && value >= 0 && value <= 1 ? value : JEV_MIN
+}
+
+export function jevRequest(input: { turns: readonly Turn[]; todos: readonly Todo[] }) {
+  const lastUser = input.turns.findLast((turn) => turn.role === "user")
+  const lastAssistant = input.turns.findLast((turn) => turn.role === "assistant")
+  const open = input.todos.filter((todo) => todo.status !== "completed" && todo.status !== "cancelled").length
+  return {
+    state: [
+      "Coding-agent turn that just ended; deciding whether to propose the user's next request.",
+      `User's last message:\n${clip(lastUser?.text.trim() || "(none)", JEV_USER)}`,
+      `End of the agent's reply:\n${tail(lastAssistant?.text.trim() || "(none)", JEV_REPLY)}`,
+      `Open todos: ${open}.`,
+    ].join("\n"),
+    questions: {
+      predictable: {
+        type: "noul",
+        instructions:
+          "The user's next message is a short, predictable follow-up that can be guessed from this exchange (continue, run the tests, commit, push, yes), not a new topic and not an answer to an open question",
+      },
+    } satisfies Record<string, ForkJev.Question>,
+  }
 }
 
 export type Gate = {

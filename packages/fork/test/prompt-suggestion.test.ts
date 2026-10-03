@@ -116,3 +116,23 @@ test("the palette toggle is stored in fork.db", () => {
   ForkPromptSuggestion.setUserEnabled(true)
   expect(ForkPromptSuggestion.userEnabled()).toBe(true)
 })
+
+test("the Jev gate sends the last exchange and the open todo count, with a threshold from the environment", () => {
+  const request = ForkPromptSuggestion.jevRequest({
+    turns: [
+      { role: "user", text: "fix the bug" },
+      { role: "assistant", text: "Done, the bug is fixed." },
+    ],
+    todos: [
+      { content: "a", status: "completed" },
+      { content: "b", status: "pending" },
+    ],
+  })
+  expect(request.state).toContain("User's last message:\nfix the bug")
+  expect(request.state).toContain("End of the agent's reply:\nDone, the bug is fixed.")
+  expect(request.state).toContain("Open todos: 1.")
+  expect(request.questions.predictable.type).toBe("noul")
+  expect(ForkPromptSuggestion.jevMin({})).toBe(0.35)
+  expect(ForkPromptSuggestion.jevMin({ OPENCODE_FORK_PROMPT_SUGGESTION_JEV_MIN: "0.6" })).toBe(0.6)
+  expect(ForkPromptSuggestion.jevMin({ OPENCODE_FORK_PROMPT_SUGGESTION_JEV_MIN: "2" })).toBe(0.35)
+})
