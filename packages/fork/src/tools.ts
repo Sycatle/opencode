@@ -1,4 +1,5 @@
 import { jsonSchema, tool, type Tool } from "ai"
+import type { ForkJev } from "./jev"
 
 // Deferred tools: MCP tool definitions are the largest chunk of every request
 // (often more than all native tools together) yet most turns never use them.
@@ -41,6 +42,8 @@ type HistoryPart = {
   type: string
   tool?: string
   state?: { status: string; metadata?: Record<string, unknown> }
+  // Text parts only: `forkPreloaded` lists tools loaded ahead of the model's own request (see `preloadRequest`).
+  metadata?: Record<string, unknown>
 }
 
 // How tools are named and described to the model (the Claude tool profile renames them).
@@ -73,14 +76,58 @@ export function loadedTools(messages: { parts: readonly HistoryPart[] }[]) {
   return new Set(
     messages.flatMap((message) =>
       message.parts.flatMap((part) => {
+        if (part.type === "text") return strings(part.metadata?.forkPreloaded)
         if (part.type !== "tool" || !part.tool) return []
         // A tool that already appears in history must stay defined for replay.
         if (part.tool !== SEARCH) return [part.tool]
-        const names = part.state?.status === "completed" ? part.state.metadata?.loaded : undefined
-        return Array.isArray(names) ? names.filter((name): name is string => typeof name === "string") : []
+        return strings(part.state?.status === "completed" ? part.state.metadata?.loaded : undefined)
       }),
     ),
   )
+}
+
+function strings(value: unknown) {
+  return Array.isArray(value) ? value.filter((name): name is string => typeof name === "string") : []
+}
+
+const PRELOAD_AT = 0.8
+
+// Deferred tools worth a Jev question: the best keyword matches of the user's request, not loaded yet.
+export function preloadCandidates(pool: Record<string, Tool>, prompt: string, loaded: ReadonlySet<string>) {
+  // Short words match everything ("a" is in "slack"): only words of four letters or more count.
+  const query = prompt
+    .slice(0, 1_500)
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}_]+/u)
+    .filter((word) => word.length >= 4)
+    .join(" ")
+  return search(Object.fromEntries(Object.entries(pool).filter(([name]) => !loaded.has(name))), query, MAX_MATCHES)
+}
+
+export function preloadRequest(pool: Record<string, Tool>, names: readonly string[], prompt: string) {
+  return {
+    state: [
+      "A coding agent received this request and has deferred tools it can load. Decide for each tool whether the agent will need it for this request.",
+      `Request:\n${prompt.trim().slice(0, 1_500)}`,
+      ...names.map((name, index) => `[t${index}] ${name}: ${(pool[name]?.description ?? "").slice(0, 200)}`),
+    ].join("\n\n"),
+    questions: Object.fromEntries(
+      names.map((name, index) => [
+        `t${index}`,
+        { type: "noul" as const, instructions: `The agent will need tool [t${index}] (${name}) for this request` },
+      ]),
+    ) satisfies Record<string, ForkJev.Question>,
+  }
+}
+
+export function preloadPicks(names: readonly string[], answers: Record<string, ForkJev.Answer>) {
+  return names.filter((_, index) => (answers[`t${index}`]?.noul ?? 0) >= PRELOAD_AT)
+}
+
+// Preloading changes the tool block, which comes first in the prompt: it is only free when the cache holds
+// nothing worth keeping, i.e. on the first turn after a start or a compaction, or after the cache expired.
+export function preloadWindow(input: { turnsSinceStart: number; idleMs: number; ttlMs: number }) {
+  return input.turnsSinceStart === 0 || input.idleMs > input.ttlMs
 }
 
 export function search(pool: Record<string, Tool>, query: string, max = MAX_MATCHES) {

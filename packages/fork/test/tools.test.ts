@@ -101,3 +101,31 @@ test("native tools are deferred, listed sorted, and stay loaded once used in his
   expect("lsp" in used).toBe(false)
   expect(used[ForkTools.SEARCH].description).toBe(description)
 })
+
+test("a preloaded part counts as loaded, like a tool_search result", () => {
+  const loaded = ForkTools.loadedTools([
+    { parts: [{ type: "text", metadata: { forkPreloaded: ["mcp_a", 3, "mcp_b"] } }, { type: "text" }] },
+  ])
+  expect([...loaded]).toEqual(["mcp_a", "mcp_b"])
+})
+
+test("preloading asks about the best keyword matches that are not loaded, and keeps the likely ones", () => {
+  const pool = {
+    github_create_issue: tool({ description: "Create a GitHub issue", inputSchema: jsonSchema({ type: "object" }) }),
+    github_list_prs: tool({ description: "List GitHub pull requests", inputSchema: jsonSchema({ type: "object" }) }),
+    slack_post: tool({ description: "Post to Slack", inputSchema: jsonSchema({ type: "object" }) }),
+  }
+  const names = ForkTools.preloadCandidates(pool, "open a github issue", new Set(["github_list_prs"]))
+  expect(names).toEqual(["github_create_issue"])
+  const request = ForkTools.preloadRequest(pool, names, "open a github issue")
+  expect(request.state).toContain("[t0] github_create_issue: Create a GitHub issue")
+  expect(Object.keys(request.questions)).toEqual(["t0"])
+  expect(ForkTools.preloadPicks(["a", "b", "c"], { t0: { noul: 0.9 }, t1: { noul: 0.79 } })).toEqual(["a"])
+})
+
+test("preloading only happens when the cache holds nothing worth keeping", () => {
+  const ttlMs = 5 * 60_000
+  expect(ForkTools.preloadWindow({ turnsSinceStart: 0, idleMs: 0, ttlMs })).toBe(true)
+  expect(ForkTools.preloadWindow({ turnsSinceStart: 4, idleMs: 60_000, ttlMs })).toBe(false)
+  expect(ForkTools.preloadWindow({ turnsSinceStart: 4, idleMs: ttlMs + 1, ttlMs })).toBe(true)
+})
