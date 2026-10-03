@@ -3,6 +3,7 @@ import { LLMEvent, Usage } from "@opencode-ai/llm"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { Provider } from "@/provider/provider"
+import { ForkRouteProvider } from "@/provider/fork-route"
 import { LLM } from "@/session/llm"
 import { MessageID, SessionID } from "@/session/schema"
 import { Session } from "@/session/session"
@@ -26,9 +27,14 @@ export const smallModelRun = Effect.fn("ForkSmallModel.run")(function* (input: {
     native: true,
     prompt: "",
   }
-  const fallback = input.current
+  const chosen = input.current
     ? { providerID: ProviderV2.ID.make(input.current.providerID), modelID: ModelV2.ID.make(input.current.modelID) }
     : yield* provider.defaultModel()
+  // A Router model is virtual: its small model is the one of the provider the last routed turn ran on.
+  const routed = ForkRouteProvider.concrete({ providerID: chosen.providerID, id: chosen.modelID })
+  const fallback = routed
+    ? { providerID: ProviderV2.ID.make(routed.providerID), modelID: ModelV2.ID.make(routed.modelID) }
+    : chosen
   const model =
     (yield* provider.getSmallModel(fallback.providerID)) ??
     (yield* provider.getModel(fallback.providerID, fallback.modelID))

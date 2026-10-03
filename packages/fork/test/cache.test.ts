@@ -81,6 +81,21 @@ test("tool markers are promoted so 1h entries precede 5m ones", () => {
   expect(out.tools[0].cache_control.ttl).toBe("1h")
 })
 
+test("earlier blocks of the first message are promoted so no 5m marker precedes the 1h one", () => {
+  const first = {
+    role: "user",
+    content: [
+      { type: "text", text: "<system-reminder>skills</system-reminder>", cache_control: cc5 },
+      { type: "text", text: "fix the bug" },
+    ],
+  }
+  const out = JSON.parse(ForkCache.pinFirstUserMessage(request({ messages: [first] }))!)
+  expect(out.messages[0].content.map((block: { cache_control?: { ttl?: string } }) => block.cache_control?.ttl)).toEqual([
+    "1h",
+    "1h",
+  ])
+})
+
 test("never exceeds four breakpoints", () => {
   const tools = [
     { name: "a", cache_control: cc5 },

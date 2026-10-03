@@ -53,11 +53,11 @@ export function pinFirstUserMessage(body: unknown) {
   if (!isRecord(last.cache_control) && marked.length >= MAX_BREAKPOINTS) return undefined
   if (isRecord(last.cache_control) && last.cache_control.ttl === INTERACTIVE_TTL) return undefined
 
-  // 1h entries must precede 5m ones: everything marked earlier in the prompt (tools) is
-  // promoted too; later message markers stay at 5m.
-  const tools = Array.isArray(parsed.tools) ? parsed.tools : []
-  tools.forEach((tool) => {
-    if (isRecord(tool) && isRecord(tool.cache_control)) tool.cache_control = { ...tool.cache_control, ttl: INTERACTIVE_TTL }
+  // 1h entries must precede 5m ones: everything marked earlier in the prompt (tools, and the
+  // first message's earlier blocks) is promoted too; later message markers stay at 5m.
+  const earlier = [...(Array.isArray(parsed.tools) ? parsed.tools : []), ...blocks.slice(0, -1)]
+  earlier.forEach((block) => {
+    if (isRecord(block) && isRecord(block.cache_control)) block.cache_control = { ...block.cache_control, ttl: INTERACTIVE_TTL }
   })
   last.cache_control = { type: "ephemeral", ttl: INTERACTIVE_TTL }
   user.content = blocks
