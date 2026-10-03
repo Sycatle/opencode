@@ -14,7 +14,7 @@ const canned = {
   },
 }
 
-const env = { TYPESAFE_API_KEY: "k", OPENCODE_FORK_ROUTE_JEV_URL: "http://jev.test/" }
+const env = { TYPESAFE_API_KEY: "k", OPENCODE_FORK_JEV_URL: "http://jev.test/" }
 const input = { prompt: "find the deadlock", summary: { messages: 1, tokens: 50_000 }, size: "large" as const }
 
 function fake(status: number, body: unknown) {
@@ -74,9 +74,7 @@ test("an invalid response is undefined", () => {
 test("the request carries the state and the same questions as llm-router", () => {
   const body = ForkRouteJev.request(
     { prompt: "x".repeat(4000), summary: { first: "hello", messages: 3, tokens: 900, tools: ["read", "edit"] } },
-    {},
   )
-  expect(body.model).toBe("jev-latest")
   expect(body.state).toStartWith("Coding-agent request to route to the cheapest sufficient LLM.\nConversation opened with: hello\n")
   expect(body.state).toContain("Messages so far: 3. Approx context tokens: 900. Tools available: read, edit.\n")
   expect(body.state).toEndWith(`Latest user message:\n${"x".repeat(3000)}...`)
@@ -93,9 +91,7 @@ test("the request carries the state and the same questions as llm-router", () =>
   expect(body.questions.reasoning.type).toBe("score")
   expect(body.questions.reasoning.criteria).toHaveLength(4)
   expect(body.questions.ambiguity.type).toBe("noul")
-  expect(ForkRouteJev.request({ prompt: "p", summary: { messages: 0, tokens: 0 } }, { OPENCODE_FORK_ROUTE_JEV_MODEL: "m" }).state).toContain(
-    "Tools available: none.",
-  )
+  expect(ForkRouteJev.request({ prompt: "p", summary: { messages: 0, tokens: 0 } }).state).toContain("Tools available: none.")
 })
 
 test("a call posts to /v1/systemone with a bearer token and returns the signals", async () => {
@@ -107,6 +103,7 @@ test("a call posts to /v1/systemone with a bearer token and returns the signals"
   expect(seen[0]?.init?.method).toBe("POST")
   expect(new Headers(seen[0]?.init?.headers).get("authorization")).toBe("Bearer k")
   expect(JSON.parse(String(seen[0]?.init?.body)).questions.task_type.criteria).toBeObject()
+  expect(JSON.parse(String(seen[0]?.init?.body)).model).toBe("jev-latest")
 })
 
 test("HTTP errors, unusable bodies, network failures and timeouts are errors", async () => {
@@ -119,7 +116,7 @@ test("HTTP errors, unusable bodies, network failures and timeouts are errors", a
   expect((await ForkRouteJev.call(input, env, down)).error).toContain("connection refused")
   const hang = ((_url: unknown, init?: RequestInit) =>
     new Promise((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal?.reason)))) as typeof fetch
-  const slow = await ForkRouteJev.call(input, { ...env, OPENCODE_FORK_ROUTE_JEV_TIMEOUT_MS: "20" }, hang)
+  const slow = await ForkRouteJev.call(input, { ...env, OPENCODE_FORK_JEV_TIMEOUT_MS: "20" }, hang)
   expect(slow.signals).toBeUndefined()
   expect(slow.error).toStartWith("Jev request failed")
 })
@@ -129,8 +126,4 @@ test("Jev is enabled by a key and switched off by OPENCODE_FORK_ROUTE_JEV=0", ()
   expect(ForkRouteJev.enabled({ TYPESAFE_API_KEY: "" })).toBe(false)
   expect(ForkRouteJev.enabled({ TYPESAFE_API_KEY: "k" })).toBe(true)
   expect(ForkRouteJev.enabled({ TYPESAFE_API_KEY: "k", OPENCODE_FORK_ROUTE_JEV: "0" })).toBe(false)
-  expect(ForkRouteJev.timeout({})).toBe(1500)
-  expect(ForkRouteJev.timeout({ OPENCODE_FORK_ROUTE_JEV_TIMEOUT_MS: "300" })).toBe(300)
-  expect(ForkRouteJev.timeout({ OPENCODE_FORK_ROUTE_JEV_TIMEOUT_MS: "abc" })).toBe(1500)
-  expect(ForkRouteJev.endpoint({})).toBe("https://api.typesafe.ai/v1/systemone")
 })
