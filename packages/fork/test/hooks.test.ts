@@ -1,4 +1,6 @@
 import { afterEach, expect, test } from "bun:test"
+import os from "os"
+import path from "path"
 import { ForkHooks } from "../src/hooks"
 
 afterEach(() => {
@@ -227,4 +229,44 @@ test("enabled honours OPENCODE_FORK_HOOKS=0", () => {
   expect(ForkHooks.enabled()).toBe(true)
   process.env.OPENCODE_FORK_HOOKS = "0"
   expect(ForkHooks.enabled()).toBe(false)
+})
+
+test("classify hooks parse a question with an optional threshold and reason", () => {
+  expect(
+    ForkHooks.parse({
+      PreToolUse: [
+        { type: "classify", question: "Is this destructive?", threshold: 0.8, reason: "Too risky", matcher: "bash" },
+        { type: "classify", question: " " },
+        { type: "classify", question: "q", threshold: 3 },
+      ],
+    }),
+  ).toEqual({
+    PreToolUse: [
+      { type: "classify", question: "Is this destructive?", threshold: 0.8, reason: "Too risky", matcher: "bash" },
+      { type: "classify", question: "q" },
+    ],
+  })
+})
+
+test("classify hooks block from the threshold and never block when Jev is unavailable", async () => {
+  const previous = process.env.TYPESAFE_API_KEY
+  process.env.OPENCODE_FORK_DB = path.join(os.tmpdir(), `fork-hooks-${process.pid}-${Date.now()}.db`)
+  const answer = (noul: number) =>
+    (async () => new Response(JSON.stringify({ answers: { match: { noul, confidence: 0.9 } } }))) as unknown as typeof fetch
+  const entry = { type: "classify" as const, question: "Is this destructive?", reason: "Destructive" }
+  const event = { event: "PreToolUse" as const, cwd: "/tmp", tool: "bash", args: { command: "rm -rf /" } }
+  try {
+    delete process.env.TYPESAFE_API_KEY
+    expect((await ForkHooks.run(entry, event)).error).toContain("TYPESAFE_API_KEY")
+    process.env.TYPESAFE_API_KEY = "k"
+    expect(await ForkHooks.run(entry, event, { fetch: answer(0.2) })).toEqual({})
+    expect(await ForkHooks.run(entry, event, { fetch: answer(0.9) })).toEqual({ decision: "block", reason: "Destructive (p=0.90)" })
+    expect(await ForkHooks.run({ ...entry, threshold: 0.95 }, event, { fetch: answer(0.9) })).toEqual({})
+    const down = (async () => new Response("{}", { status: 500 })) as unknown as typeof fetch
+    expect(await ForkHooks.run(entry, event, { fetch: down })).toEqual({ error: "Jev returned HTTP 500" })
+  } finally {
+    if (previous === undefined) delete process.env.TYPESAFE_API_KEY
+    else process.env.TYPESAFE_API_KEY = previous
+    delete process.env.OPENCODE_FORK_DB
+  }
 })
