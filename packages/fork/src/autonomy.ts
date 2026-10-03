@@ -1,0 +1,46 @@
+// `opencode auto`: run the agent, then a completion check; feed failures back into
+// the same session until the check passes, the budget is spent, or iterations run out.
+
+const MAX_CHECK_OUTPUT = 4000
+
+export type Check = { code: number; output: string }
+
+export type Decision =
+  | { action: "done"; reason: "check-passed" }
+  | { action: "stop"; reason: "budget" | "iterations" | "no-session" }
+  | { action: "continue"; prompt: string }
+
+export function decide(input: {
+  check: Check | undefined
+  sessionID: string | undefined
+  command: string
+  iteration: number
+  maxIterations: number
+  spent: number
+  budget: number | undefined
+}): Decision {
+  if (!input.sessionID) return { action: "stop", reason: "no-session" }
+  if (input.check?.code === 0) return { action: "done", reason: "check-passed" }
+  if (input.budget !== undefined && input.spent >= input.budget) return { action: "stop", reason: "budget" }
+  if (input.iteration >= input.maxIterations) return { action: "stop", reason: "iterations" }
+  return { action: "continue", prompt: followUp(input.command, input.check) }
+}
+
+export function followUp(command: string, check: Check | undefined) {
+  const output = check?.output.trim() ?? ""
+  return [
+    `The completion check \`${command}\` failed${check ? ` (exit code ${check.code})` : ""}.`,
+    output
+      ? `Output (last ${MAX_CHECK_OUTPUT} characters):\n\`\`\`\n${output.slice(-MAX_CHECK_OUTPUT)}\n\`\`\``
+      : "It produced no output.",
+    "Fix the cause, verify your fix, then stop. Do not modify the check itself.",
+  ].join("\n\n")
+}
+
+// Arguments to re-invoke the current opencode entrypoint (dev script or compiled binary).
+export function selfCommand(execPath: string, argv: readonly string[]) {
+  const script = argv[1]
+  return script && /\.(ts|js|mjs)$/.test(script) && !script.startsWith("/$bunfs") ? [execPath, script] : [execPath]
+}
+
+export * as ForkAutonomy from "./autonomy"

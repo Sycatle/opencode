@@ -19,11 +19,12 @@ Le code du fork vit dans `packages/fork`. Les seuls points de contact avec le co
 | `subagent-depth` | `packages/opencode/src/tool/task.ts` | Profondeur par défaut 2 au lieu de 1 |
 | `subagent-model-routing` | `packages/opencode/src/tool/task.ts` | `explore` tourne sur le petit modèle du provider (`OPENCODE_FORK_ROUTE_SUBAGENTS=0` pour couper) |
 | `run-wait-background` | `packages/opencode/src/cli/cmd/run.ts` | `opencode run` attend les sous-agents d'arrière-plan avant de quitter |
-| `usage-command` | `packages/opencode/src/index.ts` | Enregistre la commande `opencode usage` |
+| `usage-command` | `packages/opencode/src/index.ts` | Enregistre les commandes `opencode usage` et `opencode auto` |
 
 Fichiers ajoutés par le fork (sans conflit possible) :
 - `packages/fork/**`
 - `packages/opencode/src/cli/cmd/usage.ts`
+- `packages/opencode/src/cli/cmd/auto.ts`
 - `packages/opencode/src/session/fork-compaction.ts`
 - `script/fork-sync.sh`
 
