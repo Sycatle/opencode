@@ -52,6 +52,8 @@ Le code du fork vit dans `packages/fork`. Les seuls points de contact avec le co
 | `claude-tools-repair` | `packages/opencode/src/session/llm.ts` | Retrouve l'outil pour un nom mal casé (`opencode-claude-auth` met la première lettre en minuscule) |
 | `grep-options` | `packages/opencode/src/tool/grep.ts` | Options Claude Code de grep (`output_mode`, `-i`, contexte, `type`, `head_limit`, `multiline`), masquées du schéma des autres modèles |
 | `ripgrep-search` | `packages/core/src/ripgrep.ts` | `Ripgrep.search` : sortie texte de ripgrep avec les flags de l'appelant |
+| `sandbox-config` | `packages/core/src/config.ts`, `core/src/v1/config/config.ts`, `core/src/v1/config/migrate.ts` | Clé `sandbox` de la config (`enabled`, `network.allow`, `write`, `read_deny`), voir `docs/fork/sandbox.md` |
+| `sandbox` | `packages/opencode/src/tool/shell.ts`, `tool/shell/prompt.ts` | Commande bash (premier plan, `background`, `monitor`) enveloppée dans bwrap quand la sandbox est active ; paramètre `sandbox: false` (`dangerouslyDisableSandbox` sous le profil Claude Code) soumis à la permission `sandbox_escape` ; indice `[sandbox]` sur un échec typique (`OPENCODE_FORK_SANDBOX=1/0` pour forcer) |
 | `usage-command` | `packages/opencode/src/index.ts` | Enregistre les commandes `opencode usage`, `auto`, `schedule` et `workflow` (un run dont le process est mort passe en `interrupted` ; son coût est lu dans `fork_usage` par session d'étape) |
 
 Fichiers ajoutés par le fork (sans conflit possible) :
@@ -67,6 +69,8 @@ Fichiers ajoutés par le fork (sans conflit possible) :
 - `packages/opencode/src/cli/cmd/schedule.ts`
 - `packages/opencode/src/cli/cmd/workflow.ts`
 - `packages/core/src/config/hooks.ts`
+- `packages/core/src/config/sandbox.ts`
+- `packages/opencode/src/tool/fork-sandbox.ts`
 - `packages/tui/src/feature-plugins/fork/statusline.tsx`
 - `packages/tui/src/feature-plugins/fork/usage.tsx`
 - `packages/tui/src/feature-plugins/fork/compaction.tsx`
