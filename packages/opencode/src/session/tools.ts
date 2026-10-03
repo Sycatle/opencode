@@ -49,6 +49,8 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
   bypassAgentCheck: boolean
   messages: SessionV1.WithParts[]
   promptOps: TaskPromptOps
+  // FORK-SEAM: tools-preload (given the deferred tools not loaded yet; may add a `forkPreloaded` part to the messages)
+  preload?: (pool: Record<string, AITool>) => Effect.Effect<void>
 }) {
   const tools: Record<string, AITool> = {}
   const run = yield* EffectBridge.make()
@@ -506,9 +508,16 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
     }
   }
   // FORK-SEAM: deferred-tools (MCP tools, MCP resource tools and rarely used native tools)
+  const deferrable = [...Object.keys(yield* mcp.tools()), ...Object.values(MCP_RESOURCE_TOOLS), ...ForkTools.nativeDeferrable()]
+  if (input.preload) {
+    const loaded = ForkTools.loadedTools(input.messages)
+    yield* input.preload(
+      Object.fromEntries(deferrable.filter((name) => name in tools && !loaded.has(name)).map((name) => [name, tools[name]])),
+    )
+  }
   const deferred = ForkTools.defer(
     tools,
-    [...Object.keys(yield* mcp.tools()), ...Object.values(MCP_RESOURCE_TOOLS), ...ForkTools.nativeDeferrable()],
+    deferrable,
     input.messages,
     claude ? { name: ForkClaudeTools.toModelName, description: ForkClaudeTools.describeTool } : undefined,
   )

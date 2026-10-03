@@ -19,6 +19,7 @@ import { Plugin } from "../plugin"
 import { MAX_STEPS_PROMPT } from "@opencode-ai/core/session/runner/max-steps"
 import { ForkBudget } from "@opencode-fork/core/budget"
 import { ForkRoute } from "@opencode-fork/core/route"
+import { ForkPreload } from "./fork-preload"
 import { ForkSessionMessaging } from "./fork-messaging"
 import { ForkWakeup } from "@opencode-fork/core/wakeup"
 import { ForkHooks } from "@opencode-fork/core/hooks"
@@ -1357,6 +1358,7 @@ const layer = Layer.effect(
               bypassAgentCheck,
               messages: msgs,
               promptOps,
+              preload: step === 1 ? ForkPreload.make({ sessions, messages: msgs, sessionID }) : undefined,
             }).pipe(
               Effect.provideService(Plugin.Service, plugin),
               Effect.provideService(Permission.Service, permission),
