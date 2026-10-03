@@ -9,15 +9,7 @@ La source (`jev` ou `small-model`) est enregistrée dans `signals.source` de la 
 
 ## Confidentialité
 
-Quand la clé est définie, chaque nouveau message utilisateur envoie à `api.typesafe.ai` :
-
-- un extrait du message (3000 caractères max) ;
-- le début de la conversation (500 caractères max), le nombre de messages, le nombre approximatif de tokens de contexte et les noms d'outils (20 max) ;
-- le nom du modèle Jev (`jev-latest`).
-
-Rien d'autre (ni fichiers, ni réponses de l'assistant, ni sorties d'outils).
-
-Opt-out : `OPENCODE_FORK_ROUTE_JEV=0`, ou ne pas définir `TYPESAFE_API_KEY`. Le petit modèle (déjà connecté) lit alors le même extrait.
+Ce qui part à `api.typesafe.ai`, comme pour tous les usages de Jev : `docs/fork/jev.md`. Opt-out : `OPENCODE_FORK_ROUTE_JEV=0`, ou ne pas définir `TYPESAFE_API_KEY`. Le petit modèle (déjà connecté) lit alors le même extrait.
 
 ## Variables
 
@@ -25,6 +17,6 @@ Opt-out : `OPENCODE_FORK_ROUTE_JEV=0`, ou ne pas définir `TYPESAFE_API_KEY`. Le
 | --- | --- |
 | `TYPESAFE_API_KEY` | absente : Jev inactif |
 | `OPENCODE_FORK_ROUTE_JEV` | `0` coupe Jev |
-| `OPENCODE_FORK_ROUTE_JEV_URL` | `https://api.typesafe.ai` |
-| `OPENCODE_FORK_ROUTE_JEV_MODEL` | `jev-latest` |
-| `OPENCODE_FORK_ROUTE_JEV_TIMEOUT_MS` | `1500` |
+| `OPENCODE_FORK_JEV_URL` | `https://api.typesafe.ai` |
+| `OPENCODE_FORK_JEV_MODEL` | `jev-latest` |
+| `OPENCODE_FORK_JEV_TIMEOUT_MS` | `1500` |
