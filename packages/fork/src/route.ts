@@ -156,7 +156,7 @@ export function shouldReclassify(
   i: { prompt: string; previous?: { signals: Signals; time: number }; now: number },
   env: Env = process.env,
 ) {
-  if (env.OPENCODE_FORK_ROUTE_RECLASSIFY === "0") return true
+  if (!ForkFlags.on("ROUTE_RECLASSIFY", env)) return true
   if (!i.previous) return true
   if (i.now - i.previous.time > RECLASSIFY_MAX_AGE_MS) return true
   if (i.previous.signals.confidence < RECLASSIFY_CONFIDENCE) return true
@@ -210,7 +210,7 @@ export function effort(
   },
   env: Env = process.env,
 ) {
-  if (env.OPENCODE_FORK_ROUTE_EFFORT === "0") return undefined
+  if (!ForkFlags.on("ROUTE_EFFORT", env)) return undefined
   const keep = i.previous && !i.switched && !i.cold
   if (keep) return i.previous?.variant && i.available.includes(i.previous.variant) ? i.previous.variant : undefined
   const signals = i.signals
@@ -238,7 +238,7 @@ export function planNudge(
   i: { signals?: Signals; agent: string; root: boolean; available: boolean },
   env: Env = process.env,
 ) {
-  if (env.OPENCODE_FORK_ROUTE_PLAN === "0") return false
+  if (!ForkFlags.on("ROUTE_PLAN", env)) return false
   const at = Number(env.OPENCODE_FORK_ROUTE_PLAN_AT)
   const threshold = Number.isFinite(at) && at > 0 && at <= 1 ? at : 0.7
   const signals = i.signals
@@ -251,7 +251,7 @@ const STRUGGLE_ERRORS = 3
 
 // Tool calls of the turn so far, oldest first: three failures among the last six mean the model is struggling.
 export function struggling(tools: readonly { status: string }[], env: Env = process.env) {
-  if (env.OPENCODE_FORK_ROUTE_ESCALATE === "0") return false
+  if (!ForkFlags.on("ROUTE_ESCALATE", env)) return false
   return tools.slice(-STRUGGLE_WINDOW).filter((tool) => tool.status === "error").length >= STRUGGLE_ERRORS
 }
 
@@ -767,3 +767,4 @@ export function quotaThreshold(env: string | undefined) {
 }
 
 export * as ForkRoute from "./route"
+import { ForkFlags } from "./flags"

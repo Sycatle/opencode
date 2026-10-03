@@ -1,4 +1,5 @@
 export * as ForkStatusline from "./statusline"
+import { ForkFlags } from "./flags"
 
 export const INTERVAL_DEFAULT = 5000
 export const INTERVAL_MIN = 1000
@@ -83,7 +84,7 @@ function duration(ms: number) {
 }
 
 export function backgroundNotifyEnabled() {
-  return process.env.OPENCODE_FORK_BACKGROUND_NOTIFY !== "0"
+  return ForkFlags.on("BACKGROUND_NOTIFY")
 }
 
 export type Finished = { kind: "task" | "shell"; state: "completed" | "error"; exit?: number }

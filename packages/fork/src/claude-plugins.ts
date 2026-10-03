@@ -1,5 +1,6 @@
 export * as ForkClaudePlugins from "./claude-plugins"
 
+import { ForkFlags } from "./flags"
 import { cp, mkdir, rename, rm, stat } from "node:fs/promises"
 import path from "node:path"
 import { ForkHooks } from "./hooks"
@@ -30,7 +31,7 @@ export interface Skill {
 
 // OPENCODE_FORK_CC_PLUGINS=0 turns everything off.
 export function enabled(env: Record<string, string | undefined> = process.env) {
-  return env.OPENCODE_FORK_CC_PLUGINS !== "0"
+  return ForkFlags.on("CC_PLUGINS", env)
 }
 
 export function pluginsDir(home: string) {

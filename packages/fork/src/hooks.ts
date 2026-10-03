@@ -1,3 +1,4 @@
+import { ForkFlags } from "./flags"
 import { ForkJev } from "./jev"
 
 export * as ForkHooks from "./hooks"
@@ -92,7 +93,7 @@ export const DEFAULT_TIMEOUT = 60_000
 
 // Hooks are on unless OPENCODE_FORK_HOOKS=0.
 export function enabled() {
-  return process.env.OPENCODE_FORK_HOOKS !== "0"
+  return ForkFlags.on("HOOKS")
 }
 
 export function describe(entry: Entry) {

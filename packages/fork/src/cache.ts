@@ -33,7 +33,7 @@ const PLUGIN_IDENTITY = "You are Claude Code, Anthropic's official CLI for Claud
 const MAX_BREAKPOINTS = 4
 
 export function authCacheEnabled() {
-  return systemTtl() !== undefined && process.env.OPENCODE_FORK_AUTH_CACHE !== "0"
+  return systemTtl() !== undefined && ForkFlags.on("AUTH_CACHE")
 }
 
 export function isMessagesRequest(input: unknown) {
@@ -103,3 +103,4 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export * as ForkCache from "./cache"
+import { ForkFlags } from "./flags"

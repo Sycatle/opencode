@@ -1,3 +1,4 @@
+import { ForkFlags } from "./flags"
 import type { ForkJev } from "./jev"
 import { ForkTelemetry } from "./telemetry"
 
@@ -20,7 +21,7 @@ export type Rule = { permission: string; pattern: string; action: "allow" | "den
 export const CYCLE: readonly Mode[] = ["normal", "acceptEdits", "plan", "auto"]
 
 export function enabled(env: Record<string, string | undefined> = process.env) {
-  return env.OPENCODE_FORK_AUTO_CLASSIFIER !== "0"
+  return ForkFlags.on("AUTO_CLASSIFIER", env)
 }
 
 export function storedMode(ruleset: readonly Rule[] | undefined): StoredMode | undefined {

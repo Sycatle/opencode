@@ -1,5 +1,6 @@
 export * as ForkMessaging from "./messaging"
 
+import { ForkFlags } from "./flags"
 import { ForkTelemetry } from "./telemetry"
 
 // Messaging between independent sessions (TUI, `run`, `auto`, workflows, subagents). Transport: two tables in
@@ -41,7 +42,7 @@ const KEEP_DELIVERED_MS = 7 * 24 * 3600_000
 const MAX_SLUG = 24
 
 export function enabled() {
-  return process.env.OPENCODE_FORK_MESSAGING !== "0"
+  return ForkFlags.on("MESSAGING")
 }
 
 export function pollMs() {

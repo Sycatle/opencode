@@ -1,3 +1,4 @@
+import { ForkFlags } from "./flags"
 import type { ForkJev } from "./jev"
 import { ForkCache } from "./cache"
 import { writeCost, type Price } from "./route"
@@ -22,7 +23,7 @@ export const BOUNDARY_MIN = 0.35
 export const BOUNDARY_OVERRIDE = 0.7
 
 export function enabled() {
-  return process.env.OPENCODE_FORK_SMART_COMPACTION !== "0"
+  return ForkFlags.on("SMART_COMPACTION")
 }
 
 export type Settings = { at: number; coldAt: number; minTurns: number }

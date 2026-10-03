@@ -2,6 +2,8 @@
 
 Le code du fork vit dans `packages/fork`. Les seuls points de contact avec le code upstream sont listés ici et marqués `// FORK-SEAM: <nom>` dans le source. Ce sont les seuls conflits attendus lors d'un merge upstream.
 
+Toutes les variables `OPENCODE_FORK_*` sont déclarées dans `packages/fork/src/flags.ts` (type, défaut, rôle) ; `test/flags.test.ts` échoue si une variable lue dans les sources n'y figure pas. La palette du TUI les liste avec leur valeur (« Fork features »).
+
 | Seam | Fichier | Rôle |
 | --- | --- | --- |
 | `telemetry-measure` | `packages/opencode/src/session/llm.ts` | Mesure la requête finale (après plugins) : système, outils, historique, sorties d'outils |

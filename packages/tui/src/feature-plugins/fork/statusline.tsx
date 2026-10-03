@@ -1,5 +1,6 @@
 import type { AssistantMessage } from "@opencode-ai/sdk/v2"
 import type { TuiPlugin, TuiPluginApi } from "@opencode-ai/plugin/tui"
+import { ForkFlags } from "@opencode-fork/core/flags"
 import { ForkMessaging } from "@opencode-fork/core/messaging"
 import { ForkQuota } from "@opencode-fork/core/quota"
 import { ForkRouteLog } from "@opencode-fork/core/route-log"
@@ -131,6 +132,19 @@ function BuiltinLine(props: { api: TuiPluginApi }) {
   )
 }
 
+// Read-only: the values this process sees. Flags are environment variables, so changing one means a restart.
+function showFlags(api: TuiPluginApi) {
+  const options = ForkFlags.describe().map((flag) => ({
+    title: flag.name,
+    value: flag.name,
+    category: flag.kind === "jev" ? "Jev (needs TYPESAFE_API_KEY)" : flag.set ? "Set in the environment" : "Defaults",
+    description: flag.description,
+    footer: flag.set ? flag.value : flag.default,
+    onSelect: () => {},
+  }))
+  api.ui.dialog.replace(() => <api.ui.DialogSelect title="Fork features (OPENCODE_FORK_*)" options={options} />)
+}
+
 const tui: TuiPlugin = async (api) => {
   const config = ForkStatusline.config(api.tuiConfig.statusline)
   api.slots.register({
@@ -144,6 +158,15 @@ const tui: TuiPlugin = async (api) => {
 
   api.keymap.registerLayer({
     commands: [
+      {
+        name: "fork.flags",
+        title: "Fork features",
+        category: "System",
+        namespace: "palette",
+        run() {
+          showFlags(api)
+        },
+      },
       ...(ForkWakeup.enabled()
         ? [
             {

@@ -7,6 +7,7 @@
 // Facts that structured data already holds (modified files, todo list, recent tool
 // errors) are not left to the model: they are appended verbatim to the summary.
 
+import { ForkFlags } from "./flags"
 import { ForkCache } from "./cache"
 
 // The replayed request is read from the history cache (see ForkCache.HISTORY_WARM_MS); past this the
@@ -39,7 +40,7 @@ export function forget(sessionID: string) {
 }
 
 export function enabled() {
-  return process.env.OPENCODE_FORK_CACHED_COMPACTION !== "0"
+  return ForkFlags.on("CACHED_COMPACTION")
 }
 
 export const PROMPT = `Stop working on the task. Do not call any tool.
