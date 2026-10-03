@@ -86,7 +86,7 @@ Fichiers ajoutés par le fork (sans conflit possible) :
 - `packages/opencode/src/session/fork-classify.ts`
 - `packages/opencode/src/session/fork-route.ts`
 - `packages/opencode/src/provider/fork-route.ts`
-- `packages/opencode/src/plugin/fork-small-model.ts`
+- `packages/opencode/src/session/fork-small-model.ts`
 - `packages/tui/src/feature-plugins/fork/statusline.tsx`
 - `packages/tui/src/feature-plugins/fork/usage.tsx`
 - `packages/tui/src/feature-plugins/fork/compaction.tsx`
