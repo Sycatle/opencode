@@ -50,7 +50,15 @@ export class Service extends ConfigService.Service<Service>()("@opencode/Runtime
   // FORK-SEAM: lsp-default
   experimentalLspTool: Config.boolean("OPENCODE_EXPERIMENTAL_LSP_TOOL").pipe(Config.withDefault(ForkLsp.DEFAULT)),
   experimentalOxfmt: enabledByExperimental("OPENCODE_EXPERIMENTAL_OXFMT"),
-  experimentalPlanMode: enabledByExperimental("OPENCODE_EXPERIMENTAL_PLAN_MODE"),
+  // FORK-SEAM: plan-default
+  // Plan tools are registered for the cli client only, so the fork default follows it.
+  experimentalPlanMode: Config.all({
+    explicit: Config.boolean("OPENCODE_EXPERIMENTAL_PLAN_MODE").pipe(Config.option),
+    experimental,
+    client: Config.string("OPENCODE_CLIENT").pipe(Config.withDefault("cli")),
+  }).pipe(
+    Config.map((flags) => Option.getOrElse(flags.explicit, () => flags.experimental || flags.client === "cli")),
+  ),
   experimentalCodeMode: enabledByExperimental("OPENCODE_EXPERIMENTAL_CODE_MODE"),
   experimentalEventSystem: enabledByExperimental("OPENCODE_EXPERIMENTAL_EVENT_SYSTEM"),
   experimentalWorkspaces: enabledByExperimental("OPENCODE_EXPERIMENTAL_WORKSPACES"),

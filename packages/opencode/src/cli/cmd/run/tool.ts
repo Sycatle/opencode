@@ -24,7 +24,7 @@ import type { GlobTool } from "@/tool/glob"
 import type { GrepTool } from "@/tool/grep"
 import type { InvalidTool } from "@/tool/invalid"
 import type { LspTool } from "@/tool/lsp"
-import type { PlanExitTool } from "@/tool/plan"
+import type { PlanEnterTool, PlanExitTool } from "@/tool/plan"
 import type { QuestionTool } from "@/tool/question"
 import type { ReadTool } from "@/tool/read"
 import type { SkillTool } from "@/tool/skill"
@@ -109,6 +109,7 @@ type ToolDefs = {
   webfetch: typeof WebFetchTool
   websearch: typeof WebSearchTool
   skill: typeof SkillTool
+  plan_enter: typeof PlanEnterTool
   plan_exit: typeof PlanExitTool
 }
 
@@ -467,6 +468,15 @@ function runLsp(p: ToolProps<typeof LspTool>): ToolInline {
   return {
     icon: "→",
     title: text(p.frame.state.title) || lspTitle(p.input),
+  }
+}
+
+function runPlanEnter(p: ToolProps<typeof PlanEnterTool>): ToolInline {
+  return {
+    icon: "→",
+    title: text(p.frame.state.title) || "Switching to plan agent",
+    mode: "block",
+    body: p.frame.status === "completed" ? text(p.frame.state.output) : undefined,
   }
 }
 
@@ -1217,6 +1227,16 @@ const TOOL_RULES = {
     run: runSkill,
     scroll: {
       start: scrollSkillStart,
+    },
+  },
+  plan_enter: {
+    view: {
+      output: true,
+      final: false,
+    },
+    run: runPlanEnter,
+    scroll: {
+      start: () => "",
     },
   },
   plan_exit: {

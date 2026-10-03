@@ -14,8 +14,6 @@ const NATIVE_DEFERRABLE = [
   "websearch",
   "codesearch",
   "question",
-  "plan_enter",
-  "plan_exit",
   "shell_output",
   "shell_kill",
   "monitor",

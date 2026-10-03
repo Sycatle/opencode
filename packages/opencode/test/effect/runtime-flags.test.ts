@@ -65,6 +65,21 @@ describe("RuntimeFlags", () => {
     }),
   )
 
+  it.effect("plan mode is on by default and can be disabled explicitly", () =>
+    Effect.gen(function* () {
+      const defaults = yield* readFlags.pipe(Effect.provide(fromConfig({})))
+      const disabled = yield* readFlags.pipe(
+        Effect.provide(fromConfig({ OPENCODE_EXPERIMENTAL: "true", OPENCODE_EXPERIMENTAL_PLAN_MODE: "false" })),
+      )
+
+      const desktop = yield* readFlags.pipe(Effect.provide(fromConfig({ OPENCODE_CLIENT: "desktop" })))
+
+      expect(defaults.experimentalPlanMode).toBe(true)
+      expect(desktop.experimentalPlanMode).toBe(false)
+      expect(disabled.experimentalPlanMode).toBe(false)
+    }),
+  )
+
   it.effect("layer parses OPENCODE_EXPERIMENTAL_LSP_TY", () =>
     Effect.gen(function* () {
       const flags = yield* readFlags.pipe(
