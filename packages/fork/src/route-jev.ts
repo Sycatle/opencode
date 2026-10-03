@@ -1,3 +1,4 @@
+import { ForkJev } from "./jev"
 import { TASK_TYPES, truncate, type ContextSize, type Signals, type Summary } from "./route"
 
 // Router signals from Jev (TypeSafe), ported from llm-router (src/router/classifier.rs, `JevClassifier`).
@@ -5,28 +6,14 @@ import { TASK_TYPES, truncate, type ContextSize, type Signals, type Summary } fr
 // type, four 4-level `score` questions and a `noul` for ambiguity. No key, or any failure, and the
 // caller falls back to the small model. What leaves the machine is documented in docs/fork/route.md.
 
-const LEVELS = 4
-const DEFAULT_URL = "https://api.typesafe.ai"
-const DEFAULT_MODEL = "jev-latest"
-const DEFAULT_TIMEOUT_MS = 1500
-
 type Env = Record<string, string | undefined>
 
 export function enabled(env: Env = process.env) {
-  return !!env.TYPESAFE_API_KEY && env.OPENCODE_FORK_ROUTE_JEV !== "0"
-}
-
-export function timeout(env: Env = process.env) {
-  const value = Number(env.OPENCODE_FORK_ROUTE_JEV_TIMEOUT_MS)
-  return Number.isFinite(value) && value > 0 ? value : DEFAULT_TIMEOUT_MS
-}
-
-export function endpoint(env: Env = process.env) {
-  return `${(env.OPENCODE_FORK_ROUTE_JEV_URL || DEFAULT_URL).replace(/\/+$/, "")}/v1/systemone`
+  return ForkJev.mode("ROUTE", env) !== "off"
 }
 
 function score(instructions: string, criteria: [string, string, string, string]) {
-  return { type: "score", instructions, criteria }
+  return { type: "score" as const, instructions, criteria }
 }
 
 export type Input = { prompt: string; summary: Summary }
@@ -44,10 +31,9 @@ function state(input: Input) {
   return lines.join("\n")
 }
 
-export function request(input: Input, env: Env = process.env) {
+export function request(input: Input) {
   return {
     state: state(input),
-    model: env.OPENCODE_FORK_ROUTE_JEV_MODEL || DEFAULT_MODEL,
     questions: {
       task_type: {
         type: "choice",
@@ -85,38 +71,24 @@ export function request(input: Input, env: Env = process.env) {
         "Interactive, instant",
       ]),
       ambiguity: { type: "noul", instructions: "The request is ambiguous, underspecified or open-ended" },
-    },
+    } satisfies Record<string, ForkJev.Question>,
   }
 }
-
-function record(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? Object.fromEntries(Object.entries(value))
-    : undefined
-}
-
-function number(value: unknown) {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined
-}
-
-const clamp = (value: number) => Math.min(1, Math.max(0, value))
 
 // Undefined when the answer is not usable (missing question, missing score): the caller falls back.
 // Scores 0..3 become levels 0..1; the confidence is the mean of the answers' own (0.5 when none).
-export function parse(body: unknown, size: ContextSize): Signals | undefined {
-  const answers = record(record(body)?.answers)
-  if (!answers) return undefined
-  const get = (key: string) => record(answers[key])
-  const level = (key: string) => {
-    const value = number(get(key)?.score)
-    return value === undefined ? undefined : clamp(value / (LEVELS - 1))
-  }
-  const complexity = level("complexity")
-  const reasoning = level("reasoning")
-  const tool_intensity = level("tool_intensity")
-  const latency_sensitivity = level("latency_sensitivity")
-  const task = get("task_type")
-  const ambiguity = get("ambiguity")
+export function parse(body: unknown, size: ContextSize) {
+  const answers = ForkJev.answers(body)
+  return answers && signals(answers, size)
+}
+
+function signals(answers: Record<string, ForkJev.Answer>, size: ContextSize): Signals | undefined {
+  const complexity = ForkJev.level(answers.complexity)
+  const reasoning = ForkJev.level(answers.reasoning)
+  const tool_intensity = ForkJev.level(answers.tool_intensity)
+  const latency_sensitivity = ForkJev.level(answers.latency_sensitivity)
+  const task = answers.task_type
+  const ambiguity = answers.ambiguity
   if (
     complexity === undefined ||
     reasoning === undefined ||
@@ -126,41 +98,32 @@ export function parse(body: unknown, size: ContextSize): Signals | undefined {
     !ambiguity
   )
     return undefined
-  const confidences = Object.values(answers).flatMap((answer) => {
-    const value = number(record(answer)?.confidence)
-    return value === undefined ? [] : [value]
-  })
   return {
     task_type: TASK_TYPES.find((item) => item === task.choice) ?? "other",
     complexity,
     reasoning,
     tool_intensity,
     latency_sensitivity,
-    ambiguity: clamp(number(ambiguity.noul) ?? 0),
+    ambiguity: ForkJev.clamp(ambiguity.noul ?? 0),
     context_size: size,
-    confidence: confidences.length ? clamp(confidences.reduce((sum, value) => sum + value, 0) / confidences.length) : 0.5,
+    confidence: ForkJev.confidence(answers) ?? 0.5,
   }
 }
 
-export type Result = { signals: Signals; error?: undefined } | { signals?: undefined; error: string }
+export type Result =
+  | { signals: Signals; ms: number; error?: undefined }
+  | { signals?: undefined; error: string; ms: number }
 
-// POST to Jev with a bearer token. Never throws: the error text says why the caller must fall back.
+// Never throws: the error text says why the caller must fall back.
 export async function call(
   input: Input & { size: ContextSize },
   env: Env = process.env,
   fetcher: typeof fetch = fetch,
 ): Promise<Result> {
-  const response = await fetcher(endpoint(env), {
-    method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${env.TYPESAFE_API_KEY}` },
-    body: JSON.stringify(request(input, env)),
-    signal: AbortSignal.timeout(timeout(env)),
-  }).catch((error: unknown) => (error instanceof Error ? error : new Error(String(error))))
-  if (response instanceof Error) return { error: `Jev request failed: ${response.message}` }
-  if (!response.ok) return { error: `Jev returned HTTP ${response.status}` }
-  const body: unknown = await response.json().catch(() => undefined)
-  const signals = parse(body, input.size)
-  return signals ? { signals } : { error: "Jev response unusable" }
+  const response = await ForkJev.ask(request(input), env, fetcher)
+  if (response.error !== undefined) return { error: response.error, ms: response.ms }
+  const parsed = signals(response.answers, input.size)
+  return parsed ? { signals: parsed, ms: response.ms } : { error: "Jev response unusable", ms: response.ms }
 }
 
 export * as ForkRouteJev from "./route-jev"
