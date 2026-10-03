@@ -40,7 +40,7 @@ Le code du fork vit dans `packages/fork`. Les seuls points de contact avec le co
 | `statusline-config` | `packages/tui/src/config/index.tsx`, `packages/plugin/src/tui.ts` | Clé `statusline { command, interval }` de la config TUI ; la commande reçoit sur stdin `{ sessionID, model, agent, cwd, quota? }` (`quota` : fenêtres 5h et 7j de l'abonnement, utilization 0-1 et reset en ms, si vues depuis moins de 6 h) |
 | `quota-headers` | `packages/opencode/src/provider/provider.ts` | Lit les en-têtes `anthropic-ratelimit-unified-*` (fenêtres 5h et hebdo de l'abonnement) dans `timeoutFetch` ; alimente l'affichage Quota, le budget `--budget 20%` et l'attente de remise à zéro d'`opencode auto` |
 | `prompt-block-hook` | `packages/opencode/src/session/prompt.ts` | Un `UserPromptSubmit` bloquant est signalé par un part marqué : le seam publie `session.error` avec la raison et arrête le prompt avant persistance (contrat des hooks : `docs/fork/hooks.md`) |
-| `usage-command` | `packages/opencode/src/index.ts` | Enregistre les commandes `opencode usage`, `auto`, `schedule` et `workflow` |
+| `usage-command` | `packages/opencode/src/index.ts` | Enregistre les commandes `opencode usage`, `auto`, `schedule` et `workflow` (un run dont le process est mort passe en `interrupted` ; son coût est lu dans `fork_usage` par session d'étape) |
 
 Fichiers ajoutés par le fork (sans conflit possible) :
 - `packages/fork/**`
