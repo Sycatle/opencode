@@ -59,6 +59,7 @@ Le code du fork vit dans `packages/fork`. Les seuls points de contact avec le co
 | `auto-mode` | `packages/opencode/src/cli/cmd/run.ts` | `opencode run --auto` : session en mode auto ; `--yolo` ou classifieur coupé approuvent côté client, jamais `sandbox_escape` |
 | `workflow-tool` | `packages/opencode/src/tool/registry.ts` | Outil `workflow` (`tool/workflow.ts`, `Workflow` sous le profil Claude Code) : lance `opencode workflow run` en job d'arrière-plan, permission `workflow`, budget restant hérité, notification de fin injectée ; `shell_output` / `shell_kill` / `monitor` l'acceptent (`OPENCODE_FORK_WORKFLOW_TOOL=0` pour couper) |
 | `messaging` | `packages/opencode/src/session/prompt.ts`, `tool/registry.ts` | Messagerie entre sessions vivantes via `fork.db` (`fork_agents`, `fork_inbox`) : un watcher par session livre les messages par `prompt` en part synthétique `<session-message>` ; outils différés `list_agents` / `send_message` (`ListAgents` / `SendMessage`) ; livre aussi les réveils (`wakeups`) (`OPENCODE_FORK_MESSAGING=0` pour couper) |
+| `session-worktree` | `packages/opencode/src/tool/tool.ts`, `tool/registry.ts`, `session/prompt.ts`, `agent/agent.ts`, `packages/tui/src/feature-plugins/sidebar/footer.tsx` | Outils `enter_worktree` / `exit_worktree` (`EnterWorktree` / `ExitWorktree`, différés) : la session principale travaille dans un worktree git (outils exécutés dans l'instance du worktree, permissions et événements restent dans l'instance d'origine) ; `exit_worktree` en `keep`, `merge` (commit avec les hooks du projet, merge, nettoyage ; conflit rapporté sans rien casser) ou `discard` (permission `worktree_discard`, toujours demandée, jamais en auto) ; le `path.cwd` des messages assistant porte le worktree (`OPENCODE_FORK_SESSION_WORKTREE=0` pour couper) |
 | `wakeups` | `packages/opencode/src/tool/registry.ts`, `session/prompt.ts`, `session/fork-messaging.ts`, `command/index.ts` | Réveils dans la session : outil `schedule_wakeup` (`ScheduleWakeup`, différé), un réveil en attente par session dans `fork.db` (`fork_wakeups`), livré en message synthétique `<scheduled-wakeup>` par le watcher de la messagerie quand la session est idle ; commande intégrée `/loop [intervalle] <prompt>` ; champ `wakeup` du payload de statusline (`OPENCODE_FORK_WAKEUPS=0` pour couper, `OPENCODE_FORK_WAKEUP_MIN_SECONDS` abaisse la borne de 60 s en test) |
 | `route-provider` | `packages/opencode/src/provider/provider.ts` | Provider virtuel `router` (`router/auto`, `fast`, `standard`, `reasoning`, `frontier`) ajouté aux providers connectés (`OPENCODE_FORK_ROUTE=0` pour couper) |
 | `route-language` | `packages/opencode/src/provider/provider.ts` | Un modèle `router/*` passé à `getLanguage` (titre, compaction, hooks) tourne sur le modèle concret de son dernier tour |
@@ -84,6 +85,8 @@ Fichiers ajoutés par le fork (sans conflit possible) :
 - `packages/opencode/src/tool/fork-sandbox.ts`
 - `packages/opencode/src/tool/workflow.ts`
 - `packages/opencode/src/tool/fork-wakeup.ts`
+- `packages/opencode/src/tool/fork-session-cwd.ts`
+- `packages/opencode/src/tool/fork-session-worktree.ts`
 - `packages/opencode/src/tool/fork-messaging.ts`
 - `packages/opencode/src/session/fork-messaging.ts`
 - `packages/opencode/src/session/fork-classify.ts`
