@@ -4,6 +4,25 @@ import { ForkAgents } from "../src/agents"
 afterEach(() => {
   delete process.env.OPENCODE_FORK_ROUTE_SUBAGENTS
   delete process.env.OPENCODE_FORK_MAX_BACKGROUND
+  delete process.env.OPENCODE_FORK_SUBAGENT_EFFORT
+})
+
+test("defaultVariant picks the lowest effort variant for explore", () => {
+  expect(ForkAgents.defaultVariant({ name: "explore" }, ["low", "medium", "high"])).toBe("low")
+  expect(ForkAgents.defaultVariant({ name: "explore" }, ["none", "minimal", "low"])).toBe("minimal")
+  expect(ForkAgents.defaultVariant({ name: "explore" }, ["none", "high"])).toBe("none")
+})
+
+test("defaultVariant leaves other agents, explicit variants and variant-less models alone", () => {
+  expect(ForkAgents.defaultVariant({ name: "general" }, ["low"])).toBeUndefined()
+  expect(ForkAgents.defaultVariant({ name: "explore", variant: "high" }, ["low"])).toBeUndefined()
+  expect(ForkAgents.defaultVariant({ name: "explore" }, [])).toBeUndefined()
+  expect(ForkAgents.defaultVariant({ name: "explore" }, ["medium", "high"])).toBeUndefined()
+})
+
+test("defaultVariant can be disabled", () => {
+  process.env.OPENCODE_FORK_SUBAGENT_EFFORT = "0"
+  expect(ForkAgents.defaultVariant({ name: "explore" }, ["low"])).toBeUndefined()
 })
 
 test("explore runs on the small model unless it pins a model", () => {

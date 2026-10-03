@@ -24,6 +24,16 @@ export function routeToSmallModel(agent: { name: string; model?: unknown }) {
   return agent.model === undefined && SMALL_MODEL_AGENTS.includes(agent.name)
 }
 
+// Searching does not need deep reasoning: those agents get the lowest effort variant
+// the model offers, unless the agent sets its own variant.
+const LOW_EFFORT_VARIANTS = ["minimal", "low", "none"]
+
+export function defaultVariant(agent: { name: string; variant?: string }, available: string[]) {
+  if (process.env.OPENCODE_FORK_SUBAGENT_EFFORT === "0") return undefined
+  if (agent.variant !== undefined || !SMALL_MODEL_AGENTS.includes(agent.name)) return undefined
+  return LOW_EFFORT_VARIANTS.find((name) => available.includes(name))
+}
+
 // Headless runs exit when the root session goes idle, which would kill background
 // subagents still working. Their results are injected back into the root session,
 // which then goes busy and idle again: exit on an idle with nothing pending.

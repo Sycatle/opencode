@@ -222,6 +222,7 @@ export const TaskTool = Tool.define(
       const variant = msg.info.variant
 
       // FORK-SEAM: subagent-model-routing
+      // Also applies the low-effort variant of the small model (ForkAgents.defaultVariant).
       const small =
         ForkAgents.routeToSmallModel(next) && Option.isSome(provider)
           ? yield* provider.value.getSmallModel(msg.info.providerID)
@@ -255,7 +256,11 @@ export const TaskTool = Tool.define(
             modelID: model.modelID,
             providerID: model.providerID,
           },
-          variant: next.model || small ? undefined : variant,
+          variant: small
+            ? ForkAgents.defaultVariant(next, Object.keys(small.variants ?? {}))
+            : next.model
+              ? undefined
+              : variant,
           agent: next.name,
           parts,
         }))
