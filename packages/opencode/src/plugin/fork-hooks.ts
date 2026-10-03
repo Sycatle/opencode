@@ -194,7 +194,17 @@ export async function createForkHooksPlugin(input: PluginInput, deps: ForkHooks.
         })
         return
       }
-      const start = await starts.get(info.sessionID)
+      const pending = starts.get(info.sessionID)
+      // The prompt waits for SessionStart hooks (60 s by default): say so when they are slow rather than look frozen.
+      const slow = pending
+        ? setTimeout(() => {
+            void input.client.tui
+              .showToast({ body: { message: "Waiting for SessionStart hooks…", variant: "info", duration: 4000 } })
+              .catch(() => undefined)
+          }, 1500)
+        : undefined
+      const start = await pending
+      clearTimeout(slow)
       starts.delete(info.sessionID)
       const part = (text: string) => ({
         id: PartID.ascending(),
