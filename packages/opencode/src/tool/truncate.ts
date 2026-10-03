@@ -8,11 +8,13 @@ import { evaluate } from "@/permission/evaluate"
 import { Config } from "@/config/config"
 import { ToolID } from "./schema"
 import { TRUNCATION_DIR } from "./truncation-dir"
+import { ForkContext } from "@opencode-fork/core/context"
 
 const RETENTION = Duration.days(7)
 
-export const MAX_LINES = 2000
-export const MAX_BYTES = 50 * 1024
+// FORK-SEAM: tool-output-limits
+export const MAX_LINES = ForkContext.TOOL_OUTPUT.maxLines
+export const MAX_BYTES = ForkContext.TOOL_OUTPUT.maxBytes
 export const DIR = TRUNCATION_DIR
 export const GLOB = path.join(TRUNCATION_DIR, "*")
 

@@ -12,4 +12,9 @@ export function prunedStub(part: { tool: string; state: { title?: string; output
   return `[Old result of ${part.tool}${title} cleared (${lines} lines). Re-run the tool if you need it again.]`
 }
 
+// Upstream keeps 2000 lines / 50 KB (~12k tokens) of every tool output in context.
+// The full output is still written to disk with a pointer, so the model can grep it.
+// Same bytes-per-line ratio as upstream, so the byte limit still wins on dense output.
+export const TOOL_OUTPUT = { maxLines: 640, maxBytes: 16 * 1024 }
+
 export * as ForkContext from "./context"
