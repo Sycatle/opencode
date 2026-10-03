@@ -13,6 +13,7 @@ Le code du fork vit dans `packages/fork`. Les seuls points de contact avec le co
 | `budget` | `packages/opencode/src/session/prompt.ts` | Budget en $ par arbre de sessions (`OPENCODE_FORK_BUDGET_USD`) : un tour de conclusion sans outils à 100 %, arrêt à 120 % |
 | `compaction-remember` | `packages/opencode/src/session/processor.ts` | Mémorise la dernière requête de la boucle principale par session |
 | `cached-compaction` | `packages/opencode/src/session/compaction.ts` | Résumé en rejouant la dernière requête (cache) quand c'est moins cher que le transcript upstream (`OPENCODE_FORK_CACHED_COMPACTION=0` pour couper) |
+| `smart-compaction` | `packages/opencode/src/session/prompt.ts` | Compaction aux bons moments (`ForkCompactionTiming.decide`, `session/fork-smart-compaction.ts`) : en fin de tour sur une frontière de tâche (todo terminée ou réponse finale, contexte ≥ `OPENCODE_FORK_COMPACT_AT`, 0.5) et au début d'un tour après un cache froid (`OPENCODE_FORK_COMPACT_COLD_AT`, 0.3), seulement si le bénéfice dépasse le coût ; jamais en boucle d'outils, avec un job d'arrière-plan, en plan mode ni moins de `OPENCODE_FORK_COMPACT_MIN_TURNS` (3) tours après une compaction ; décisions dans `fork_compaction` (`opencode usage <session>`) (`OPENCODE_FORK_SMART_COMPACTION=0` pour couper) |
 | `compaction-facts` | `packages/opencode/src/session/compaction.ts` | Ajoute au résumé fichiers modifiés, todo-list et erreurs récentes, tirés des données |
 | `background-default` | `packages/opencode/src/effect/runtime-flags.ts` | Sous-agents en arrière-plan actifs par défaut (`OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=false` pour couper) |
 | `background-cap` | `packages/opencode/src/tool/task.ts` | Au plus 4 tâches d'arrière-plan simultanées (`OPENCODE_FORK_MAX_BACKGROUND`) |
@@ -93,6 +94,7 @@ Fichiers ajoutés par le fork (sans conflit possible) :
 - `packages/tui/src/feature-plugins/fork/usage.tsx`
 - `packages/tui/src/feature-plugins/fork/compaction.tsx`
 - `packages/opencode/src/session/fork-compaction.ts`
+- `packages/opencode/src/session/fork-smart-compaction.ts`
 - `script/fork-sync.sh`
 
 Dépendance `@opencode-fork/core` ajoutée dans `packages/opencode/package.json` et `packages/tui/package.json`.
