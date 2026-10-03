@@ -66,6 +66,7 @@ Le code du fork vit dans `packages/fork`. Les seuls points de contact avec le co
 | `route-provider` | `packages/opencode/src/provider/provider.ts` | Provider virtuel `router` (`router/auto`, `fast`, `standard`, `reasoning`, `frontier`) ajouté aux providers connectés (`OPENCODE_FORK_ROUTE=0` pour couper) |
 | `route-language` | `packages/opencode/src/provider/provider.ts` | Un modèle `router/*` passé à `getLanguage` (titre, compaction, hooks) tourne sur le modèle concret de son dernier tour |
 | `route-turn` | `packages/opencode/src/session/prompt.ts` | Résout `router/*` en modèle concret à chaque tour : signaux de Jev (sinon du petit modèle) au nouveau message, politique de llm-router, changement conscient du cache (TTL 1h en interactif, cache chaud par modèle), journal `fork_route` ; `OPENCODE_FORK_ROUTE_TIERS` (JSON) et `OPENCODE_FORK_ROUTE_QUOTA` (0.9) |
+| `guard-plugin` | `packages/opencode/src/plugin/index.ts` | Plugin interne `fork-guard` (sortie de `webfetch` et, en opt-in, des outils MCP) : Jev détecte une injection de prompt, un avertissement fixe est écrit une fois dans la sortie stockée et la session est marquée 10 min (le mode auto n'y approuve plus sur la seule parole de Jev) |
 | `tools-preload` | `packages/opencode/src/session/tools.ts` (appelé depuis `prompt.ts`) | Au premier pas d'un message utilisateur, avant `defer`, Jev peut précharger des outils différés (opt-in `OPENCODE_FORK_DEFER_TOOLS_JEV=1`) : le choix est stocké dans une part texte `ignored` (`forkPreloaded`) que `loadedTools` relit à chaque tour, donc le bloc d'outils reste identique ; seulement au premier tour après un démarrage ou une compaction, ou cache expiré |
 | `prune-keep` | `packages/opencode/src/session/compaction.ts` | Avant d'effacer un lot de sorties d'outils (`prune`), Jev peut en épargner jusqu'à un quart qu'il juge encore nécessaires (opt-in `OPENCODE_FORK_PRUNE_JEV=1`) ; une sortie épargnée est marquée `forkKept` et sera effacée au lot suivant |
 | `route-effort` | `packages/opencode/src/session/prompt.ts` | Variante d'effort de raisonnement choisie par le Router pour le tour (`ForkRoute.effort`), sauf si l'utilisateur en a choisi une ; la variante est enregistrée dans `fork_route.variant` et ne change qu'avec le modèle ou à froid |
@@ -105,6 +106,7 @@ Fichiers ajoutés par le fork (sans conflit possible) :
 - `packages/opencode/src/session/fork-compaction.ts`
 - `packages/opencode/src/session/fork-smart-compaction.ts`
 - `packages/opencode/src/session/fork-prune.ts`
+- `packages/opencode/src/plugin/fork-guard.ts`
 - `packages/opencode/src/session/fork-preload.ts`
 - `packages/opencode/src/session/fork-suggest.ts`
 - `script/fork-sync.sh`

@@ -1,4 +1,7 @@
 import { ForkClassifier } from "@opencode-fork/core/classifier"
+import { ForkGuard } from "@opencode-fork/core/guard"
+import { ForkJev } from "@opencode-fork/core/jev"
+import { Global } from "@opencode-ai/core/global"
 import { Effect } from "effect"
 import type { Permission } from "@/permission"
 import type { SessionID } from "./schema"
@@ -56,6 +59,48 @@ const classify = Effect.fn("ForkClassify.classify")(function* (input: AskInput) 
   })
   const lastUser = messages.findLast((message) => message.info.role === "user")
   const action = { permission: input.permission, patterns: input.patterns, metadata: input.metadata }
+
+  // Jev first. A confident danger or a confident, requested, in-scope action settles the request here; anything
+  // else, a failure and the shadow mode go on to the small model. An approval never comes from Jev alone when
+  // the session recently read tool output that looked like an injection.
+  const jev = ForkJev.mode("AUTO_CLASSIFIER")
+  if (jev !== "off") {
+    const answer = yield* Effect.promise(() =>
+      ForkJev.ask(
+        ForkClassifier.jevRequest({
+          action,
+          directory: session._tag === "Some" ? session.value.directory : undefined,
+          home: Global.Path.home,
+          lastUser: lastUser?.parts.flatMap((part) => (part.type === "text" && !part.synthetic ? [part.text] : [])).join("\n"),
+        }),
+      ),
+    )
+    const verdict = ForkClassifier.jevVerdict(answer.answers, ForkGuard.recent(input.sessionID))
+    ForkJev.journal({
+      feature: "auto_classifier",
+      session_id: input.sessionID,
+      ms: answer.ms,
+      ok: answer.answers !== undefined,
+      error: answer.error,
+      decision: verdict?.decision ?? "small-model",
+      answers: answer.answers,
+    })
+    if (verdict && jev === "on") {
+      const decision = verdict.decision === "allow" ? ("allow" as const) : ("deny" as const)
+      ForkClassifier.record({
+        sessionID: input.sessionID,
+        ...action,
+        decision,
+        reason: verdict.reason,
+        cost: 0,
+        providerID: "typesafe",
+        modelID: ForkJev.model(),
+        source: "jev",
+        ms: answer.ms,
+      })
+      return { decision, reason: verdict.reason }
+    }
+  }
 
   const exit = yield* smallModelRun({
     prompt: ForkClassifier.prompt({

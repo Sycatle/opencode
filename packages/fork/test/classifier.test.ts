@@ -94,3 +94,46 @@ test("decisions are recorded in fork.db", () => {
     { permission: "bash", decision: "deny", reason: "outside project", cost: 0.001 },
   ])
 })
+
+const risk = (choice: string, confidence: number, requested?: number) => ({
+  risk: { choice, confidence },
+  ...(requested === undefined ? {} : { requested: { noul: requested } }),
+})
+
+test("Jev asks the user on a confident danger and approves only a confident, requested, in-scope action", () => {
+  expect(ForkClassifier.jevVerdict(risk("destructive", 0.8), false)).toEqual({ decision: "ask", reason: "Jev: destructive (0.80)" })
+  expect(ForkClassifier.jevVerdict(risk("outside_project", 0.7), false)?.decision).toBe("ask")
+  expect(ForkClassifier.jevVerdict(risk("secrets", 0.6), false)).toBeUndefined()
+  expect(ForkClassifier.jevVerdict(risk("in_scope_safe", 0.95, 0.9), false)?.decision).toBe("allow")
+  expect(ForkClassifier.jevVerdict(risk("in_scope_safe", 0.85, 0.9), false)).toBeUndefined()
+  expect(ForkClassifier.jevVerdict(risk("in_scope_safe", 0.95, 0.5), false)).toBeUndefined()
+  expect(ForkClassifier.jevVerdict(risk("in_scope_safe", 0.95), false)).toBeUndefined()
+  // Never an approval on Jev's word alone after an injection.
+  expect(ForkClassifier.jevVerdict(risk("in_scope_safe", 0.99, 0.99), true)).toBeUndefined()
+  expect(ForkClassifier.jevVerdict(risk("destructive", 0.99), true)?.decision).toBe("ask")
+  expect(ForkClassifier.jevVerdict(risk("unclear", 0.99), false)).toBeUndefined()
+  expect(ForkClassifier.jevVerdict(undefined, false)).toBeUndefined()
+  expect(ForkClassifier.jevVerdict({ requested: { noul: 1 } }, false)).toBeUndefined()
+})
+
+test("the Jev request masks the project and home directories and keeps only a few fields", () => {
+  const request = ForkClassifier.jevRequest({
+    action: {
+      permission: "bash",
+      patterns: ["cat /home/me/app/.env"],
+      metadata: { command: "cat /home/me/app/.env", diff: "SECRET=hunter2", description: "read env" },
+    },
+    directory: "/home/me/app",
+    home: "/home/me",
+    lastUser: "show me /home/me/notes",
+  })
+  expect(request.state).toContain("permission: bash")
+  expect(request.state).toContain("patterns: cat ./.env")
+  expect(request.state).toContain("command: cat ./.env")
+  expect(request.state).toContain("show me ~/notes")
+  expect(request.state).not.toContain("hunter2")
+  expect(request.state).not.toContain("read env")
+  expect(request.state).not.toContain("/home/me")
+  expect(Object.keys(request.questions)).toEqual(["risk", "requested"])
+  expect(Object.keys(request.questions.risk.criteria)).toContain("in_scope_safe")
+})
