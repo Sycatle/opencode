@@ -1,6 +1,7 @@
 import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { ForkCache } from "@opencode-fork/core/cache"
 import { ForkCompaction } from "@opencode-fork/core/compaction"
+import { ForkJev } from "@opencode-fork/core/jev"
 import { ForkCompactionLog } from "@opencode-fork/core/compaction-log"
 import { ForkCompactionTiming } from "@opencode-fork/core/compaction-timing"
 import { Effect, Option } from "effect"
@@ -15,7 +16,7 @@ import type { Provider } from "@/provider/provider"
 const MIN_TAIL = 2_000
 const MAX_TAIL = 15_000
 
-export const check = Effect.fn("ForkSmartCompaction.check")(function* (input: {
+export type CheckInput = {
   phase: ForkCompactionTiming.Phase
   sessionID: string
   // A subagent session is discarded by its parent, summarizing it is wasted.
@@ -26,7 +27,9 @@ export const check = Effect.fn("ForkSmartCompaction.check")(function* (input: {
   // The last assistant message that finished.
   assistant: SessionV1.Assistant | undefined
   background: BackgroundJob.Interface
-}) {
+}
+
+export const check = Effect.fn("ForkSmartCompaction.check")(function* (input: CheckInput) {
   const assistant = input.assistant
   if (!ForkCompactionTiming.enabled() || input.parentID || !assistant || assistant.summary || assistant.error)
     return false
@@ -35,15 +38,54 @@ export const check = Effect.fn("ForkSmartCompaction.check")(function* (input: {
   const model = yield* input.provider.getModel(assistant.providerID, assistant.modelID).pipe(Effect.option)
   if (Option.isNone(model)) return false
   const running = yield* input.background.list()
-  const decision = ForkCompactionTiming.decide(snapshot(input, model.value, assistant, jobsOf(input.sessionID, running)))
+  const state = snapshot(input, model.value, assistant, jobsOf(input.sessionID, running))
+  const first = ForkCompactionTiming.decide(state)
+  const decision = first.compact && first.code === "boundary" ? yield* confirmBoundary(input, state, first) : first
   // Every turn start runs the check; only the ones that can act are worth a row.
   if (input.phase === "start" && decision.code === "warm") return false
   ForkCompactionLog.record({ sessionID: input.sessionID, messageID: assistant.id, phase: input.phase, decision })
   return decision.compact
 })
 
+// Jev can only delay a compaction that waits for a task boundary, never bring one forward: the ones that
+// the cold cache or the overflow force are not asked. In shadow mode Jev answers but the first decision stands.
+const confirmBoundary = Effect.fn("ForkSmartCompaction.boundary")(function* (
+  input: CheckInput,
+  state: ForkCompactionTiming.Input,
+  first: ForkCompactionTiming.Decision,
+) {
+  const mode = ForkJev.mode("SMART_COMPACTION")
+  if (mode === "off") return first
+  const text = (role: "user" | "assistant") =>
+    (input.messages.findLast((message) => message.info.role === role)?.parts ?? [])
+      .flatMap((part) => (part.type === "text" && !part.synthetic && !part.ignored ? [part.text] : []))
+      .join("\n")
+  const response = yield* Effect.promise(() =>
+    ForkJev.ask(
+      ForkCompactionTiming.jevRequest({
+        user: text("user"),
+        reply: text("assistant"),
+        todos: state.todos.filter((todo) => todo.status !== "completed").length,
+      }),
+    ),
+  )
+  const boundary = response.answers?.boundary?.noul
+  const second = boundary === undefined ? first : ForkCompactionTiming.decide({ ...state, boundary })
+  ForkJev.journal({
+    feature: "smart_compaction",
+    session_id: input.sessionID,
+    ms: response.ms,
+    ok: boundary !== undefined,
+    error: response.error ?? (boundary === undefined ? "Jev response unusable" : undefined),
+    decision: second.compact ? "compact" : "delay",
+    other: mode === "shadow" ? "compact" : undefined,
+    answers: response.answers,
+  })
+  return mode === "shadow" ? first : second
+})
+
 function snapshot(
-  input: Parameters<typeof check>[0],
+  input: CheckInput,
   model: Provider.Model,
   assistant: SessionV1.Assistant,
   background: boolean,
