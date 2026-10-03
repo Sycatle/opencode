@@ -1,6 +1,7 @@
 export * as ForkClaudePlugins from "./claude-plugins"
 
 import path from "node:path"
+import { ForkHooks } from "./hooks"
 
 // Reads Claude Code plugins installed under ~/.claude/plugins (read-only, except the helpers
 // used by the `plugin-cc` CLI). Plugin skills, commands and agents are namespaced `<plugin>:<name>`.
@@ -359,6 +360,59 @@ export async function mcp(opts: Options): Promise<Record<string, Mcp>> {
     }),
   )
   return Object.fromEntries(entries.flat())
+}
+
+// Events whose matcher does not select a tool name in the fork. Claude Code matchers on these
+// (e.g. SessionStart `startup|clear|compact`) filter on other values, so they are dropped.
+const UNMATCHED_EVENTS = ["UserPromptSubmit", "SessionStart", "Stop", "PreCompact"]
+
+// Converts the content of a plugin `hooks/hooks.json` (`{ hooks: { Event: [{ matcher, hooks: [{ type,
+// command, timeout }] }] } }`, timeout in seconds) into the fork `hooks` config key. Only `command`
+// hooks of events the fork supports survive; `${CLAUDE_PLUGIN_ROOT}` is expanded.
+export function hooks(input: unknown, root: string): ForkHooks.Hooks {
+  const events = isRecord(input) && isRecord(input.hooks) ? input.hooks : input
+  if (!isRecord(events)) return {}
+  return ForkHooks.parse(
+    Object.fromEntries(
+      Object.entries(events).map(([event, groups]) => [
+        event,
+        (Array.isArray(groups) ? groups : []).filter(isRecord).flatMap((group) =>
+          (Array.isArray(group.hooks) ? group.hooks : []).filter(isRecord).flatMap((hook) => {
+            if (hook.type !== "command" || typeof hook.command !== "string") return []
+            return [
+              {
+                command: expandRoot(hook.command, root),
+                ...(typeof group.matcher === "string" && !UNMATCHED_EVENTS.includes(event)
+                  ? { matcher: group.matcher }
+                  : {}),
+                ...(typeof hook.timeout === "number" && hook.timeout > 0 ? { timeout: hook.timeout * 1000 } : {}),
+              },
+            ]
+          }),
+        ),
+      ]),
+    ),
+  )
+}
+
+// Hooks of every enabled plugin, concatenated per event. Not wired into the config yet.
+export async function pluginHooks(opts: Options): Promise<ForkHooks.Hooks> {
+  const plugins = await installed(opts)
+  const all = await Promise.all(
+    plugins.map(async (plugin) => hooks(await readJson(path.join(plugin.root, "hooks", "hooks.json")), plugin.root)),
+  )
+  return all.reduce<ForkHooks.Hooks>(
+    (merged, next) => ({
+      ...merged,
+      ...Object.fromEntries(
+        Object.entries(next).map(([event, entries]) => [
+          event,
+          [...(merged[event as ForkHooks.Event] ?? []), ...entries],
+        ]),
+      ),
+    }),
+    {},
+  )
 }
 
 export interface Config {

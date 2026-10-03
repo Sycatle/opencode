@@ -228,6 +228,48 @@ test("mcp servers convert both .mcp.json shapes and expand the plugin root", asy
   })
 })
 
+test("hooks.json converts to the fork hooks key", async () => {
+  const dir = root("claude-plugins-official", "superpowers", "6.4.1")
+  const file = {
+    hooks: {
+      SessionStart: [
+        {
+          matcher: "startup|clear|compact",
+          hooks: [
+            {
+              type: "command",
+              command: '"${CLAUDE_PLUGIN_ROOT}/hooks/run-hook.cmd" session-start',
+              shell: "bash",
+              async: false,
+            },
+          ],
+        },
+      ],
+      PreToolUse: [
+        {
+          matcher: "Bash|Edit",
+          hooks: [
+            { type: "command", command: "$CLAUDE_PLUGIN_ROOT/guard.sh", timeout: 5 },
+            { type: "prompt", prompt: "ignored" },
+          ],
+        },
+      ],
+      SubagentStop: [{ hooks: [{ type: "command", command: "unsupported" }] }],
+      Stop: "malformed",
+    },
+  }
+  expect(ForkClaudePlugins.hooks(file, dir)).toEqual({
+    SessionStart: [{ command: `"${dir}/hooks/run-hook.cmd" session-start` }],
+    PreToolUse: [{ matcher: "Bash|Edit", command: `${dir}/guard.sh`, timeout: 5000 }],
+  })
+  expect(ForkClaudePlugins.hooks(undefined, dir)).toEqual({})
+
+  await write(path.join(dir, "hooks", "hooks.json"), file)
+  await install({ "superpowers@claude-plugins-official": [{ root: dir }] })
+  const merged = await ForkClaudePlugins.pluginHooks({ home, env })
+  expect(Object.keys(merged).sort()).toEqual(["PreToolUse", "SessionStart"])
+})
+
 test("commands are namespaced by plugin and subdirectory", async () => {
   const dir = root("claude-plugins-official", "notion", "0.1.0")
   await write(
