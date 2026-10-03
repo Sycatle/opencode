@@ -457,6 +457,7 @@ const SPECS: Spec[] = [
   { native: "workflow", cc: "Workflow" },
   { native: "list_agents", cc: "ListAgents" },
   { native: "send_message", cc: "SendMessage" },
+  { native: "schedule_wakeup", cc: "ScheduleWakeup" },
   { native: "lsp", cc: "LSP" },
   { native: "list_mcp_resources", cc: "ListMcpResourcesTool" },
   { native: "read_mcp_resource", cc: "ReadMcpResourceTool" },

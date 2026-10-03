@@ -19,6 +19,7 @@ import { Plugin } from "../plugin"
 import { MAX_STEPS_PROMPT } from "@opencode-ai/core/session/runner/max-steps"
 import { ForkBudget } from "@opencode-fork/core/budget"
 import { ForkSessionMessaging } from "./fork-messaging"
+import { ForkWakeup } from "@opencode-fork/core/wakeup"
 import { ForkHooks } from "@opencode-fork/core/hooks"
 import { ToolRegistry } from "@/tool/registry"
 import { MCP } from "../mcp"
@@ -1091,7 +1092,12 @@ const layer = Layer.effect(
     })
 
     // FORK-SEAM: messaging
-    const messaging = ForkSessionMessaging.make({ scope, prompt, title: (id) => sessions.get(id) })
+    const messaging = ForkSessionMessaging.make({
+      scope,
+      prompt,
+      title: (id) => sessions.get(id),
+      busy: (id) => status.get(id).pipe(Effect.map((item) => item.type !== "idle")),
+    })
 
     const runLoop: (sessionID: SessionID) => Effect.Effect<SessionV1.WithParts> = Effect.fn("SessionPrompt.run")(
       function* (sessionID: SessionID) {
@@ -1429,9 +1435,21 @@ const layer = Layer.effect(
       }
       const agentName = cmd.agent ?? input.agent
 
-      const raw = input.arguments.match(argsRegex) ?? []
+      // FORK-SEAM: wakeups
+      const loop =
+        ForkWakeup.enabled() && cmd.description === ForkWakeup.LOOP_DESCRIPTION
+          ? ForkWakeup.startLoop(input.sessionID, input.arguments)
+          : undefined
+      if (loop && !loop.ok) {
+        const error = new NamedError.Unknown({ message: loop.error })
+        yield* events.publish(Session.Event.Error, { sessionID: input.sessionID, error: error.toObject() })
+        throw error
+      }
+      const commandArguments = loop?.prompt ?? input.arguments
+
+      const raw = commandArguments.match(argsRegex) ?? []
       const args = raw.map((arg) => arg.replace(quoteTrimRegex, ""))
-      const templateCommand = yield* Effect.promise(async () => cmd.template)
+      const templateCommand = loop?.template ?? (yield* Effect.promise(async () => cmd.template))
 
       const placeholders = templateCommand.match(placeholderRegex) ?? []
       let last = 0
@@ -1448,10 +1466,10 @@ const layer = Layer.effect(
         return args[argIndex]
       })
       const usesArgumentsPlaceholder = templateCommand.includes("$ARGUMENTS")
-      let template = withArgs.replaceAll("$ARGUMENTS", input.arguments)
+      let template = withArgs.replaceAll("$ARGUMENTS", commandArguments)
 
-      if (placeholders.length === 0 && !usesArgumentsPlaceholder && input.arguments.trim()) {
-        template = template + "\n\n" + input.arguments
+      if (placeholders.length === 0 && !usesArgumentsPlaceholder && commandArguments.trim()) {
+        template = template + "\n\n" + commandArguments
       }
 
       const shellMatches = ConfigMarkdown.shell(template)
@@ -1519,7 +1537,7 @@ const layer = Layer.effect(
 
       yield* plugin.trigger(
         "command.execute.before",
-        { command: input.command, sessionID: input.sessionID, arguments: input.arguments },
+        { command: input.command, sessionID: input.sessionID, arguments: commandArguments },
         { parts },
       )
 

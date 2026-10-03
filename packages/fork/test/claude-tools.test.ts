@@ -49,6 +49,7 @@ const CALLS: Record<string, Record<string, unknown>> = {
   Workflow: { scriptPath: "/a/flow.js", args: { target: "src" }, resumeFromRunId: "wf_1" },
   ListAgents: {},
   SendMessage: { to: "refactor-auth", message: "Tests are green", summary: "Tests green" },
+  ScheduleWakeup: { delaySeconds: 300, prompt: "check the build", reason: "waiting for CI" },
   LSP: { operation: "hover", filePath: "/a/b.ts", line: 1, character: 2 },
   ListMcpResourcesTool: { server: "s" },
   ReadMcpResourceTool: { server: "s", uri: "file:///x" },

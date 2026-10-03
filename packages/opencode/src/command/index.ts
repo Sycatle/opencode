@@ -9,6 +9,7 @@ import { MCP } from "../mcp"
 import { Skill } from "../skill"
 import PROMPT_INITIALIZE from "./template/initialize.txt"
 import PROMPT_REVIEW from "./template/review.txt"
+import { ForkWakeup } from "@opencode-fork/core/wakeup"
 import { LegacyEvent } from "@opencode-ai/schema/legacy-event"
 
 type State = {
@@ -86,6 +87,16 @@ const layer = Layer.effect(
         subtask: true,
         hints: hints(PROMPT_REVIEW),
       }
+
+      // FORK-SEAM: wakeups
+      if (ForkWakeup.enabled())
+        commands.loop = {
+          name: "loop",
+          description: ForkWakeup.LOOP_DESCRIPTION,
+          source: "command",
+          template: "$ARGUMENTS",
+          hints: ["$ARGUMENTS"],
+        }
 
       for (const [name, command] of Object.entries(cfg.command ?? {})) {
         commands[name] = {

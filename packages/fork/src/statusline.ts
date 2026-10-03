@@ -28,6 +28,8 @@ export function input(data: {
   agent?: string
   cwd: string
   quota?: Quota
+  // Pending in-session wakeup (see ForkWakeup): due time in ms, its reason, and whether it repeats.
+  wakeup?: { due: number; reason?: string; repeat: boolean }
 }) {
   return JSON.stringify(data)
 }

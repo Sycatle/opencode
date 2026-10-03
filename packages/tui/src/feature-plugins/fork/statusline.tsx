@@ -3,6 +3,7 @@ import type { TuiPlugin, TuiPluginApi } from "@opencode-ai/plugin/tui"
 import { ForkMessaging } from "@opencode-fork/core/messaging"
 import { ForkQuota } from "@opencode-fork/core/quota"
 import { ForkStatusline } from "@opencode-fork/core/statusline"
+import { ForkWakeup } from "@opencode-fork/core/wakeup"
 import { useTerminalDimensions } from "@opentui/solid"
 import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js"
 import type { BuiltinTuiPlugin } from "../builtins"
@@ -19,6 +20,7 @@ function payload(api: TuiPluginApi, session: string) {
   const last = api.state.session
     .messages(session)
     .findLast((item): item is AssistantMessage => item.role === "assistant")
+  const wakeup = ForkWakeup.enabled() ? ForkWakeup.get(session) : undefined
   return ForkStatusline.input({
     sessionID: session,
     name: ForkMessaging.enabled() ? ForkMessaging.nameOf(session) : undefined,
@@ -26,6 +28,7 @@ function payload(api: TuiPluginApi, session: string) {
     agent: last?.agent,
     cwd: api.state.path.directory,
     quota: last ? ForkStatusline.quota(ForkQuota.fresh(last.providerID)) : undefined,
+    wakeup: wakeup && { due: wakeup.due, reason: wakeup.reason || undefined, repeat: wakeup.every !== null },
   })
 }
 

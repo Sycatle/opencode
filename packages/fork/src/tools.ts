@@ -20,6 +20,7 @@ const NATIVE_DEFERRABLE = [
   "workflow",
   "list_agents",
   "send_message",
+  "schedule_wakeup",
 ]
 
 // Rarely used native tools, deferred like MCP ones. OPENCODE_FORK_DEFER_NATIVE:

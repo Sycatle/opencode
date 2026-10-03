@@ -12,6 +12,8 @@ import { WorkflowTool } from "./workflow"
 import { ForkWorkflow } from "@opencode-fork/core/workflow"
 import { ListAgentsTool, SendMessageTool } from "./fork-messaging"
 import { ForkMessaging } from "@opencode-fork/core/messaging"
+import { ScheduleWakeupTool } from "./fork-wakeup"
+import { ForkWakeup } from "@opencode-fork/core/wakeup"
 import { ForkShell } from "@opencode-fork/core/shell"
 import { EditTool } from "./edit"
 import { GlobTool } from "./glob"
@@ -123,6 +125,7 @@ const layer = Layer.effect(
     const workflow = yield* WorkflowTool
     const listAgents = yield* ListAgentsTool
     const sendMessage = yield* SendMessageTool
+    const scheduleWakeup = yield* ScheduleWakeupTool
     const globtool = yield* GlobTool
     const writetool = yield* WriteTool
     const edit = yield* EditTool
@@ -230,6 +233,7 @@ const layer = Layer.effect(
           workflow: Tool.init(workflow),
           listAgents: Tool.init(listAgents),
           sendMessage: Tool.init(sendMessage),
+          scheduleWakeup: Tool.init(scheduleWakeup),
           read: Tool.init(read),
           glob: Tool.init(globtool),
           grep: Tool.init(greptool),
@@ -262,6 +266,8 @@ const layer = Layer.effect(
             ...(ForkWorkflow.toolEnabled() ? [tool.workflow] : []),
             // FORK-SEAM: messaging
             ...(ForkMessaging.enabled() ? [tool.listAgents, tool.sendMessage] : []),
+            // FORK-SEAM: wakeups
+            ...(ForkWakeup.enabled() ? [tool.scheduleWakeup] : []),
             tool.read,
             tool.glob,
             tool.grep,
