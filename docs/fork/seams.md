@@ -18,6 +18,7 @@ Le code du fork vit dans `packages/fork`. Les seuls points de contact avec le co
 | `background-cap` | `packages/opencode/src/tool/task.ts` | Au plus 4 tâches d'arrière-plan simultanées (`OPENCODE_FORK_MAX_BACKGROUND`) |
 | `subagent-depth` | `packages/opencode/src/tool/task.ts` | Profondeur par défaut 2 au lieu de 1 |
 | `subagent-model-routing` | `packages/opencode/src/tool/task.ts` | `explore` tourne sur le petit modèle du provider (`OPENCODE_FORK_ROUTE_SUBAGENTS=0` pour couper) |
+| `worktree-isolation` | `packages/opencode/src/tool/task.ts` | Paramètre `isolation: "worktree"` : le sous-agent tourne dans un worktree git, ses changements reviennent en commit sur une branche `opencode/<nom>` |
 | `run-wait-background` | `packages/opencode/src/cli/cmd/run.ts` | `opencode run` attend les sous-agents d'arrière-plan avant de quitter |
 | `usage-command` | `packages/opencode/src/index.ts` | Enregistre les commandes `opencode usage` et `opencode auto` |
 
@@ -25,6 +26,7 @@ Fichiers ajoutés par le fork (sans conflit possible) :
 - `packages/fork/**`
 - `packages/opencode/src/cli/cmd/usage.ts`
 - `packages/opencode/src/cli/cmd/auto.ts`
+- `packages/opencode/src/tool/fork-worktree.ts`
 - `packages/opencode/src/session/fork-compaction.ts`
 - `script/fork-sync.sh`
 

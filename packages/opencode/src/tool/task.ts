@@ -16,6 +16,10 @@ import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Database } from "@opencode-ai/core/database/database"
 import { Provider } from "@/provider/provider"
 import { ForkAgents } from "@opencode-fork/core/agents"
+import { ForkWorktree } from "./fork-worktree"
+import { Worktree } from "@/worktree"
+import { InstanceStore } from "@/project/instance-store"
+import { InstanceRef } from "@/effect/instance-ref"
 
 export interface TaskPromptOps {
   cancel(sessionID: SessionID): Effect.Effect<void>
@@ -51,6 +55,11 @@ const BaseParameterFields = {
       "This should only be set if you mean to resume a previous task (you can pass a prior task_id and the task will continue the same subagent session as before instead of creating a fresh one)",
   }),
   command: Schema.optional(Schema.String).annotate({ description: "The command that triggered this task" }),
+  // FORK-SEAM: worktree-isolation (parameter)
+  isolation: Schema.optional(Schema.Literal("worktree")).annotate({
+    description:
+      'Set to "worktree" to run the subagent in an isolated git worktree created from the last commit (uncommitted changes are not included). Its changes come back as a branch to review and merge. Use it for subagents that edit files in parallel.',
+  }),
 }
 
 const BaseParameters = Schema.Struct(BaseParameterFields)
@@ -153,6 +162,23 @@ export const TaskTool = Tool.define(
       const session = params.task_id
         ? yield* sessions.get(SessionID.make(params.task_id)).pipe(Effect.catchCause(() => Effect.succeed(undefined)))
         : undefined
+
+      // FORK-SEAM: worktree-isolation
+      // Looked up at execution time: the tool registry layer does not carry these services,
+      // the application context running the session does.
+      const worktrees = yield* Effect.serviceOption(Worktree.Service)
+      const instances = yield* Effect.serviceOption(InstanceStore.Service)
+      if (params.isolation === "worktree" && (Option.isNone(worktrees) || Option.isNone(instances)))
+        return yield* Effect.fail(new Error("Worktree isolation is not available in this environment"))
+      const isolated =
+        params.isolation === "worktree" && !session && Option.isSome(worktrees) && Option.isSome(instances)
+          ? yield* ForkWorktree.open({ worktree: worktrees.value, store: instances.value, name: params.description })
+          : undefined
+      const isolate = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+        isolated ? effect.pipe(Effect.provideService(InstanceRef, isolated.instance)) : effect
+      const closeIsolation: Effect.Effect<string | undefined> = isolated && Option.isSome(instances)
+        ? ForkWorktree.close({ isolated, store: instances.value, message: `subagent: ${params.description}` })
+        : Effect.succeed(undefined)
       const childPermission = deriveSubagentSessionPermission({
         parentSessionPermission: parent.permission ?? [],
         subagent: next,
@@ -172,7 +198,7 @@ export const TaskTool = Tool.define(
       ]
       const nextSession =
         session ??
-        (yield* sessions.create({
+        (yield* isolate(sessions.create({
           parentID: ctx.sessionID,
           title: params.description + ` (@${next.name} subagent)`,
           agent: next.name,
@@ -186,7 +212,7 @@ export const TaskTool = Tool.define(
                 ),
             ),
           ],
-        }))
+        })))
 
       const msg = yield* MessageV2.get({ sessionID: ctx.sessionID, messageID: ctx.messageID }).pipe(
         Effect.provideService(Database.Service, database),
@@ -220,9 +246,9 @@ export const TaskTool = Tool.define(
       const ops = ctx.extra?.promptOps as TaskPromptOps
       if (!ops) return yield* Effect.fail(new Error("TaskTool requires promptOps in ctx.extra"))
 
-      const runTask = Effect.fn("TaskTool.runTask")(function* () {
+      const runSubagent = Effect.fn("TaskTool.runSubagent")(function* () {
         const parts = yield* ops.resolvePromptParts(params.prompt)
-        const result = yield* ops.prompt({
+        const result = yield* isolate(ops.prompt({
           messageID: MessageID.ascending(),
           sessionID: nextSession.id,
           model: {
@@ -232,7 +258,7 @@ export const TaskTool = Tool.define(
           variant: next.model || small ? undefined : variant,
           agent: next.name,
           parts,
-        })
+        }))
         if (result.info.role === "assistant" && result.info.error) {
           const message =
             "message" in result.info.error.data && typeof result.info.error.data.message === "string"
@@ -246,6 +272,13 @@ export const TaskTool = Tool.define(
         }
         return result.parts.findLast((item) => item.type === "text")?.text ?? ""
       })
+      const runTask = () =>
+        runSubagent().pipe(
+          Effect.onError(() => closeIsolation.pipe(Effect.ignore)),
+          Effect.flatMap((text) =>
+            closeIsolation.pipe(Effect.map((report) => (report ? `${text}\n\n${report}` : text))),
+          ),
+        )
 
       const inject = Effect.fn("TaskTool.injectBackgroundResult")(function* (
         state: "completed" | "error",
