@@ -189,7 +189,8 @@ function contentChars(content: ModelMessage["content"]) {
   return content.reduce(
     (acc, part) => {
       if (part.type === "image" || part.type === "file") return { chars: acc.chars, media: acc.media + 1 }
-      if (part.type === "text" || part.type === "reasoning") return { chars: acc.chars + part.text.length, media: acc.media }
+      if (part.type === "text" || part.type === "reasoning")
+        return { chars: acc.chars + part.text.length, media: acc.media }
       if (part.type === "tool-result" && part.output.type === "content")
         return part.output.value.reduce(
           (inner, item) =>
@@ -253,6 +254,10 @@ export function db() {
   if (handle) return handle
   handle = new Database(process.env.OPENCODE_FORK_DB ?? path.join(Global.Path.data, "fork.db"), { create: true })
   handle.run("PRAGMA journal_mode = WAL")
+  // Several processes (TUI, run, workflows) write here: wait for a lock instead of failing, and skip the
+  // per-commit fsync that WAL makes unnecessary for journals.
+  handle.run("PRAGMA busy_timeout = 2000")
+  handle.run("PRAGMA synchronous = NORMAL")
   handle.run(`CREATE TABLE IF NOT EXISTS fork_usage (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id TEXT NOT NULL,
@@ -285,7 +290,25 @@ export function db() {
   if (!columns.some((column) => column.name === "tool_chars")) handle.run("ALTER TABLE fork_usage ADD tool_chars TEXT")
   handle.run("CREATE INDEX IF NOT EXISTS fork_usage_session ON fork_usage (session_id)")
   handle.run("CREATE INDEX IF NOT EXISTS fork_usage_parent ON fork_usage (parent_session_id)")
+  purgeJournals(handle)
   return handle
+}
+
+// Journals only grow: drop rows older than the retention once per process. A table another module has not
+// created yet is skipped.
+const JOURNALS = ["fork_usage", "fork_route", "fork_jev", "fork_compaction", "fork_classifier", "fork_suggestion"]
+const RETENTION_MS = 30 * 24 * 3600_000
+
+function purgeJournals(handle: Database, now = Date.now()) {
+  const existing = new Set(
+    handle
+      .query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'fork_%'")
+      .all()
+      .map((row) => row.name),
+  )
+  JOURNALS.filter((table) => existing.has(table)).forEach((table) =>
+    handle.query(`DELETE FROM ${table} WHERE time < ?`).run(now - RETENTION_MS),
+  )
 }
 
 export * as ForkTelemetry from "./telemetry"
