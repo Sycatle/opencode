@@ -60,3 +60,22 @@ test("background notify can be disabled", () => {
   process.env.OPENCODE_FORK_BACKGROUND_NOTIFY = "0"
   expect(ForkStatusline.backgroundNotifyEnabled()).toBe(false)
 })
+
+test("built-in line shows the routed model and a pending wakeup, nothing otherwise", () => {
+  const now = 1_000_000
+  expect(ForkStatusline.builtin({}, now)).toBe("")
+  expect(ForkStatusline.builtin({ route: { model_id: "claude-sonnet", tier: "standard", kind: "decision" } }, now)).toBe(
+    "router → claude-sonnet · standard",
+  )
+  expect(
+    ForkStatusline.builtin(
+      {
+        route: { model_id: "claude-opus", tier: "deep", kind: "escalation" },
+        wakeup: { due: now + 5 * 60_000, reason: "check CI", repeat: true },
+      },
+      now,
+    ),
+  ).toBe("router → claude-opus · deep (escalation)  ·  loop in 5m: check CI")
+  expect(ForkStatusline.builtin({ wakeup: { due: now + 90 * 60_000, repeat: false } }, now)).toBe("wakeup in 1h30")
+  expect(ForkStatusline.builtin({ wakeup: { due: now - 1, repeat: false } }, now)).toBe("wakeup due")
+})
