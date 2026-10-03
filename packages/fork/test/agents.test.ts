@@ -64,6 +64,18 @@ test("a child that finished before its launch was observed does not block exit",
   expect(tracker.canExit()).toBe(true)
 })
 
+test("a launched workflow blocks exit until its completion notice is injected", () => {
+  const tracker = ForkAgents.backgroundTracker()
+  tracker.observePart({ tool: "workflow", state: { status: "completed", metadata: { runId: "wf_1" } } })
+  expect(tracker.canExit()).toBe(false)
+  tracker.observePart({ type: "text", synthetic: true, text: '<workflow id="wf_other" name="x" state="completed">' })
+  expect(tracker.canExit()).toBe(false)
+  tracker.observePart({ type: "text", text: '<workflow id="wf_1"' })
+  expect(tracker.canExit()).toBe(false)
+  tracker.observePart({ type: "text", synthetic: true, text: '<workflow id="wf_1" name="x" state="completed">' })
+  expect(tracker.canExit()).toBe(true)
+})
+
 test("historyBefore keeps the messages strictly before the pending turn", () => {
   const messages = [{ info: { id: "u1" } }, { info: { id: "a1" } }, { info: { id: "u2" } }, { info: { id: "a2" } }]
   expect(ForkAgents.historyBefore(messages, "a2").map((message) => message.info.id)).toEqual(["u1", "a1", "u2"])

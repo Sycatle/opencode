@@ -42,7 +42,26 @@ export function backgroundTracker() {
   // A fast child can go idle before its launching tool part is observed.
   const finished = new Set<string>()
   return {
-    observePart(part: { tool?: string; state?: { status: string; metadata?: Record<string, unknown> } }) {
+    observePart(part: {
+      type?: string
+      tool?: string
+      text?: string
+      synthetic?: boolean
+      state?: { status: string; metadata?: Record<string, unknown> }
+    }) {
+      // A workflow run has no session of its own: it is pending until its completion notice reaches the root.
+      if (part.tool === "workflow" && part.state?.status === "completed") {
+        const run = part.state.metadata?.runId
+        if (typeof run === "string" && !finished.has(run)) pending.add(run)
+        return
+      }
+      if (part.type === "text" && part.synthetic) {
+        const run = part.text?.match(/^<workflow id="([^"]+)"/)?.[1]
+        if (!run) return
+        finished.add(run)
+        pending.delete(run)
+        return
+      }
       if (part.tool !== "task" || part.state?.status !== "completed") return
       const child = part.state.metadata?.sessionId
       if (part.state.metadata?.background !== true || typeof child !== "string") return
