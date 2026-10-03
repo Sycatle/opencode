@@ -190,13 +190,119 @@ export async function commands(opts: Options): Promise<Record<string, Command>> 
   return Object.fromEntries(entries.flat())
 }
 
+// Claude Code tool name -> opencode tool name.
+export const TOOLS: Record<string, string> = {
+  Read: "read",
+  Edit: "edit",
+  MultiEdit: "edit",
+  NotebookEdit: "edit",
+  Write: "write",
+  Bash: "bash",
+  Grep: "grep",
+  Glob: "glob",
+  LS: "list",
+  WebFetch: "webfetch",
+  WebSearch: "websearch",
+  TodoWrite: "todowrite",
+  Agent: "task",
+  Task: "task",
+  Skill: "skill",
+}
+
+// Claude Code model alias -> Anthropic model id.
+export const MODELS: Record<string, string> = {
+  sonnet: "claude-sonnet-5-5",
+  opus: "claude-opus-5-5",
+  haiku: "claude-haiku-4-5",
+}
+
+// `inherit`, no model, or a provider other than Anthropic keep the parent's model.
+// `current` is the configured `provider/model`.
+export function model(value: unknown, current?: string) {
+  if (typeof value !== "string") return undefined
+  const provider = current?.includes("/") ? current.slice(0, current.indexOf("/")) : "anthropic"
+  if (provider !== "anthropic") return undefined
+  const alias = value.trim().toLowerCase().replace(/\[.*\]$/, "")
+  const id = MODELS[alias] ?? (alias.startsWith("claude-") ? alias : undefined)
+  return id ? `anthropic/${id}` : undefined
+}
+
+// opencode permission keys for a Claude Code `tools` entry (`Bash(git *)`, `mcp__server__tool`...).
+// Writes are governed by the `edit` permission; unknown tools map to nothing.
+function permissionKeys(entry: string) {
+  const name = entry.replace(/\(.*\)$/, "").trim()
+  const mcp = name.match(/^mcp__([^_].*?)(?:__(.+))?$/)
+  if (mcp?.[1]) return [`${mcp[1]}_${mcp[2] ?? "*"}`]
+  const tool = TOOLS[name]
+  if (!tool) return []
+  if (tool === "write") return ["edit"]
+  if (tool === "glob") return ["glob", "list"]
+  return [tool]
+}
+
+function list(value: unknown) {
+  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === "string")
+  if (typeof value !== "string") return undefined
+  return value.split(",").map((item) => item.trim()).filter(Boolean)
+}
+
+// An explicit `tools` list is an allowlist: everything else is denied. `disallowedTools` denies on top.
+// Without either, the agent keeps the default permissions.
+export function permission(tools: unknown, disallowed?: unknown) {
+  const allow = list(tools)?.flatMap(permissionKeys)
+  const deny = list(disallowed)?.flatMap(permissionKeys) ?? []
+  return {
+    ...(allow ? { "*": "deny" } : {}),
+    ...Object.fromEntries((allow ?? []).map((key) => [key, "allow"])),
+    ...Object.fromEntries(deny.map((key) => [key, "deny"])),
+  } as Record<string, "allow" | "deny">
+}
+
+export interface Agent {
+  description?: string
+  mode: "subagent"
+  prompt: string
+  model?: string
+  permission?: Record<string, "allow" | "deny">
+}
+
+// `agents/**/*.md` become subagents named `<plugin>:<name>`.
+export async function agents(opts: Options & { model?: string }): Promise<Record<string, Agent>> {
+  const plugins = await installed(opts)
+  const entries = await Promise.all(
+    plugins.map(async (plugin) =>
+      Promise.all(
+        (await glob("agents/**/*.md", plugin.root)).map(async (file) => {
+          const md = frontmatter(await Bun.file(file).text())
+          const name = typeof md.data.name === "string" ? md.data.name : path.basename(file, ".md")
+          const perms = permission(md.data.tools, md.data.disallowedTools)
+          const selected = model(md.data.model, opts.model)
+          return [
+            `${plugin.name}:${name}`,
+            {
+              description: typeof md.data.description === "string" ? md.data.description : undefined,
+              mode: "subagent",
+              prompt: expandRoot(md.content.trim(), plugin.root),
+              ...(selected ? { model: selected } : {}),
+              ...(Object.keys(perms).length > 0 ? { permission: perms } : {}),
+            },
+          ] as const
+        }),
+      ),
+    ),
+  )
+  return Object.fromEntries(entries.flat())
+}
+
 export interface Config {
   command: Record<string, Command>
+  agent: Record<string, Agent>
 }
 
 // Everything a plugin contributes to the opencode config. Callers merge it below the user's own
 // config so that explicit settings always win. `model` is the configured `provider/model`, used
 // to translate agent model aliases.
 export async function config(opts: Options & { model?: string }): Promise<Config> {
-  return { command: await commands(opts) }
+  const [command, agent] = await Promise.all([commands(opts), agents(opts)])
+  return { command, agent }
 }

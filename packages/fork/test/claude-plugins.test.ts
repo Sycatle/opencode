@@ -115,6 +115,89 @@ test("OPENCODE_FORK_CC_PLUGINS=0 and a missing plugins directory do nothing", as
   expect(await ForkClaudePlugins.skills({ home: path.join(home, "nothing"), env })).toEqual([])
 })
 
+test("tools translate to an opencode permission allowlist", () => {
+  expect(ForkClaudePlugins.permission("Read, Grep, Glob, Write, WebFetch, Agent, Bogus")).toEqual({
+    "*": "deny",
+    read: "allow",
+    grep: "allow",
+    glob: "allow",
+    list: "allow",
+    edit: "allow",
+    webfetch: "allow",
+    task: "allow",
+  })
+  expect(ForkClaudePlugins.permission(["Bash(git *)", "Task", "mcp__notion__search", "mcp__github"])).toEqual({
+    "*": "deny",
+    bash: "allow",
+    task: "allow",
+    notion_search: "allow",
+    "github_*": "allow",
+  })
+  expect(ForkClaudePlugins.permission(undefined)).toEqual({})
+  expect(ForkClaudePlugins.permission(undefined, "Bash, Edit")).toEqual({ bash: "deny", edit: "deny" })
+  expect(ForkClaudePlugins.permission("Read, Edit", "Edit")).toEqual({ "*": "deny", read: "allow", edit: "deny" })
+  for (const [claude, opencode] of Object.entries({
+    Read: "read",
+    Edit: "edit",
+    Write: "write",
+    Bash: "bash",
+    Grep: "grep",
+    Glob: "glob",
+    WebFetch: "webfetch",
+    WebSearch: "websearch",
+    TodoWrite: "todowrite",
+    Agent: "task",
+    Task: "task",
+  })) {
+    expect(ForkClaudePlugins.TOOLS[claude]).toBe(opencode)
+  }
+})
+
+test("model aliases map to Anthropic models of an Anthropic provider, otherwise inherit", () => {
+  expect(ForkClaudePlugins.model("sonnet")).toBe("anthropic/claude-sonnet-5-5")
+  expect(ForkClaudePlugins.model("Opus", "anthropic/claude-haiku-4-5")).toBe("anthropic/claude-opus-5-5")
+  expect(ForkClaudePlugins.model("haiku")).toBe("anthropic/claude-haiku-4-5")
+  expect(ForkClaudePlugins.model("claude-sonnet-4-5")).toBe("anthropic/claude-sonnet-4-5")
+  expect(ForkClaudePlugins.model("inherit")).toBeUndefined()
+  expect(ForkClaudePlugins.model(undefined)).toBeUndefined()
+  expect(ForkClaudePlugins.model("sonnet", "openai/gpt-5")).toBeUndefined()
+})
+
+test("agents become namespaced subagents", async () => {
+  const dir = root("claude-plugins-official", "review-kit", "1.0.0")
+  await write(
+    path.join(dir, "agents", "code-reviewer.md"),
+    `---
+name: code-reviewer
+description: Reviews code. Use after a change.
+tools: Read, Grep, Glob, Bash
+model: sonnet
+color: blue
+---
+
+You are a reviewer. See \${CLAUDE_PLUGIN_ROOT}/rules.md
+`,
+  )
+  await write(path.join(dir, "agents", "free.md"), "---\ndescription: Free\ntools:\n  - Read\nmodel: inherit\n---\nbody")
+  await install({ "review-kit@claude-plugins-official": [{ root: dir }] })
+  expect(await ForkClaudePlugins.agents({ home, env })).toEqual({
+    "review-kit:code-reviewer": {
+      description: "Reviews code. Use after a change.",
+      mode: "subagent",
+      prompt: `You are a reviewer. See ${dir}/rules.md`,
+      model: "anthropic/claude-sonnet-5-5",
+      permission: { "*": "deny", read: "allow", grep: "allow", glob: "allow", list: "allow", bash: "allow" },
+    },
+    "review-kit:free": {
+      description: "Free",
+      mode: "subagent",
+      prompt: "body",
+      permission: { "*": "deny", read: "allow" },
+    },
+  })
+  expect(Object.keys((await ForkClaudePlugins.config({ home, env, model: "openai/x" })).agent)).toHaveLength(2)
+})
+
 test("commands are namespaced by plugin and subdirectory", async () => {
   const dir = root("claude-plugins-official", "notion", "0.1.0")
   await write(

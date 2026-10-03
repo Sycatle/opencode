@@ -534,6 +534,7 @@ const layer = Layer.effect(
           ForkClaudePlugins.config({ home: Global.Path.home, cwd: ctx.directory, model: result.model }),
         )
         result.command = mergeDeep(plugged.command, result.command ?? {})
+        result.agent = mergeDeep(plugged.agent, result.agent ?? {})
         const managedDir = ConfigManaged.managedConfigDir()
         if (existsSync(managedDir)) {
           for (const file of ["opencode.json", "opencode.jsonc"]) {
