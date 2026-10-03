@@ -14,7 +14,8 @@
     "./telemetry": "./src/telemetry.ts",
     "./tools": "./src/tools.ts",
     "./context": "./src/context.ts",
-    "./budget": "./src/budget.ts"
+    "./budget": "./src/budget.ts",
+    "./compaction": "./src/compaction.ts"
   },
   "dependencies": {
     "@opencode-ai/core": "workspace:*",

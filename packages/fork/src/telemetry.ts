@@ -65,6 +65,8 @@ type Request = {
 type Usage = {
   sessionID: string
   messageID: string
+  // Overrides the agent captured at measure time (e.g. a summary replayed under the main agent).
+  agent?: string
   providerID: string
   modelID: string
   tokens: {
@@ -219,7 +221,7 @@ function insert(usage: Usage, measured: Measure | undefined) {
       usage.sessionID,
       measured?.parentSessionID ?? null,
       usage.messageID,
-      measured?.agent ?? "unknown",
+      usage.agent ?? measured?.agent ?? "unknown",
       usage.providerID,
       usage.modelID,
       Date.now(),

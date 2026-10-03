@@ -11,11 +11,15 @@ Le code du fork vit dans `packages/fork`. Les seuls points de contact avec le co
 | `pruned-stub` | `packages/opencode/src/session/message-v2.ts` | Stub informatif à la place de `[Old tool result content cleared]` |
 | `tool-output-limits` | `packages/opencode/src/tool/truncate.ts` | Troncature par défaut 640 lignes / 16 Ko au lieu de 2000 / 50 Ko (`tool_output` en config pour surcharger) |
 | `budget` | `packages/opencode/src/session/prompt.ts` | Budget en $ par arbre de sessions (`OPENCODE_FORK_BUDGET_USD`) : un tour de conclusion sans outils à 100 %, arrêt à 120 % |
+| `compaction-remember` | `packages/opencode/src/session/processor.ts` | Mémorise la dernière requête de la boucle principale par session |
+| `cached-compaction` | `packages/opencode/src/session/compaction.ts` | Résumé en rejouant la dernière requête (cache) quand c'est moins cher que le transcript upstream (`OPENCODE_FORK_CACHED_COMPACTION=0` pour couper) |
+| `compaction-facts` | `packages/opencode/src/session/compaction.ts` | Ajoute au résumé fichiers modifiés, todo-list et erreurs récentes, tirés des données |
 | `usage-command` | `packages/opencode/src/index.ts` | Enregistre la commande `opencode usage` |
 
 Fichiers ajoutés par le fork (sans conflit possible) :
 - `packages/fork/**`
 - `packages/opencode/src/cli/cmd/usage.ts`
+- `packages/opencode/src/session/fork-compaction.ts`
 - `script/fork-sync.sh`
 
 Une dépendance a aussi été ajoutée : `@opencode-fork/core` dans `packages/opencode/package.json`.

@@ -26,6 +26,7 @@ import { EventV2Bridge } from "@/event-v2-bridge"
 import { Database } from "@opencode-ai/core/database/database"
 import { Usage, type LLMEvent } from "@opencode-ai/llm"
 import { ForkTelemetry } from "@opencode-fork/core/telemetry"
+import { ForkCompaction } from "@opencode-fork/core/compaction"
 
 const DOOM_LOOP_THRESHOLD = 3
 export type Result = "compact" | "stop" | "continue"
@@ -655,6 +656,8 @@ const layer = Layer.effect(
         })
         ctx.needsCompaction = false
         ctx.shouldBreak = (yield* config.get()).experimental?.continue_loop_on_deny !== true
+        // FORK-SEAM: compaction-remember
+        if (!ctx.assistantMessage.summary) ForkCompaction.remember(ctx.sessionID, ctx.assistantMessage.id, streamInput)
 
         return yield* Effect.gen(function* () {
           yield* Effect.gen(function* () {

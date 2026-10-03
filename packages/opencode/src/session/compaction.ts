@@ -1,6 +1,8 @@
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { ForkContext } from "@opencode-fork/core/context"
+import { ForkCompactionRun } from "./fork-compaction"
+import { LLM } from "./llm"
 import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
 import { Session } from "./session"
 import { SessionID, MessageID, PartID } from "./schema"
@@ -200,6 +202,7 @@ const layer = Layer.effect(
     const provider = yield* Provider.Service
     const events = yield* EventV2Bridge.Service
     const flags = yield* RuntimeFlags.Service
+    const llm = yield* LLM.Service
 
     const isOverflow = Effect.fn("SessionCompaction.isOverflow")(function* (input: {
       tokens: SessionV1.Assistant["tokens"]
@@ -424,7 +427,17 @@ const layer = Layer.effect(
         sessionID: input.sessionID,
         model,
       })
-      const result = yield* processor.process({
+      // FORK-SEAM: cached-compaction
+      const cached = yield* ForkCompactionRun.cachedSummary({
+        llm,
+        session,
+        history,
+        message: msg,
+        legacyTokens: Token.estimate(nextPrompt),
+      })
+      const result = cached
+        ? ("continue" as const)
+        : yield* processor.process({
         user: userMessage,
         agent,
         sessionID: input.sessionID,
@@ -552,6 +565,8 @@ const layer = Layer.effect(
       }
 
       if (processor.message.error) return "stop"
+      // FORK-SEAM: compaction-facts
+      if (result === "continue") yield* ForkCompactionRun.appendFacts({ session, history, message: msg })
       if (result === "continue") {
         yield* events.publish(Event.Compacted, { sessionID: input.sessionID })
       }
@@ -604,6 +619,7 @@ export const node = LayerNode.make({
     Provider.node,
     EventV2Bridge.node,
     RuntimeFlags.node,
+    LLM.node,
   ],
 })
 
