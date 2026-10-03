@@ -44,8 +44,10 @@ export function next(mode: Mode): Mode {
   return CYCLE[(CYCLE.indexOf(mode) + 1) % CYCLE.length]
 }
 
+// "normal" is the build mode of the palette and the tips: the user never sees the internal name.
 export function label(mode: Mode) {
   if (mode === "acceptEdits") return "accept edits"
+  if (mode === "normal") return "build"
   return mode
 }
 
