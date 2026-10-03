@@ -1,4 +1,5 @@
 import { jsonSchema, type Tool } from "ai"
+import { ForkSandbox } from "./sandbox"
 
 // Claude tool profile. Claude models are trained on Claude Code's tools, so for an Anthropic
 // model the tool map is presented under Claude Code's names and parameter shapes. Everything
@@ -141,6 +142,14 @@ const SPECS: Spec[] = [
     native: "bash",
     cc: "Bash",
     keys: { run_in_background: "background" },
+    // dangerouslyDisableSandbox: true is the native sandbox: false.
+    toNative: (args) =>
+      args.dangerouslyDisableSandbox === true
+        ? { ...without(args, "dangerouslyDisableSandbox"), sandbox: false }
+        : without(args, "dangerouslyDisableSandbox"),
+    toCC: (args) =>
+      args.sandbox === false ? { ...without(args, "sandbox"), dangerouslyDisableSandbox: true } : without(args, "sandbox"),
+    post: (_args, output) => output.replaceAll("`sandbox: false`", "`dangerouslyDisableSandbox: true`"),
     schema: object(
       {
         command: str("The command to run."),
@@ -149,6 +158,7 @@ const SPECS: Spec[] = [
         run_in_background: bool(
           "Run the command in the background; you are notified when it exits. Do not poll or sleep waiting for it.",
         ),
+        dangerouslyDisableSandbox: bool(ForkSandbox.ESCAPE_CC_PARAM_DESCRIPTION),
       },
       ["command"],
     ),

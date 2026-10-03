@@ -4,6 +4,8 @@ import { PositiveInt } from "@opencode-ai/core/schema"
 import { Global } from "@opencode-ai/core/global"
 import { ShellID } from "./id"
 import { ForkShell } from "@opencode-fork/core/shell"
+// FORK-SEAM: sandbox
+import { ForkSandbox } from "@opencode-fork/core/sandbox"
 
 const PS = new Set(["powershell", "pwsh"])
 const CMD = new Set(["cmd"])
@@ -20,6 +22,8 @@ export function parameterSchema() {
     workdir: Schema.optional(Schema.String).annotate({
       description: `The working directory to run the command in. Defaults to the current directory. Use this instead of 'cd' commands.`,
     }),
+    // FORK-SEAM: sandbox
+    sandbox: Schema.optional(Schema.Boolean).annotate({ description: ForkSandbox.ESCAPE_PARAM_DESCRIPTION }),
   }
   // FORK-SEAM: background-shell
   const withBackground = Schema.Struct({

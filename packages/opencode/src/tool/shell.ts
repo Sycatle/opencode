@@ -23,6 +23,9 @@ import { ShellPrompt, type Parameters } from "./shell/prompt"
 import { BashArity } from "@/permission/arity"
 import { BackgroundJob } from "@/background/job"
 import { ForkShell } from "@opencode-fork/core/shell"
+// FORK-SEAM: sandbox
+import { ForkSandbox } from "@opencode-fork/core/sandbox"
+import { ForkSandboxTool } from "./fork-sandbox"
 import type { TaskPromptOps } from "./task"
 
 export { Parameters } from "./shell/prompt"
@@ -293,7 +296,12 @@ const ask = Effect.fn("ShellTool.ask")(function* (ctx: Tool.Context, scan: Scan,
   })
 })
 
-function cmd(shell: string, command: string, cwd: string, env: NodeJS.ProcessEnv) {
+function cmd(shell: string, command: string, cwd: string, env: NodeJS.ProcessEnv, sandbox?: ForkSandboxTool.Resolved) {
+  // FORK-SEAM: sandbox
+  if (sandbox) {
+    const wrapped = ForkSandbox.wrap(sandbox.args, shell, command)
+    return ChildProcess.make(wrapped.command, wrapped.args, { cwd, env, stdin: "ignore", detached: true })
+  }
   if (process.platform === "win32" && Shell.ps(shell)) {
     return ChildProcess.make(shell, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command], {
       cwd,
@@ -437,6 +445,7 @@ export const ShellTool = Tool.define(
         cwd: string
         env: NodeJS.ProcessEnv
         timeout: number
+        sandbox?: ForkSandboxTool.Resolved
       },
       ctx: Tool.Context,
     ) {
@@ -486,7 +495,7 @@ export const ShellTool = Tool.define(
       const code: number | null = yield* Effect.scoped(
         Effect.gen(function* () {
           yield* Effect.addFinalizer(closeSink)
-          const handle = yield* spawner.spawn(cmd(input.shell, input.command, input.cwd, input.env))
+          const handle = yield* spawner.spawn(cmd(input.shell, input.command, input.cwd, input.env, input.sandbox))
 
           yield* Effect.forkScoped(
             Stream.runForEach(Stream.decodeText(handle.all), (chunk) => {
@@ -584,6 +593,12 @@ export const ShellTool = Tool.define(
         output = `...output truncated...\n\nFull output saved to: ${file}\n\n` + output
       }
 
+      // FORK-SEAM: sandbox
+      const hint = input.sandbox
+        ? ForkSandbox.failureHint({ exit: code, output: raw, networkOpen: input.sandbox.networkOpen })
+        : undefined
+      if (hint) output += "\n\n" + hint
+
       if (meta.length > 0) {
         output += "\n\n<shell_metadata>\n" + meta.join("\n") + "\n</shell_metadata>"
       }
@@ -607,6 +622,7 @@ export const ShellTool = Tool.define(
         cwd: string
         env: NodeJS.ProcessEnv
         timeout?: number
+        sandbox?: ForkSandboxTool.Resolved
       },
       ctx: Tool.Context,
     ) {
@@ -623,7 +639,7 @@ export const ShellTool = Tool.define(
         metadata: { sessionId: ctx.sessionID, outputPath: file, command: input.command },
         run: Effect.scoped(
           Effect.gen(function* () {
-            const handle = yield* spawner.spawn(cmd(input.shell, input.command, input.cwd, input.env))
+            const handle = yield* spawner.spawn(cmd(input.shell, input.command, input.cwd, input.env, input.sandbox))
             const pump = yield* Effect.forkScoped(
               Stream.runForEach(Stream.decodeText(handle.all), (chunk) => Effect.sync(() => appendFileSync(file, chunk))),
             )
@@ -643,7 +659,10 @@ export const ShellTool = Tool.define(
             // A grandchild holding the pipe open must not keep the job running.
             yield* Fiber.join(pump).pipe(Effect.timeoutOption("1 second"))
             const text = yield* Effect.promise(() => Bun.file(file).slice(-65536).text())
-            return ForkShell.result(code, ForkShell.tail(text, ForkShell.TAIL_LINES))
+            const hint = input.sandbox
+              ? ForkSandbox.failureHint({ exit: code, output: text, networkOpen: input.sandbox.networkOpen })
+              : undefined
+            return ForkShell.result(code, ForkShell.tail(hint ? `${text}\n${hint}` : text, ForkShell.TAIL_LINES))
           }),
         ).pipe(Effect.orDie),
       })
@@ -726,6 +745,19 @@ export const ShellTool = Tool.define(
                 }),
               )
 
+              // FORK-SEAM: sandbox
+              const sandbox = yield* ForkSandboxTool.resolve(cfg, instanceCtx)
+              if (sandbox && params.sandbox === false) {
+                // Never remembered ("always" is empty) and requested per call, so auto mode cannot grant it in advance.
+                yield* ctx.ask({
+                  permission: ForkSandbox.ESCAPE_PERMISSION,
+                  patterns: [params.command],
+                  always: [],
+                  metadata: { command: params.command },
+                })
+              }
+              const sandboxed = params.sandbox === false ? undefined : sandbox
+
               // FORK-SEAM: background-shell
               if (ForkShell.enabled() && params.background === true) {
                 return yield* runBackground(
@@ -735,6 +767,7 @@ export const ShellTool = Tool.define(
                     cwd,
                     env: yield* shellEnv(ctx, cwd),
                     timeout: params.timeout,
+                    sandbox: sandboxed,
                   },
                   ctx,
                 )
@@ -747,6 +780,7 @@ export const ShellTool = Tool.define(
                   cwd,
                   env: yield* shellEnv(ctx, cwd),
                   timeout,
+                  sandbox: sandboxed,
                 },
                 ctx,
               )

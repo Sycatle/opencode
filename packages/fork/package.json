@@ -32,7 +32,8 @@
     "./monitor": "./src/monitor.ts",
     "./hooks": "./src/hooks.ts",
     "./claude-plugins": "./src/claude-plugins.ts",
-    "./claude-tools": "./src/claude-tools.ts"
+    "./claude-tools": "./src/claude-tools.ts",
+    "./sandbox": "./src/sandbox.ts"
   },
   "dependencies": {
     "@opencode-ai/core": "workspace:*",

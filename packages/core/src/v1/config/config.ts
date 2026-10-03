@@ -6,6 +6,8 @@ import { ConfigExperimental } from "../../config/experimental"
 // FORK-SEAM: hooks-config
 import { ConfigHooks } from "../../config/hooks"
 import { ConfigReference } from "../../config/reference"
+// FORK-SEAM: sandbox-config
+import { ConfigSandbox } from "../../config/sandbox"
 import { ConfigAgentV1 } from "./agent"
 import { ConfigAttachmentV1 } from "./attachment"
 import { ConfigCommandV1 } from "./command"
@@ -126,6 +128,10 @@ export const Info = Schema.Struct({
   // FORK-SEAM: hooks-config
   hooks: Schema.optional(ConfigHooks.Info).annotate({
     description: "Shell commands run on lifecycle events, receiving the event JSON on stdin",
+  }),
+  // FORK-SEAM: sandbox-config
+  sandbox: Schema.optional(ConfigSandbox.Info).annotate({
+    description: "OS sandbox (bubblewrap) for the bash tool: writes limited to the project and /tmp, network off unless allowed",
   }),
   instructions: Schema.optional(Schema.mutable(Schema.Array(Schema.String))).annotate({
     description: "Additional instruction files or patterns to include",

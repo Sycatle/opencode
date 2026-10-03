@@ -21,6 +21,8 @@ import { ConfigHooks } from "./config/hooks"
 import { ConfigLSP } from "./config/lsp"
 import { ConfigMCP } from "./config/mcp"
 import { ConfigPlugin } from "./config/plugin"
+// FORK-SEAM: sandbox-config
+import { ConfigSandbox } from "./config/sandbox"
 import { ConfigProvider } from "./config/provider"
 import { ConfigReference } from "./config/reference"
 import { ConfigToolOutput } from "./config/tool-output"
@@ -80,6 +82,10 @@ export class Info extends Schema.Class<Info>("Config.Info")({
   // FORK-SEAM: hooks-config
   hooks: ConfigHooks.Info.pipe(Schema.optional).annotate({
     description: "Shell commands run on lifecycle events (PreToolUse, PostToolUse, UserPromptSubmit, SessionStart, Stop, PreCompact, PermissionRequest)",
+  }),
+  // FORK-SEAM: sandbox-config
+  sandbox: ConfigSandbox.Info.pipe(Schema.optional).annotate({
+    description: "OS sandbox (bubblewrap) for the bash tool: writes limited to the project and /tmp, network off unless allowed",
   }),
   attachments: ConfigAttachments.Info.pipe(Schema.optional).annotate({
     description: "Attachment processing configuration",

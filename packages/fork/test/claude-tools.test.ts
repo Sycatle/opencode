@@ -7,7 +7,7 @@ const CALLS: Record<string, Record<string, unknown>> = {
   Read: { file_path: "/a/b.ts", offset: 10, limit: 20 },
   Write: { file_path: "/a/b.ts", content: "x" },
   Edit: { file_path: "/a/b.ts", old_string: "a", new_string: "b", replace_all: true },
-  Bash: { command: "ls", timeout: 5000, description: "List files", run_in_background: true },
+  Bash: { command: "ls", timeout: 5000, description: "List files", run_in_background: true, dangerouslyDisableSandbox: true },
   Glob: { pattern: "src/**/*.ts", path: "/a" },
   Grep: {
     pattern: "foo",
@@ -227,4 +227,18 @@ test("grep arguments and result follow Claude Code semantics", () => {
 test("prompt text names the Claude tools", () => {
   const text = ForkClaudeTools.prompt("call plan_exit; use the question tool; the Task tool; the edit tool")
   expect(text).toBe("call ExitPlanMode; use the AskUserQuestion tool; the Agent tool; the Edit tool")
+})
+
+test("Bash dangerouslyDisableSandbox maps to sandbox: false", () => {
+  expect(ForkClaudeTools.fromModel("Bash", { command: "ls", dangerouslyDisableSandbox: true }).input).toEqual({
+    command: "ls",
+    sandbox: false,
+  })
+  expect(ForkClaudeTools.fromModel("Bash", { command: "ls", dangerouslyDisableSandbox: false }).input).toEqual({
+    command: "ls",
+  })
+  expect(ForkClaudeTools.toModelCall("bash", { command: "ls", sandbox: false }).input).toEqual({
+    command: "ls",
+    dangerouslyDisableSandbox: true,
+  })
 })
