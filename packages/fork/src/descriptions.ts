@@ -19,6 +19,8 @@ const STATIC: Record<string, string> = {
     "- Not for a known file path, a specific symbol or 2-3 known files: use Read, Glob or Grep.",
     "- Launch independent agents in parallel (several calls in one message); never redo delegated work.",
     "- A new agent starts with no context (task_id resumes a previous one): give a complete prompt, say whether to write code or only research, how to verify, and exactly what to return.",
+    "- inherit: true forks the current context (cheap thanks to the prompt cache, no need to restate context).",
+    "- Calling task again with the task_id of a running background subagent sends it a new message.",
     "- Its final message is not shown to the user: summarize it. Trust its results.",
     "- Use agents described as proactive without being asked.",
   ].join("\n"),

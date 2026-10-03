@@ -4,7 +4,7 @@ import { ToolJsonSchema } from "./json-schema"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { BackgroundJob } from "@/background/job"
 import { Session } from "@/session/session"
-import { SessionID, MessageID } from "../session/schema"
+import { SessionID, MessageID, PartID } from "../session/schema"
 import { MessageV2 } from "../session/message-v2"
 import { Agent } from "../agent/agent"
 import { deriveSubagentSessionPermission } from "../agent/subagent-permissions"
@@ -46,6 +46,13 @@ const BACKGROUND_UPDATED = [
   "Work on non-overlapping tasks, or briefly tell the user what you sent and end your response.",
 ].join("\n")
 
+const InheritField = {
+  inherit: Schema.optional(Schema.Boolean).annotate({
+    description:
+      "Set to true to fork the current conversation: the subagent starts from a copy of it with your agent, tools and model (cheap thanks to the prompt cache, so do not restate context) and subagent_type is ignored. Write prompt as a directive for the fork. Ignored with task_id.",
+  }),
+}
+
 const BaseParameterFields = {
   description: Schema.String.annotate({ description: "A short (3-5 words) description of the task" }),
   prompt: Schema.String.annotate({ description: "The task for the agent to perform" }),
@@ -60,6 +67,8 @@ const BaseParameterFields = {
     description:
       'Set to "worktree" to run the subagent in an isolated git worktree created from the last commit (uncommitted changes are not included). Its changes come back as a branch to review and merge. Use it for subagents that edit files in parallel.',
   }),
+  // FORK-SEAM: subagent-inherit (parameter)
+  ...(ForkAgents.inheritEnabled() ? InheritField : ({} as typeof InheritField)),
 }
 
 const BaseParameters = Schema.Struct(BaseParameterFields)
@@ -142,21 +151,26 @@ export const TaskTool = Tool.define(
         )
       }
 
+      // FORK-SEAM: subagent-inherit
+      // A fork must keep the parent's agent: another agent changes the system prompt
+      // and tool set, which is what the shared prompt-cache prefix is made of.
+      const inheriting = params.inherit === true && !params.task_id
+      const agentName = inheriting ? ctx.agent : params.subagent_type
       if (!ctx.extra?.bypassAgentCheck) {
         yield* ctx.ask({
           permission: id,
-          patterns: [params.subagent_type],
+          patterns: [agentName],
           always: ["*"],
           metadata: {
             description: params.description,
-            subagent_type: params.subagent_type,
+            subagent_type: agentName,
           },
         })
       }
 
-      const next = yield* agent.get(params.subagent_type)
+      const next = yield* agent.get(agentName)
       if (!next) {
-        return yield* Effect.fail(new Error(`Unknown agent type: ${params.subagent_type} is not a valid agent type`))
+        return yield* Effect.fail(new Error(`Unknown agent type: ${agentName} is not a valid agent type`))
       }
 
       const session = params.task_id
@@ -202,16 +216,21 @@ export const TaskTool = Tool.define(
           parentID: ctx.sessionID,
           title: params.description + ` (@${next.name} subagent)`,
           agent: next.name,
-          permission: [
-            ...childPermission,
-            ...childToolDenies.filter(
-              (deny) =>
-                !childPermission.some(
-                  (rule) =>
-                    rule.permission === deny.permission && rule.pattern === deny.pattern && rule.action === deny.action,
+          // A fork keeps the parent's tool set: denying task or todowrite would change the cached prefix.
+          permission: inheriting
+            ? (parent.permission ?? [])
+            : [
+                ...childPermission,
+                ...childToolDenies.filter(
+                  (deny) =>
+                    !childPermission.some(
+                      (rule) =>
+                        rule.permission === deny.permission &&
+                        rule.pattern === deny.pattern &&
+                        rule.action === deny.action,
+                    ),
                 ),
-            ),
-          ],
+              ],
         })))
 
       const msg = yield* MessageV2.get({ sessionID: ctx.sessionID, messageID: ctx.messageID }).pipe(
@@ -221,13 +240,52 @@ export const TaskTool = Tool.define(
       if (msg.info.role !== "assistant") return yield* Effect.fail(new Error("Not an assistant message"))
       const variant = msg.info.variant
 
+      // FORK-SEAM: subagent-inherit (history)
+      if (inheriting && !session) {
+        const ids = new Map<string, MessageID>()
+        yield* isolate(
+          Effect.forEach(
+            ForkAgents.historyBefore(yield* sessions.messages({ sessionID: ctx.sessionID }), ctx.messageID),
+            Effect.fnUntraced(function* (message) {
+              const copy = MessageID.ascending()
+              ids.set(message.info.id, copy)
+              const parentID =
+                message.info.role === "assistant" && message.info.parentID
+                  ? ids.get(message.info.parentID)
+                  : undefined
+              yield* sessions.updateMessage({
+                ...message.info,
+                sessionID: nextSession.id,
+                id: copy,
+                ...(parentID && { parentID }),
+              })
+              yield* Effect.forEach(
+                message.parts,
+                (part) =>
+                  sessions.updatePart({
+                    ...part,
+                    id: PartID.ascending(),
+                    messageID: copy,
+                    sessionID: nextSession.id,
+                    ...(part.type === "compaction" && part.tail_start_id
+                      ? { tail_start_id: ids.get(part.tail_start_id) }
+                      : {}),
+                  }),
+                { discard: true },
+              )
+            }),
+            { discard: true },
+          ),
+        )
+      }
+
       // FORK-SEAM: subagent-model-routing
       // Also applies the low-effort variant of the small model (ForkAgents.defaultVariant).
       const small =
-        ForkAgents.routeToSmallModel(next) && Option.isSome(provider)
+        !inheriting && ForkAgents.routeToSmallModel(next) && Option.isSome(provider)
           ? yield* provider.value.getSmallModel(msg.info.providerID)
           : undefined
-      const model = next.model ??
+      const model = (inheriting ? undefined : next.model) ??
         (small ? { modelID: small.id, providerID: small.providerID } : undefined) ?? {
           modelID: msg.info.modelID,
           providerID: msg.info.providerID,
@@ -248,7 +306,7 @@ export const TaskTool = Tool.define(
       if (!ops) return yield* Effect.fail(new Error("TaskTool requires promptOps in ctx.extra"))
 
       const runSubagent = Effect.fn("TaskTool.runSubagent")(function* () {
-        const parts = yield* ops.resolvePromptParts(params.prompt)
+        const parts = yield* ops.resolvePromptParts(inheriting ? ForkAgents.forkDirective(params.prompt) : params.prompt)
         const result = yield* isolate(ops.prompt({
           messageID: MessageID.ascending(),
           sessionID: nextSession.id,
@@ -258,7 +316,7 @@ export const TaskTool = Tool.define(
           },
           variant: small
             ? ForkAgents.defaultVariant(next, Object.keys(small.variants ?? {}))
-            : next.model
+            : next.model && !inheriting
               ? undefined
               : variant,
           agent: next.name,

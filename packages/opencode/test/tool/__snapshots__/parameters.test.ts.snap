@@ -317,6 +317,10 @@ exports[`tool parameters JSON Schema (wire shape) task 1`] = `
       "description": "A short (3-5 words) description of the task",
       "type": "string",
     },
+    "inherit": {
+      "description": "Set to true to fork the current conversation: the subagent starts from a copy of it with your agent, tools and model (cheap thanks to the prompt cache, so do not restate context) and subagent_type is ignored. Write prompt as a directive for the fork. Ignored with task_id.",
+      "type": "boolean",
+    },
     "isolation": {
       "description": "Set to "worktree" to run the subagent in an isolated git worktree created from the last commit (uncommitted changes are not included). Its changes come back as a branch to review and merge. Use it for subagents that edit files in parallel.",
       "enum": [

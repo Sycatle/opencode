@@ -43,3 +43,9 @@ test("unknown tools and the opt-out keep the original", () => {
   process.env.OPENCODE_FORK_SLIM_TOOLS = "0"
   expect(ForkDescriptions.slim("read", "original")).toBe("original")
 })
+
+test("task mentions inherit and messaging a running background subagent", () => {
+  const slim = ForkDescriptions.slim("task", "Long upstream text.")
+  expect(slim).toContain("inherit: true forks the current context")
+  expect(slim).toContain("task_id of a running background subagent sends it a new message")
+})

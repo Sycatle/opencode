@@ -58,4 +58,27 @@ export function backgroundTracker() {
   }
 }
 
+// `inherit: true` subagents start from a copy of the parent's conversation, with the
+// parent's agent, tools and model, so their request shares the parent's cached prefix.
+export function inheritEnabled() {
+  return process.env.OPENCODE_FORK_SUBAGENT_INHERIT !== "0"
+}
+
+export const FORK_PREAMBLE = [
+  "You are a forked worker: a copy of the agent above, started to do one delegated job.",
+  "The conversation above is the parent's. Its in-progress work and its pending task call are not yours: do not redo them or continue the parent's plan.",
+  "Do only the directive below, then reply with a concise report of what you did and found, without restating context the parent already has.",
+].join(" ")
+
+export function forkDirective(prompt: string) {
+  return `${FORK_PREAMBLE}\n\nDirective: ${prompt}`
+}
+
+// Messages strictly before the one holding the pending task call. An unknown id
+// yields nothing: seeding a child with the pending call would duplicate it.
+export function historyBefore<T extends { info: { id: string } }>(messages: T[], messageID: string) {
+  const end = messages.findIndex((message) => message.info.id === messageID)
+  return end < 0 ? [] : messages.slice(0, end)
+}
+
 export * as ForkAgents from "./agents"

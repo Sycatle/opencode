@@ -16,6 +16,7 @@ import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { SessionRunState } from "@/session/run-state"
 import { SessionStatus } from "@/session/status"
 
+import { ForkAgents } from "@opencode-fork/core/agents"
 import { TaskTool, type TaskPromptOps } from "../../src/tool/task"
 import { Truncate } from "@/tool/truncate"
 import { ToolRegistry } from "@/tool/registry"
@@ -370,6 +371,80 @@ describe("tool.task", () => {
       expect(failure.message).toBe(
         `Subagent failed (task_id: ${child?.id}): The user rejected permission to use this specific tool call.`,
       )
+    }),
+  )
+
+  it.instance("execute with inherit seeds the child with the parent history and prompts as a fork", () =>
+    Effect.gen(function* () {
+      const sessions = yield* Session.Service
+      const { chat, assistant } = yield* seed()
+      yield* sessions.updatePart({
+        id: PartID.ascending(),
+        messageID: assistant.parentID,
+        sessionID: chat.id,
+        type: "text",
+        text: "The secret is 42",
+      })
+      const tool = yield* TaskTool
+      const def = yield* tool.init()
+      let seen: SessionPrompt.PromptInput | undefined
+      const asked: unknown[] = []
+
+      const result = yield* def.execute(
+        {
+          description: "use the secret",
+          prompt: "report the secret",
+          subagent_type: "explore",
+          inherit: true,
+        },
+        {
+          sessionID: chat.id,
+          messageID: assistant.id,
+          agent: "build",
+          abort: new AbortController().signal,
+          extra: { promptOps: stubOps({ onPrompt: (input) => (seen = input) }) },
+          messages: [],
+          metadata: () => Effect.void,
+          ask: (input) => Effect.sync(() => asked.push(input)),
+        },
+      )
+
+      const childID = SessionID.make(String(result.metadata.sessionId))
+      const child = yield* sessions.get(childID)
+      const history = yield* sessions.messages({ sessionID: childID })
+      expect(child.parentID).toBe(chat.id)
+      expect(child.agent).toBe("build")
+      expect(history).toHaveLength(1)
+      expect(history[0]?.info.role).toBe("user")
+      expect(history[0]?.info.sessionID).toBe(childID)
+      expect(history[0]?.parts.map((part) => (part.type === "text" ? part.text : ""))).toEqual(["The secret is 42"])
+      expect(seen?.agent).toBe("build")
+      expect(seen?.variant).toBe("xhigh")
+      expect(seen?.parts[0]).toMatchObject({ type: "text", text: ForkAgents.forkDirective("report the secret") })
+      expect(asked[0]).toMatchObject({ patterns: ["build"] })
+    }),
+  )
+
+  it.instance("execute without inherit starts the child with an empty history", () =>
+    Effect.gen(function* () {
+      const sessions = yield* Session.Service
+      const { chat, assistant } = yield* seed()
+      const tool = yield* TaskTool
+      const def = yield* tool.init()
+      const result = yield* def.execute(
+        { description: "fresh", prompt: "start", subagent_type: "general" },
+        {
+          sessionID: chat.id,
+          messageID: assistant.id,
+          agent: "build",
+          abort: new AbortController().signal,
+          extra: { promptOps: stubOps() },
+          messages: [],
+          metadata: () => Effect.void,
+          ask: () => Effect.void,
+        },
+      )
+      expect(yield* sessions.messages({ sessionID: SessionID.make(String(result.metadata.sessionId)) })).toHaveLength(0)
     }),
   )
 

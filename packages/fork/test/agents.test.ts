@@ -5,6 +5,7 @@ afterEach(() => {
   delete process.env.OPENCODE_FORK_ROUTE_SUBAGENTS
   delete process.env.OPENCODE_FORK_MAX_BACKGROUND
   delete process.env.OPENCODE_FORK_SUBAGENT_EFFORT
+  delete process.env.OPENCODE_FORK_SUBAGENT_INHERIT
 })
 
 test("defaultVariant picks the lowest effort variant for explore", () => {
@@ -61,4 +62,23 @@ test("a child that finished before its launch was observed does not block exit",
   tracker.observeIdle("fast")
   tracker.observePart(launched("fast"))
   expect(tracker.canExit()).toBe(true)
+})
+
+test("historyBefore keeps the messages strictly before the pending turn", () => {
+  const messages = [{ info: { id: "u1" } }, { info: { id: "a1" } }, { info: { id: "u2" } }, { info: { id: "a2" } }]
+  expect(ForkAgents.historyBefore(messages, "a2").map((message) => message.info.id)).toEqual(["u1", "a1", "u2"])
+  expect(ForkAgents.historyBefore(messages, "u1")).toEqual([])
+  expect(ForkAgents.historyBefore(messages, "missing")).toEqual([])
+})
+
+test("forkDirective prepends the preamble to the directive", () => {
+  const text = ForkAgents.forkDirective("check the cache")
+  expect(text.startsWith(ForkAgents.FORK_PREAMBLE)).toBe(true)
+  expect(text).toEndWith("Directive: check the cache")
+})
+
+test("inherit can be turned off", () => {
+  expect(ForkAgents.inheritEnabled()).toBe(true)
+  process.env.OPENCODE_FORK_SUBAGENT_INHERIT = "0"
+  expect(ForkAgents.inheritEnabled()).toBe(false)
 })
