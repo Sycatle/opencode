@@ -1,5 +1,6 @@
 import { Config, ConfigProvider, Context, Effect, Layer, Option } from "effect"
 import { ForkAgents } from "@opencode-fork/core/agents"
+import { ForkLsp } from "@opencode-fork/core/lsp"
 import { ConfigService } from "@/effect/config-service"
 
 const bool = (name: string) => Config.boolean(name).pipe(Config.withDefault(false))
@@ -46,7 +47,8 @@ export class Service extends ConfigService.Service<Service>()("@opencode/Runtime
     Config.withDefault(ForkAgents.BACKGROUND_DEFAULT),
   ),
   experimentalLspTy: bool("OPENCODE_EXPERIMENTAL_LSP_TY"),
-  experimentalLspTool: enabledByExperimental("OPENCODE_EXPERIMENTAL_LSP_TOOL"),
+  // FORK-SEAM: lsp-default
+  experimentalLspTool: Config.boolean("OPENCODE_EXPERIMENTAL_LSP_TOOL").pipe(Config.withDefault(ForkLsp.DEFAULT)),
   experimentalOxfmt: enabledByExperimental("OPENCODE_EXPERIMENTAL_OXFMT"),
   experimentalPlanMode: enabledByExperimental("OPENCODE_EXPERIMENTAL_PLAN_MODE"),
   experimentalCodeMode: enabledByExperimental("OPENCODE_EXPERIMENTAL_CODE_MODE"),

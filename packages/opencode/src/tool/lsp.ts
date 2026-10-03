@@ -7,6 +7,7 @@ import { InstanceState } from "@/effect/instance-state"
 import { pathToFileURL } from "url"
 import { assertExternalDirectoryEffect } from "./external-directory"
 import { FSUtil } from "@opencode-ai/core/fs-util"
+import { ForkLsp } from "@opencode-fork/core/lsp"
 
 const operations = [
   "goToDefinition",
@@ -105,7 +106,18 @@ export const LspTool = Tool.define(
           return {
             title,
             metadata: { result },
-            output: result.length === 0 ? `No results found for ${args.operation}` : JSON.stringify(result, null, 2),
+            output:
+              result.length === 0
+                ? `No results found for ${args.operation}`
+                : // FORK-SEAM: lsp-format
+                  ForkLsp.enabled()
+                  ? yield* Effect.promise(() =>
+                      ForkLsp.format(args.operation, result, {
+                        root: instance.worktree,
+                        read: (target) => Bun.file(target).text().catch(() => undefined),
+                      }),
+                    )
+                  : JSON.stringify(result, null, 2),
           }
         }).pipe(Effect.orDie),
     }

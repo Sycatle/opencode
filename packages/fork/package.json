@@ -21,7 +21,8 @@
     "./summary": "./src/summary.ts",
     "./descriptions": "./src/descriptions.ts",
     "./cache": "./src/cache.ts",
-    "./pins": "./src/pins.ts"
+    "./pins": "./src/pins.ts",
+    "./lsp": "./src/lsp.ts"
   },
   "dependencies": {
     "@opencode-ai/core": "workspace:*",
