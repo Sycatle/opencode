@@ -104,10 +104,11 @@ const tui: TuiPlugin = async (api) => {
     const job = ForkStatusline.finished(part.text)
     if (!job) return
     seen.add(part.id)
+    const session = api.state.session.get(part.sessionID)
     void api.attention.notify({
       title: ForkStatusline.notification(job),
-      message: api.state.session.get(part.sessionID)?.title ?? "",
-      notification: { when: "blurred" },
+      message: session?.title ?? "",
+      notification: session?.parentID ? false : { when: "blurred" },
       sound: { name: job.state === "error" ? "error" : "subagent_done", when: "always" },
     })
   })

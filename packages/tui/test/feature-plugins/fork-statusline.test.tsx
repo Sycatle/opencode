@@ -8,10 +8,10 @@ import { createTuiPluginApi } from "../fixture/tui-plugin"
 type Slots = Record<string, (ctx: unknown, props: unknown) => unknown>
 type Handler = (event: { properties: { part: Record<string, unknown> } }) => void
 
-function setup(statusline?: unknown) {
+function setup(statusline?: unknown, parentID?: string) {
   const registered: Slots[] = []
   const handlers: Handler[] = []
-  const notified: { title?: string; message: string }[] = []
+  const notified: { title?: string; message: string; notification?: unknown; sound?: unknown }[] = []
   const base = createTuiPluginApi({
     attention: {
       notify: async (input) => {
@@ -19,7 +19,7 @@ function setup(statusline?: unknown) {
         return { ok: true, notification: true, sound: true }
       },
     },
-    state: { session: { get: () => ({ title: "Parent" }), messages: () => [] } as never },
+    state: { session: { get: () => ({ title: "Parent", parentID }), messages: () => [] } as never },
   })
   const api = {
     ...base,
@@ -65,4 +65,17 @@ test("notifies once when a background job message lands", async () => {
   handlers[0]!(part("p3", '<task id="s" state="completed">', false))
   expect(notified.map((item) => item.title)).toEqual(["Background command done (exit 0)", "Subagent failed"])
   expect(notified[0]?.message).toBe("Parent")
+})
+
+test("uses the Session done attention rules, without an OS notification for subagent sessions", async () => {
+  const run = async (parentID?: string) => {
+    const { api, handlers, notified } = setup(undefined, parentID)
+    await plugin.tui(api, undefined, { id: plugin.id } as never)
+    handlers[0]!({
+      properties: { part: { id: "p1", type: "text", synthetic: true, sessionID: "ses_1", text: '<shell id="j" state="completed" exit="0">\nout' } },
+    })
+    return notified[0]
+  }
+  expect(await run()).toMatchObject({ notification: { when: "blurred" }, sound: { name: "subagent_done", when: "always" } })
+  expect(await run("ses_parent")).toMatchObject({ notification: false, sound: { name: "subagent_done", when: "always" } })
 })
