@@ -1,4 +1,5 @@
 import { SessionV1 } from "@opencode-ai/core/v1/session"
+import { ForkJev } from "@opencode-fork/core/jev"
 import { ForkPins } from "@opencode-fork/core/pins"
 import { ForkCompaction } from "@opencode-fork/core/compaction"
 import { ForkTelemetry } from "@opencode-fork/core/telemetry"
@@ -113,6 +114,7 @@ export const appendFacts = Effect.fn("ForkCompaction.appendFacts")(function* (in
   message: SessionV1.Assistant
 }) {
   const facts = ForkCompaction.facts(input.history)
+  if (ForkJev.mode("PINS") !== "off") yield* autoPin(input.message.sessionID, input.history)
   const text = [ForkCompaction.formatFacts(facts), ForkPins.format(ForkPins.list(input.message.sessionID))]
     .filter(Boolean)
     .join("\n\n")
@@ -126,6 +128,35 @@ export const appendFacts = Effect.fn("ForkCompaction.appendFacts")(function* (in
     text,
     time: { start: now, end: now },
     metadata: { forkFacts: facts },
+  })
+})
+
+// Jev picks the user messages that state a lasting constraint or decision and pins them for the summary.
+// The compaction already waits for a model call, so the extra Jev round trip is not on a critical path.
+const autoPin = Effect.fn("ForkCompaction.autoPin")(function* (sessionID: SessionV1.Assistant["sessionID"], history: SessionV1.WithParts[]) {
+  const pinned = ForkPins.list(sessionID)
+  const items = ForkPins.candidates(
+    history.flatMap((message) => {
+      if (message.info.role !== "user") return []
+      const text = message.parts
+        .flatMap((part) => (part.type === "text" && !part.synthetic && !part.ignored ? [part.text] : []))
+        .join("\n")
+      return text ? [{ message_id: message.info.id, text }] : []
+    }),
+    pinned,
+  )
+  if (!items.length) return
+  const response = yield* Effect.promise(() => ForkJev.ask(ForkPins.jevRequest(items)))
+  const picks = response.answers ? ForkPins.picks(items, response.answers, pinned.filter((pin) => pin.auto).length) : []
+  const added = picks.filter((pick) => ForkPins.add(sessionID, pick.message_id, pick.text))
+  ForkJev.journal({
+    feature: "pins",
+    session_id: sessionID,
+    ms: response.ms,
+    ok: response.answers !== undefined,
+    error: response.error,
+    decision: `${added.length}/${items.length}`,
+    answers: response.answers,
   })
 })
 
