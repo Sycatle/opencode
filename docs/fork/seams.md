@@ -20,6 +20,7 @@ Le code du fork vit dans `packages/fork`. Les seuls points de contact avec le co
 | `subagent-model-routing` | `packages/opencode/src/tool/task.ts` | `explore` tourne sur le petit modèle du provider (`OPENCODE_FORK_ROUTE_SUBAGENTS=0` pour couper) |
 | `worktree-isolation` | `packages/opencode/src/tool/task.ts` | Paramètre `isolation: "worktree"` : le sous-agent tourne dans un worktree git, ses changements reviennent en commit sur une branche `opencode/<nom>` |
 | `run-wait-background` | `packages/opencode/src/cli/cmd/run.ts` | `opencode run` attend les sous-agents d'arrière-plan avant de quitter |
+| `tui-widgets` | `packages/tui/src/feature-plugins/builtins.ts` | Enregistre les widgets TUI du fork : section Usage, section Subagents, budget à droite du prompt |
 | `usage-command` | `packages/opencode/src/index.ts` | Enregistre les commandes `opencode usage` et `opencode auto` |
 
 Fichiers ajoutés par le fork (sans conflit possible) :
@@ -27,10 +28,11 @@ Fichiers ajoutés par le fork (sans conflit possible) :
 - `packages/opencode/src/cli/cmd/usage.ts`
 - `packages/opencode/src/cli/cmd/auto.ts`
 - `packages/opencode/src/tool/fork-worktree.ts`
+- `packages/tui/src/feature-plugins/fork/usage.tsx`
 - `packages/opencode/src/session/fork-compaction.ts`
 - `script/fork-sync.sh`
 
-Une dépendance a aussi été ajoutée : `@opencode-fork/core` dans `packages/opencode/package.json`.
+Dépendance `@opencode-fork/core` ajoutée dans `packages/opencode/package.json` et `packages/tui/package.json`.
 
 Tests upstream adaptés aux valeurs par défaut du fork : `test/tool/task.test.ts` et `test/tool/registry.test.ts` (commentaires `Fork:`).
 
