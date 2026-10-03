@@ -1,6 +1,8 @@
 import type { Hooks, PluginInput } from "@opencode-ai/plugin"
 import type { Event as EventV2 } from "@opencode-ai/sdk/v2"
 import { ForkHooks } from "@opencode-fork/core/hooks"
+import { ForkClaudePlugins } from "@opencode-fork/core/claude-plugins"
+import { Global } from "@opencode-ai/core/global"
 import { PartID } from "@/session/schema"
 import { smallModelAsk } from "./fork-hooks-model"
 
@@ -19,6 +21,8 @@ export async function createForkHooksPlugin(input: PluginInput, deps: ForkHooks.
   const parents = new Map<string, string | undefined>()
   const agents = new Map<string, string>()
   const live = new Set<string>()
+  // SessionStart outcome of each root session, injected once into its first user message (Claude Code behaviour).
+  const starts = new Map<string, Promise<ForkHooks.Outcome>>()
   // Tool calls a PreToolUse hook blocked: not a tool failure.
   const blockedCalls = new Set<string>()
 
@@ -46,7 +50,17 @@ export async function createForkHooksPlugin(input: PluginInput, deps: ForkHooks.
 
   return {
     config: async (config) => {
-      hooks = ForkHooks.parse((config as { hooks?: unknown }).hooks)
+      const own = ForkHooks.parse((config as { hooks?: unknown }).hooks)
+      // FORK-SEAM: cc-plugins-hooks (hooks of enabled Claude Code plugins run after the user's own)
+      const plugged = ForkClaudePlugins.enabled()
+        ? await ForkClaudePlugins.pluginHooks({ home: Global.Path.home, cwd: input.directory })
+        : {}
+      hooks = Object.fromEntries(
+        ForkHooks.EVENTS.flatMap((event) => {
+          const entries = [...(own[event] ?? []), ...(plugged[event] ?? [])]
+          return entries.length > 0 ? [[event, entries]] : []
+        }),
+      )
     },
 
     // The plugin Event type predates permission.asked and question.asked: narrow with the v2 events the bus really emits.
@@ -56,7 +70,9 @@ export async function createForkHooksPlugin(input: PluginInput, deps: ForkHooks.
         const info = event.properties.info
         parents.set(info.id, info.parentID)
         live.add(info.id)
-        await fire("SessionStart", { sessionID: info.id, parentID: info.parentID })
+        const start = fire("SessionStart", { sessionID: info.id, parentID: info.parentID })
+        if (!info.parentID) starts.set(info.id, start)
+        await start
         return
       }
       if (event.type === "message.updated") {
@@ -178,15 +194,21 @@ export async function createForkHooksPlugin(input: PluginInput, deps: ForkHooks.
         })
         return
       }
-      if (!outcome.additionalContext) return
-      output.parts.push({
-        id: PartID.ascending(),
-        sessionID: output.message.sessionID,
-        messageID: output.message.id,
-        type: "text",
-        text: outcome.additionalContext,
-        synthetic: true,
-      })
+      const start = starts.get(info.sessionID)
+      starts.delete(info.sessionID)
+      const context = [(await start)?.additionalContext, outcome.additionalContext].filter(
+        (text): text is string => !!text,
+      )
+      context.forEach((text) =>
+        output.parts.push({
+          id: PartID.ascending(),
+          sessionID: output.message.sessionID,
+          messageID: output.message.id,
+          type: "text",
+          text,
+          synthetic: true,
+        }),
+      )
     },
 
     "experimental.session.compacting": async (info, output) => {

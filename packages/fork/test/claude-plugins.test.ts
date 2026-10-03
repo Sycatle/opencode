@@ -262,15 +262,16 @@ test("hooks.json converts to the fork hooks key", async () => {
     },
   }
   expect(ForkClaudePlugins.hooks(file, dir)).toEqual({
-    SessionStart: [{ command: `"${dir}/hooks/run-hook.cmd" session-start` }],
-    PreToolUse: [{ matcher: "Bash|Edit", command: `${dir}/guard.sh`, timeout: 5000 }],
+    SessionStart: [{ type: "command", command: `"${dir}/hooks/run-hook.cmd" session-start` }],
+    PreToolUse: [{ type: "command", matcher: "Bash|Edit", command: `${dir}/guard.sh`, timeout: 5000 }],
+    SubagentStop: [{ type: "command", command: "unsupported" }],
   })
   expect(ForkClaudePlugins.hooks(undefined, dir)).toEqual({})
 
   await write(path.join(dir, "hooks", "hooks.json"), file)
   await install({ "superpowers@claude-plugins-official": [{ root: dir }] })
   const merged = await ForkClaudePlugins.pluginHooks({ home, env })
-  expect(Object.keys(merged).sort()).toEqual(["PreToolUse", "SessionStart"])
+  expect(Object.keys(merged).sort()).toEqual(["PreToolUse", "SessionStart", "SubagentStop"])
 })
 
 async function git(cwd: string, ...args: string[]) {

@@ -76,7 +76,7 @@ export interface Deps {
 }
 
 // Contract: SessionStart (session.created), Stop and SubagentStop (session.idle), SessionEnd and Notification
-// are fire-and-forget event hooks; nothing waits on them, so they cannot block and their additionalContext is ignored.
+// are fire-and-forget event hooks: they cannot block. Only SessionStart additionalContext is used (first message of a root session).
 export const DEFAULT_TIMEOUT = 60_000
 
 // Hooks are on unless OPENCODE_FORK_HOOKS=0.
@@ -176,14 +176,21 @@ export function interpretJson(stdout: string): Outcome {
   if (!text.startsWith("{")) return {}
   const json = parseObject(text)
   if (!json) return {}
+  // Claude Code plugins nest it under hookSpecificOutput.
+  const specific = json.hookSpecificOutput
+  const nested =
+    typeof specific === "object" && specific !== null && "additionalContext" in specific
+      ? specific.additionalContext
+      : undefined
+  const context = [json.additionalContext, nested].find(
+    (value): value is string => typeof value === "string" && value.length > 0,
+  )
   return {
     ...(typeof json.decision === "string" && DECISIONS.includes(json.decision)
       ? { decision: json.decision as Decision }
       : {}),
     ...(typeof json.reason === "string" ? { reason: json.reason } : {}),
-    ...(typeof json.additionalContext === "string" && json.additionalContext
-      ? { additionalContext: json.additionalContext }
-      : {}),
+    ...(context ? { additionalContext: context } : {}),
     ...(typeof json.args === "object" && json.args !== null && !Array.isArray(json.args)
       ? { args: json.args as Record<string, unknown> }
       : {}),

@@ -41,6 +41,10 @@ Le code du fork vit dans `packages/fork`. Les seuls points de contact avec le co
 | `quota-headers` | `packages/opencode/src/provider/provider.ts` | Lit les en-têtes `anthropic-ratelimit-unified-*` (fenêtres 5h et hebdo de l'abonnement) dans `timeoutFetch` ; alimente l'affichage Quota, le budget `--budget 20%` et l'attente de remise à zéro d'`opencode auto` |
 | `tool-failure-hook` | `packages/plugin/src/index.ts`, `packages/opencode/src/session/processor.ts` | Hook plugin `tool.execute.failure` déclenché par `failToolCall` (sauf refus utilisateur) ; alimente `PostToolUseFailure`, qui peut ajouter du contexte à l'erreur |
 | `prompt-block-hook` | `packages/opencode/src/session/prompt.ts` | Un `UserPromptSubmit` bloquant est signalé par un part marqué : le seam publie `session.error` avec la raison et arrête le prompt avant persistance (contrat des hooks : `docs/fork/hooks.md`) |
+| `cc-plugins-skills` | `packages/opencode/src/skill/index.ts` | Ajoute aux skills ceux des plugins Claude Code activés (`~/.claude/plugins`), nommés `<plugin>:<skill>` (`OPENCODE_FORK_CC_PLUGINS=0` pour couper) |
+| `cc-plugins-config` | `packages/opencode/src/config/config.ts` | Fusionne sous la config utilisateur les commandes, agents (subagents) et serveurs MCP des plugins Claude Code activés (`ForkClaudePlugins.config`) |
+| `cc-plugins-hooks` | `packages/opencode/src/plugin/fork-hooks.ts` | Ajoute après les hooks de l'utilisateur ceux des plugins Claude Code activés ; le contexte d'un `SessionStart` est injecté dans le premier message d'une session racine |
+| `cc-plugins-command` | `packages/opencode/src/index.ts` | Commande `opencode plugin-cc` (`add`, `list`, `rm`, `marketplace add`), qui écrit dans `~/.claude/plugins/*` et `~/.claude/settings.json` comme Claude Code |
 | `usage-command` | `packages/opencode/src/index.ts` | Enregistre les commandes `opencode usage`, `auto`, `schedule` et `workflow` (un run dont le process est mort passe en `interrupted` ; son coût est lu dans `fork_usage` par session d'étape) |
 
 Fichiers ajoutés par le fork (sans conflit possible) :

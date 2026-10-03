@@ -21,7 +21,7 @@ appel du petit modèle : `packages/opencode/src/plugin/fork-hooks-model.ts`. `OP
 | `PermissionRequest` | demande de permission | type de permission | `allow` / `deny` / `ask` |
 | `PreCompact` | avant compaction | (aucun) | `additionalContext` ajouté au contexte du résumé |
 | `Notification` | permission demandée, question posée, session racine idle | type : `permission`, `question`, `idle` | aucun (fire-and-forget) |
-| `SessionStart` | `session.created` | (aucun) | aucun (fire-and-forget) |
+| `SessionStart` | `session.created` | (aucun) | `additionalContext` injecté dans le premier message d'une session racine |
 | `SessionEnd` | `session.deleted`, ou arrêt de l'instance pour les sessions encore vivantes | (aucun) | aucun (fire-and-forget) |
 | `Stop` | `session.idle` d'une session racine | (aucun) | aucun (fire-and-forget) |
 | `SubagentStop` | `session.idle` d'une session enfant (sous-agent task, arrière-plan compris) | (aucun) | aucun (fire-and-forget) |
