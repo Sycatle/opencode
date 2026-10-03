@@ -3,6 +3,7 @@ import { afterEach, describe, expect } from "bun:test"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Effect, Layer } from "effect"
 import path from "path"
+import { pathToFileURL } from "url"
 import { Agent } from "../../src/agent/agent"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { FSUtil } from "@opencode-ai/core/fs-util"
@@ -31,6 +32,7 @@ const ctx = {
 }
 
 const workspaceSymbolQueries: string[] = []
+const mocked = { definition: [] as unknown[], documentSymbol: [] as Effect.Success<ReturnType<LSP.Interface["documentSymbol"]>> }
 
 const lsp = Layer.succeed(
   LSP.Service,
@@ -41,10 +43,10 @@ const lsp = Layer.succeed(
     touchFile: () => Effect.void,
     diagnostics: () => Effect.succeed({}),
     hover: () => Effect.succeed([]),
-    definition: () => Effect.succeed([]),
+    definition: () => Effect.sync(() => mocked.definition),
     references: () => Effect.succeed([]),
     implementation: () => Effect.succeed([]),
-    documentSymbol: () => Effect.succeed([]),
+    documentSymbol: () => Effect.sync(() => mocked.documentSymbol),
     workspaceSymbol: (query) =>
       Effect.sync(() => {
         workspaceSymbolQueries.push(query)
@@ -177,6 +179,46 @@ describe("tool.lsp", () => {
           yield* run({ operation: "workspaceSymbol", filePath: file, line: 3, character: 7 })
 
           expect(workspaceSymbolQueries).toEqual(["TestSymbol", ""])
+        }),
+      { git: true },
+    )
+  })
+
+  describe("compact output", () => {
+    it.instance(
+      "formats locations as file:line:col with the source line",
+      () =>
+        Effect.gen(function* () {
+          const dir = (yield* TestInstance).directory
+          const file = path.join(dir, "test.ts")
+          yield* put(file)
+          mocked.definition = [
+            {
+              uri: pathToFileURL(file).href,
+              range: { start: { line: 0, character: 13 }, end: { line: 0, character: 14 } },
+            },
+          ]
+
+          const result = yield* run({ operation: "goToDefinition", filePath: file, line: 1, character: 14 })
+
+          expect(result.output).toBe("test.ts:1:14 export const x = 1")
+        }),
+      { git: true },
+    )
+
+    it.instance(
+      "formats document symbols one per line",
+      () =>
+        Effect.gen(function* () {
+          const dir = (yield* TestInstance).directory
+          const file = path.join(dir, "test.ts")
+          yield* put(file)
+          const range = { start: { line: 0, character: 0 }, end: { line: 0, character: 18 } }
+          mocked.documentSymbol = [{ name: "x", kind: 13, range, selectionRange: range }]
+
+          const result = yield* run({ operation: "documentSymbol", filePath: file, line: 1, character: 1 })
+
+          expect(result.output).toBe("Variable x 1")
         }),
       { git: true },
     )
