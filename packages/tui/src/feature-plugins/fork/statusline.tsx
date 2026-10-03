@@ -84,7 +84,7 @@ function Line(props: { api: TuiPluginApi; config: ForkStatusline.Config }) {
 }
 
 const tui: TuiPlugin = async (api) => {
-  const config = ForkStatusline.config((api.tuiConfig as { statusline?: unknown }).statusline)
+  const config = ForkStatusline.config(api.tuiConfig.statusline)
   if (config) {
     api.slots.register({
       order: 900,

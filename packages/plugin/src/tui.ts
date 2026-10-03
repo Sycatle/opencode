@@ -419,6 +419,8 @@ type TuiAttentionConfigView = {
 type TuiConfigView = Pick<PluginConfig, "$schema" | "theme" | "plugin"> &
   NonNullable<PluginConfig["tui"]> & {
     leader_timeout: number
+    // FORK-SEAM: statusline-config
+    statusline?: { command: string; interval?: number }
     attention: TuiAttentionConfigView
     plugin_enabled?: Record<string, boolean>
     keybinds: TuiBindingLookupView
