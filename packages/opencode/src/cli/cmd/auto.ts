@@ -31,7 +31,7 @@ export const AutoCommand = cmd({
       }),
   handler: async (args) => {
     const dir = path.resolve(args.dir ?? process.cwd())
-    const self = ForkAutonomy.selfCommand(process.execPath, process.argv)
+    const self = ForkAutonomy.selfCommand(process.execPath, process.argv, process.execArgv)
     const budget = ForkAutonomy.parseBudget(args.budget)
     const env = {
       ...process.env,

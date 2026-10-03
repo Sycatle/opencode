@@ -6,7 +6,7 @@ import { ForkSchedule } from "@opencode-fork/core/schedule"
 import { cmd } from "./cmd"
 
 const self = () =>
-  ForkAutonomy.selfCommand(process.execPath, process.argv).map((part, index) => (index === 1 ? path.resolve(part) : part))
+  ForkAutonomy.selfCommand(process.execPath, process.argv, process.execArgv).map((part) => (part === process.argv[1] ? path.resolve(part) : part))
 
 const line = () =>
   ForkSchedule.crontabLine({

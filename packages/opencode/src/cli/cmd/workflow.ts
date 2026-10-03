@@ -31,7 +31,7 @@ const RunCommand = cmd({
     ForkWorkflow.startRun(runID, file, mod.meta.name)
     console.error(`run ${runID} · ${mod.meta.name}${args.resume ? " (resumed)" : ""}`)
 
-    const self = ForkAutonomy.selfCommand(process.execPath, process.argv)
+    const self = ForkAutonomy.selfCommand(process.execPath, process.argv, process.execArgv)
     const runtime = ForkWorkflow.createRuntime({
       runID,
       concurrency: args.concurrency,

@@ -30,6 +30,15 @@ test("a failed check is fed back with its exit code and the tail of its output",
   expect(decision.prompt.length).toBeLessThan(4400)
 })
 
+test("keeps runtime flags before a dev script and ignores them for a compiled binary", () => {
+  expect(
+    ForkAutonomy.selfCommand("/usr/bin/bun", ["/usr/bin/bun", "/repo/src/index.ts"], ["--conditions=browser"]),
+  ).toEqual(["/usr/bin/bun", "--conditions=browser", "/repo/src/index.ts"])
+  expect(ForkAutonomy.selfCommand("/bin/opencode", ["/bin/opencode", "/$bunfs/root/opencode"], ["--x"])).toEqual([
+    "/bin/opencode",
+  ])
+})
+
 test("re-invokes a dev script with its runtime, a compiled binary alone", () => {
   expect(ForkAutonomy.selfCommand("/usr/bin/bun", ["/usr/bin/bun", "/repo/src/index.ts", "auto"])).toEqual([
     "/usr/bin/bun",

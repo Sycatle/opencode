@@ -46,10 +46,10 @@ export function parseBudget(value: string | undefined) {
   return trimmed.endsWith("%") ? { unit: "window" as const, amount } : { unit: "usd" as const, amount }
 }
 
-// Arguments to re-invoke the current opencode entrypoint (dev script or compiled binary).
-export function selfCommand(execPath: string, argv: readonly string[]) {
+// Arguments to re-invoke the current opencode entrypoint (dev script with its runtime flags, or compiled binary).
+export function selfCommand(execPath: string, argv: readonly string[], execArgv: readonly string[] = []) {
   const script = argv[1]
-  return script && /\.(ts|js|mjs)$/.test(script) && !script.startsWith("/$bunfs") ? [execPath, script] : [execPath]
+  return script && /\.(ts|js|mjs)$/.test(script) && !script.startsWith("/$bunfs") ? [execPath, ...execArgv, script] : [execPath]
 }
 
 export * as ForkAutonomy from "./autonomy"
