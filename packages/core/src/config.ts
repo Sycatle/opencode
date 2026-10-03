@@ -16,6 +16,8 @@ import { ConfigCompaction } from "./config/compaction"
 import { ConfigCommand } from "./config/command"
 import { ConfigExperimental } from "./config/experimental"
 import { ConfigFormatter } from "./config/formatter"
+// FORK-SEAM: hooks-config
+import { ConfigHooks } from "./config/hooks"
 import { ConfigLSP } from "./config/lsp"
 import { ConfigMCP } from "./config/mcp"
 import { ConfigPlugin } from "./config/plugin"
@@ -74,6 +76,10 @@ export class Info extends Schema.Class<Info>("Config.Info")({
   }),
   lsp: ConfigLSP.Info.pipe(Schema.optional).annotate({
     description: "Enable built-in language servers or configure server overrides",
+  }),
+  // FORK-SEAM: hooks-config
+  hooks: ConfigHooks.Info.pipe(Schema.optional).annotate({
+    description: "Shell commands run on lifecycle events (PreToolUse, PostToolUse, UserPromptSubmit, SessionStart, Stop, PreCompact, PermissionRequest)",
   }),
   attachments: ConfigAttachments.Info.pipe(Schema.optional).annotate({
     description: "Attachment processing configuration",

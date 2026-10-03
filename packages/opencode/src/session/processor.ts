@@ -28,6 +28,7 @@ import { Database } from "@opencode-ai/core/database/database"
 import { Usage, type LLMEvent } from "@opencode-ai/llm"
 import { ForkTelemetry } from "@opencode-fork/core/telemetry"
 import { ForkCompaction } from "@opencode-fork/core/compaction"
+import { askWithPlugins } from "./fork-permission"
 
 const DOOM_LOOP_THRESHOLD = 3
 export type Result = "compact" | "stop" | "continue"
@@ -372,7 +373,8 @@ const layer = Layer.effect(
             }
 
             const agent = yield* agents.get(ctx.assistantMessage.agent)
-            yield* permission.ask({
+            // FORK-SEAM: permission-ask-hook
+            yield* askWithPlugins(plugin, permission, {
               permission: "doom_loop",
               patterns: [value.name],
               sessionID: ctx.assistantMessage.sessionID,

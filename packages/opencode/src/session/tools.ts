@@ -24,6 +24,7 @@ import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { isRecord } from "@/util/record"
 import { RuntimeFlags } from "@/effect/runtime-flags"
+import { askWithPlugins } from "./fork-permission"
 
 const MCP_RESOURCE_TOOLS = {
   list: "list_mcp_resources",
@@ -79,15 +80,14 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
           },
         }
       }),
+    // FORK-SEAM: permission-ask-hook
     ask: (req) =>
-      permission
-        .ask({
-          ...req,
-          sessionID: input.session.id,
-          tool: { messageID: input.processor.message.id, callID: options.toolCallId },
-          ruleset: Permission.merge(input.agent.permission, input.session.permission ?? []),
-        })
-        .pipe(Effect.orDie),
+      askWithPlugins(plugin, permission, {
+        ...req,
+        sessionID: input.session.id,
+        tool: { messageID: input.processor.message.id, callID: options.toolCallId },
+        ruleset: Permission.merge(input.agent.permission, input.session.permission ?? []),
+      }).pipe(Effect.orDie),
   })
 
   for (const item of yield* registry.tools({

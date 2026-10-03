@@ -48,6 +48,8 @@ export function migrate(info: typeof ConfigV1.Info.Type) {
     watcher: info.watcher,
     formatter: info.formatter,
     lsp: info.lsp,
+    // FORK-SEAM: hooks-config
+    hooks: info.hooks,
     attachments: info.attachment,
     tool_output: info.tool_output,
     mcp: mcp(info),

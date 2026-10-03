@@ -3,6 +3,8 @@ export * as ConfigV1 from "./config"
 import { Schema } from "effect"
 import { NonNegativeInt, PositiveInt, type DeepMutable } from "../../schema"
 import { ConfigExperimental } from "../../config/experimental"
+// FORK-SEAM: hooks-config
+import { ConfigHooks } from "../../config/hooks"
 import { ConfigReference } from "../../config/reference"
 import { ConfigAgentV1 } from "./agent"
 import { ConfigAttachmentV1 } from "./attachment"
@@ -120,6 +122,10 @@ export const Info = Schema.Struct({
   lsp: Schema.optional(ConfigLSPV1.Info).annotate({
     description:
       "Enable or configure LSP servers. Omit or set to false to disable, true to enable built-ins, or an object to enable built-ins with overrides.",
+  }),
+  // FORK-SEAM: hooks-config
+  hooks: Schema.optional(ConfigHooks.Info).annotate({
+    description: "Shell commands run on lifecycle events, receiving the event JSON on stdin",
   }),
   instructions: Schema.optional(Schema.mutable(Schema.Array(Schema.String))).annotate({
     description: "Additional instruction files or patterns to include",

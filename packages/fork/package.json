@@ -29,7 +29,7 @@
     "./schedule": "./src/schedule.ts",
     "./workflow": "./src/workflow.ts",
     "./monitor": "./src/monitor.ts",
-    "./memory": "./src/memory.ts"
+    "./hooks": "./src/hooks.ts"
   },
   "dependencies": {
     "@opencode-ai/core": "workspace:*",
