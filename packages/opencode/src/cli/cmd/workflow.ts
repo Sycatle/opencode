@@ -47,7 +47,7 @@ const RunCommand = cmd({
       concurrency: args.concurrency,
       budget: args.budget,
       progress: (line) => console.error(line),
-      execute: async (prompt, options, sessionID) => {
+      execute: async (prompt, options, sessionID, started) => {
         const command = [
           ...self,
           "run",
@@ -62,7 +62,7 @@ const RunCommand = cmd({
         ]
         const env = { ...process.env, ...ForkWorkflow.budgetEnv(args.budget, runtime.spent()) }
         // A slow dev startup can leave `run` silent; one silent attempt is killed and retried once.
-        const reply = (await attempt(command, env)) ?? (await attempt(command, env))
+        const reply = (await attempt(command, env, started)) ?? (await attempt(command, env, started))
         if (!reply) throw new Error(`agent produced no event in ${STARTUP_TIMEOUT_MS / 1000}s, twice`)
         const id = reply.sessionID ?? sessionID
         if (!id) throw new Error("agent produced no session")
@@ -126,12 +126,12 @@ function fail(message: string) {
   process.exitCode = 1
 }
 
-async function attempt(command: string[], env: Record<string, string | undefined>) {
+async function attempt(command: string[], env: Record<string, string | undefined>, started: (sessionID: string) => void) {
   const proc = Bun.spawn(command, { stdout: "pipe", stderr: "ignore", env })
   children.add(proc)
   const timer = setTimeout(() => proc.kill(), STARTUP_TIMEOUT_MS)
   const decoder = new TextDecoder()
-  const state = { output: "", silent: true }
+  const state = { output: "", silent: true, session: false }
   const reader = proc.stdout.getReader()
   while (true) {
     const chunk = await reader.read()
@@ -139,6 +139,10 @@ async function attempt(command: string[], env: Record<string, string | undefined
     if (state.silent) clearTimeout(timer)
     state.silent = false
     state.output += decoder.decode(chunk.value, { stream: true })
+    // Report the session at once so its cost counts for the run even if the child is killed mid-turn.
+    const session = state.session ? undefined : state.output.match(/"sessionID":"([^"]+)"/)?.[1]
+    if (session) started(session)
+    state.session ||= session !== undefined
   }
   clearTimeout(timer)
   await proc.exited

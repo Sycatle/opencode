@@ -12,6 +12,8 @@ export type AgentOptions = { label?: string; agent?: string; model?: string; sch
 
 export type Execution = { text: string; sessionID: string }
 
+// Fired as soon as the child's session is known, so a child that dies mid-turn is still attributed to the run.
+export type Started = (sessionID: string) => void
 
 type Stage = (value: unknown, index: number) => unknown
 
@@ -213,13 +215,16 @@ export function hasRun(id: string) {
   return table().query("SELECT 1 FROM fork_workflow_runs WHERE id = ?").get(id) !== null
 }
 
+// The run cost is read from telemetry by session, not from saved results: an agent that failed or was killed has no
+// result, but the step-finish rows it already produced are in fork.db.
 export function finishRun(id: string, status: "done" | "failed" | "budget" | "interrupted") {
   const total = table()
-    .query<{ cost: number | null }, [string]>("SELECT sum(cost) AS cost FROM fork_workflow_steps WHERE run_id = ?")
-    .get(id)
+    .query<{ session_id: string }, [string]>("SELECT DISTINCT session_id FROM fork_workflow_steps WHERE run_id = ?")
+    .all(id)
+    .reduce((sum, step) => sum + ForkTelemetry.treeCost(step.session_id), 0)
   table()
     .query("UPDATE fork_workflow_runs SET status = ?, cost = ?, finished = ? WHERE id = ?")
-    .run(status, total?.cost ?? 0, Date.now(), id)
+    .run(status, total, Date.now(), id)
 }
 
 // `execute` runs one prompt in a session (continuing `sessionID` when given); the rest is bookkeeping.
@@ -228,7 +233,7 @@ export function createRuntime(input: {
   runID: string
   concurrency: number
   budget?: number
-  execute: (prompt: string, options: AgentOptions, sessionID?: string) => Promise<Execution>
+  execute: (prompt: string, options: AgentOptions, sessionID: string | undefined, started: Started) => Promise<Execution>
   cost?: (sessionID: string) => number
   progress: (line: string) => void
 }) {
@@ -243,6 +248,17 @@ export function createRuntime(input: {
   async function agent(prompt: string, options: AgentOptions = {}) {
     const stepKey = key(prompt, options)
     const label = options.label ?? prompt.replaceAll(/\s+/g, " ").slice(0, 40)
+    // A placeholder step (never a cache hit) ties the session's spend to the run even if the agent is killed.
+    const started: Started = (sessionID) => {
+      launched.add(sessionID)
+      saveStep(input.runID, {
+        key: `started:${stepKey}:${sessionID}`,
+        label,
+        session_id: sessionID,
+        result_json: "null",
+        cost: 0,
+      })
+    }
     const tag = `[${state.phase || "-"}] ${label}`
     const cached = cachedStep(input.runID, stepKey)
     if (cached) {
@@ -255,9 +271,14 @@ export function createRuntime(input: {
         throw new BudgetExceeded(spent(), input.budget)
       }
       input.progress(`${tag}: started`)
-      const first = await input.execute(options.schema ? schemaPrompt(prompt, options.schema) : prompt, options)
-      launched.add(first.sessionID)
-      const result = options.schema ? await structured(first, options.schema) : first.text
+      const first = await input.execute(
+        options.schema ? schemaPrompt(prompt, options.schema) : prompt,
+        options,
+        undefined,
+        started,
+      )
+      started(first.sessionID)
+      const result = options.schema ? await structured(first, options.schema, started) : first.text
       const stepCost = cost(first.sessionID)
       saveStep(input.runID, {
         key: stepKey,
@@ -271,13 +292,14 @@ export function createRuntime(input: {
     })
   }
 
-  async function structured(first: Execution, schema: Schema) {
+  async function structured(first: Execution, schema: Schema, started: Started) {
     const answer = parseAnswer(first.text, schema)
     if (answer.ok) return answer.value
     const retry = await input.execute(
       `Your previous answer was invalid: ${answer.problem}. Reply again with only the corrected JSON in a fenced \`\`\`json block.`,
       {},
       first.sessionID,
+      started,
     )
     const second = parseAnswer(retry.text, schema)
     if (second.ok) return second.value

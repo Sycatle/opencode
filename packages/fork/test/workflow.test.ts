@@ -165,3 +165,28 @@ test("a running run whose process is gone becomes interrupted, and can be resume
   ForkWorkflow.startRun("r5", "s.js", "demo")
   expect(ForkWorkflow.isRunning("r5")).toBe(true)
 })
+
+test("the cost of an agent killed mid-turn counts for the run", async () => {
+  ForkWorkflow.startRun("r7", "s.js", "demo")
+  const rt = ForkWorkflow.createRuntime({
+    runID: "r7",
+    concurrency: 1,
+    progress: () => {},
+    execute: async (_prompt, _options, _sessionID, started) => {
+      started("ses_killed")
+      await ForkTelemetry.record({
+        sessionID: "ses_killed",
+        messageID: "msg_1",
+        providerID: "p",
+        modelID: "m",
+        tokens: { input: 1, output: 1, reasoning: 0, cache: { read: 0, write: 0 } },
+        cost: 0.25,
+      })
+      throw new Error("agent killed")
+    },
+  })
+  await expect(rt.agent("work")).rejects.toThrow("agent killed")
+  expect(rt.spent()).toBe(0.25)
+  ForkWorkflow.finishRun("r7", "failed")
+  expect(ForkWorkflow.listRuns().find((run) => run.id === "r7")?.cost).toBe(0.25)
+})
