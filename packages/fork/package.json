@@ -38,6 +38,7 @@
     "./messaging": "./src/messaging.ts",
     "./system-prompt": "./src/system-prompt.ts",
     "./route": "./src/route.ts",
+    "./route-jev": "./src/route-jev.ts",
     "./route-log": "./src/route-log.ts",
     "./wakeup": "./src/wakeup.ts",
     "./compaction-timing": "./src/compaction-timing.ts",

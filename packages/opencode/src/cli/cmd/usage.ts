@@ -109,7 +109,7 @@ function route(session: string | undefined, json: boolean) {
   rows.forEach((row) => {
     const signals = row.signals ? (JSON.parse(row.signals) as ForkRoute.Signals) : undefined
     const seen = signals
-      ? `  ${signals.task_type} c${signals.complexity.toFixed(2)} r${signals.reasoning.toFixed(2)} t${signals.tool_intensity.toFixed(2)} conf ${signals.confidence.toFixed(2)}`
+      ? `  ${signals.task_type} c${signals.complexity.toFixed(2)} r${signals.reasoning.toFixed(2)} t${signals.tool_intensity.toFixed(2)} conf ${signals.confidence.toFixed(2)} via ${signals.source ?? "small-model"}`
       : ""
     console.log(
       `${new Date(row.time).toLocaleTimeString()}  ${row.kind === "fallback" ? "FALLBACK" : row.mode.padEnd(8)}  ${row.tier.padEnd(9)} ${row.provider_id}/${row.model_id}${seen}`,

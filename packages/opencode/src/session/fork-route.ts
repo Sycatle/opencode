@@ -5,6 +5,7 @@ import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { LLMEvent } from "@opencode-ai/llm"
 import { ForkQuota } from "@opencode-fork/core/quota"
 import { ForkRoute } from "@opencode-fork/core/route"
+import { ForkRouteJev } from "@opencode-fork/core/route-jev"
 import { ForkRouteLog } from "@opencode-fork/core/route-log"
 import { Cause, Effect, Stream } from "effect"
 import { Provider } from "@/provider/provider"
@@ -227,13 +228,6 @@ const classify = Effect.fn("ForkRouteTurn.classify")(function* (input: {
   messages: SessionV1.WithParts[]
   user: SessionV1.User
 }) {
-  // The small model of the provider the turn is most likely to run on.
-  const home =
-    input.view?.model ??
-    input.catalog.tiers.standard.find((id) => !input.degraded.has(id)) ??
-    input.catalog.tiers.standard[0]
-  const base = input.models.get(home ?? "")
-  if (!base) return undefined
   const first = input.messages.find((m) => m.info.role === "user")
   const lastAnswer = input.messages.findLast((m) => m.info.role === "assistant")
   const summary: ForkRoute.Summary = {
@@ -242,15 +236,36 @@ const classify = Effect.fn("ForkRouteTurn.classify")(function* (input: {
     tokens: input.tokens,
     lastAnswer: textOf(lastAnswer) || undefined,
   }
+  const size = ForkRoute.contextSize(input.tokens)
+
+  // Jev first when TYPESAFE_API_KEY is set; any failure falls back to the small model below.
+  if (ForkRouteJev.enabled()) {
+    const started = Date.now()
+    const jev = yield* Effect.promise(() => ForkRouteJev.call({ prompt: input.prompt, summary, size }))
+    if (jev.signals) {
+      yield* Effect.logInfo("router signals", { source: "jev", ms: Date.now() - started })
+      return { ...jev.signals, source: "jev" } as const
+    }
+    yield* Effect.logWarning("router signals", { source: "small-model", jev_error: jev.error, ms: Date.now() - started })
+  }
+
+  // The small model of the provider the turn is most likely to run on.
+  const home =
+    input.view?.model ??
+    input.catalog.tiers.standard.find((id) => !input.degraded.has(id)) ??
+    input.catalog.tiers.standard[0]
+  const base = input.models.get(home ?? "")
+  if (!base) return undefined
   const text = yield* ask(input.provider, base, ForkRoute.signalsPrompt(input.prompt, summary)).pipe(
     Effect.timeout(SIGNALS_TIMEOUT),
     Effect.catchCause((cause) =>
       Effect.logWarning("router signals failed", { cause: Cause.pretty(cause).slice(0, 500) }).pipe(Effect.as(undefined)),
     ),
   )
-  const signals = text === undefined ? undefined : ForkRoute.parseSignals(text, ForkRoute.contextSize(input.tokens))
+  const signals = text === undefined ? undefined : ForkRoute.parseSignals(text, size)
   if (text !== undefined && !signals) yield* Effect.logWarning("router signals unreadable", { text: text.slice(0, 300) })
-  return signals
+  if (signals) yield* Effect.logInfo("router signals", { source: "small-model" })
+  return signals && ({ ...signals, source: "small-model" } as const)
 })
 
 // One-shot completion on the small model of the provider (same call path as the prompt hooks of

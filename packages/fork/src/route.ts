@@ -40,6 +40,8 @@ export type Signals = {
   ambiguity: number
   context_size: ContextSize
   confidence: number
+  // Who produced the signals (journal only; the policy ignores it).
+  source?: "jev" | "small-model"
 }
 
 // Neutral signals for an unavailable classifier: confidence 0 holds the tier (or STANDARD).
