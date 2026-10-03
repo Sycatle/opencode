@@ -14,6 +14,7 @@ import { Global } from "@opencode-ai/core/global"
 import type { MessageV2 } from "./message-v2"
 import type { MessageID, SessionID } from "./schema"
 import { ForkMemory } from "@opencode-fork/core/memory"
+import { EventV2Bridge } from "@/event-v2-bridge"
 
 // One rendered memory block per session keeps the system prompt prefix stable across turns.
 const memorySnapshots = new Map<SessionID, string>()
@@ -52,7 +53,7 @@ export class Service extends Context.Service<Service, Interface>()("@opencode/In
 const layer: Layer.Layer<
   Service,
   never,
-  FSUtil.Service | Config.Service | Global.Service | HttpClient.HttpClient | RuntimeFlags.Service
+  FSUtil.Service | Config.Service | Global.Service | HttpClient.HttpClient | RuntimeFlags.Service | EventV2Bridge.Service
 > = Layer.effect(
   Service,
   Effect.gen(function* () {
@@ -60,6 +61,7 @@ const layer: Layer.Layer<
     const fs = yield* FSUtil.Service
     const global = yield* Global.Service
     const flags = yield* RuntimeFlags.Service
+    const events = yield* EventV2Bridge.Service
     const http = HttpClient.filterStatusOk(withTransientReadRetry(yield* HttpClient.HttpClient))
     const globalFiles = [
       path.join(global.config, "AGENTS.md"),
@@ -70,6 +72,14 @@ const layer: Layer.Layer<
       ...(!flags.disableClaudeCodePrompt ? ["CLAUDE.md"] : []),
       "CONTEXT.md", // deprecated
     ]
+
+    // FORK-SEAM: memory-index
+    yield* events.listen((event) =>
+      Effect.sync(() => {
+        if (event.type === SessionV1.Event.Deleted.type)
+          memorySnapshots.delete((event.data as { sessionID: SessionID }).sessionID)
+      }),
+    )
 
     const state = yield* InstanceState.make(
       Effect.fn("Instruction.state")(() =>
@@ -249,7 +259,7 @@ export function loaded(messages: SessionV1.WithParts[]) {
 export const node = LayerNode.make({
   service: Service,
   layer: layer,
-  deps: [Config.node, FSUtil.node, Global.node, RuntimeFlags.node, httpClient],
+  deps: [Config.node, FSUtil.node, Global.node, RuntimeFlags.node, httpClient, EventV2Bridge.node],
 })
 
 export * as Instruction from "./instruction"

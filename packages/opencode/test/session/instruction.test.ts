@@ -22,6 +22,8 @@ import { InstanceBootstrap } from "@/project/bootstrap"
 import { Config } from "@/config/config"
 import { InstanceState } from "@/effect/instance-state"
 import { ForkMemory } from "@opencode-fork/core/memory"
+import { Project } from "@opencode-ai/core/project"
+import { EventV2Bridge } from "@/event-v2-bridge"
 
 const it = testEffect(
   AppNodeBuilder.build(LayerNode.group([CrossSpawnSpawner.node, LayerNodePlatform.filesystem, InstanceStore.node]), [
@@ -35,7 +37,7 @@ const it = testEffect(
 const configLayer = Layer.succeed(Config.Service, TestConfig.make())
 
 const instructionLayer = (global: Partial<Global.Interface>, flags: Partial<RuntimeFlags.Info> = {}) =>
-  AppNodeBuilder.build(Instruction.node, [
+  AppNodeBuilder.build(LayerNode.group([Instruction.node, EventV2Bridge.node]), [
     [Config.node, configLayer],
     [Global.node, Global.layerWith(global)],
     [RuntimeFlags.node, RuntimeFlags.layer(flags)],
@@ -292,6 +294,39 @@ describe("Instruction.system memory index", () => {
         const next = yield* svc.system(SessionID.make("session-memory-2"))
         expect(next[1]).toContain("- [Second](second.md) — hook two")
         expect(yield* svc.system()).toHaveLength(1)
+      }).pipe(provideInstance(projectTmp), provideInstruction({ home: globalTmp, config: globalTmp }))
+    }),
+  )
+
+  it.live("drops the snapshot when the session is deleted", () =>
+    Effect.gen(function* () {
+      const globalTmp = yield* tmpWithFiles({})
+      const projectTmp = yield* tmpWithFiles({})
+
+      yield* Effect.gen(function* () {
+        const svc = yield* Instruction.Service
+        const events = yield* EventV2Bridge.Service
+        const memoryDir = ForkMemory.dir((yield* InstanceState.context).project.id)
+        const memoryFile = path.join(memoryDir, "MEMORY.md")
+        const sessionID = SessionID.make("session-memory-delete")
+        yield* write(memoryFile, "- [First](first.md) — hook one")
+        yield* svc.system(sessionID)
+        yield* write(memoryFile, "- [Second](second.md) — hook two")
+        expect((yield* svc.system(sessionID))[0]).toContain("hook one")
+
+        yield* events.publish(SessionV1.Event.Deleted, {
+          sessionID,
+          info: {
+            id: sessionID,
+            slug: "memory-delete",
+            projectID: Project.ID.make("project-memory"),
+            directory: projectTmp,
+            title: "memory delete",
+            version: "test",
+            time: { created: 0, updated: 0 },
+          },
+        })
+        expect((yield* svc.system(sessionID))[0]).toContain("hook two")
       }).pipe(provideInstance(projectTmp), provideInstruction({ home: globalTmp, config: globalTmp }))
     }),
   )
