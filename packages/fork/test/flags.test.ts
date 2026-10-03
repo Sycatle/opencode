@@ -35,3 +35,10 @@ test("switches are on unless 0, describe reports what is set", () => {
   expect(rows.find((row) => row.name === "OPENCODE_FORK_BUDGET_USD")).toMatchObject({ value: "5", set: true })
   expect(rows.find((row) => row.name === "OPENCODE_FORK_MESSAGING")).toMatchObject({ set: false, default: "on" })
 })
+
+test("the fork config block fills unset variables only and reports unknown keys", () => {
+  const env: Record<string, string | undefined> = { OPENCODE_FORK_MESSAGING: "1" }
+  const unknown = ForkFlags.apply({ MESSAGING: false, budget_usd: 5, WAKEUPS: false, NOPE: true }, env)
+  expect(unknown).toEqual(["NOPE"])
+  expect(env).toEqual({ OPENCODE_FORK_MESSAGING: "1", OPENCODE_FORK_BUDGET_USD: "5", OPENCODE_FORK_WAKEUPS: "0" })
+})

@@ -23,6 +23,8 @@ import { ConfigMCP } from "./config/mcp"
 import { ConfigPlugin } from "./config/plugin"
 // FORK-SEAM: sandbox-config
 import { ConfigSandbox } from "./config/sandbox"
+// FORK-SEAM: fork-config
+import { ConfigFork } from "./config/fork"
 import { ConfigProvider } from "./config/provider"
 import { ConfigReference } from "./config/reference"
 import { ConfigToolOutput } from "./config/tool-output"
@@ -86,6 +88,10 @@ export class Info extends Schema.Class<Info>("Config.Info")({
   // FORK-SEAM: sandbox-config
   sandbox: ConfigSandbox.Info.pipe(Schema.optional).annotate({
     description: "OS sandbox (bubblewrap) for the bash tool: writes limited to the project and /tmp, network off unless allowed",
+  }),
+  // FORK-SEAM: fork-config
+  fork: ConfigFork.Info.pipe(Schema.optional).annotate({
+    description: "Fork features by OPENCODE_FORK_* name without the prefix, e.g. { \"MESSAGING\": false, \"BUDGET_USD\": 5 }; environment variables win",
   }),
   attachments: ConfigAttachments.Info.pipe(Schema.optional).annotate({
     description: "Attachment processing configuration",
