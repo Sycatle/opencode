@@ -198,6 +198,36 @@ You are a reviewer. See \${CLAUDE_PLUGIN_ROOT}/rules.md
   expect(Object.keys((await ForkClaudePlugins.config({ home, env, model: "openai/x" })).agent)).toHaveLength(2)
 })
 
+test("mcp servers convert both .mcp.json shapes and expand the plugin root", async () => {
+  const context7 = root("claude-plugins-official", "context7", "d182ca456ca0")
+  await write(path.join(context7, ".mcp.json"), {
+    mcpServers: { context7: { type: "http", url: "https://mcp.context7.com/mcp?client=claude-code-plugin" } },
+  })
+  const playwright = root("claude-plugins-official", "playwright", "d182ca456ca0")
+  await write(path.join(playwright, ".mcp.json"), {
+    playwright: { command: "npx", args: ["@playwright/mcp@latest"] },
+    local: {
+      command: "${CLAUDE_PLUGIN_ROOT}/bin/serve",
+      args: ["--token", "${TOKEN}", "--mode=${MODE:-fast}"],
+      env: { ROOT: "${CLAUDE_PLUGIN_ROOT}" },
+    },
+    bad: { nothing: true },
+  })
+  await install({
+    "context7@claude-plugins-official": [{ root: context7 }],
+    "playwright@claude-plugins-official": [{ root: playwright }],
+  })
+  expect(await ForkClaudePlugins.mcp({ home, env: { TOKEN: "abc" } })).toEqual({
+    context7: { type: "remote", url: "https://mcp.context7.com/mcp?client=claude-code-plugin" },
+    playwright: { type: "local", command: ["npx", "@playwright/mcp@latest"] },
+    "playwright-local": {
+      type: "local",
+      command: [`${playwright}/bin/serve`, "--token", "abc", "--mode=fast"],
+      environment: { ROOT: playwright },
+    },
+  })
+})
+
 test("commands are namespaced by plugin and subdirectory", async () => {
   const dir = root("claude-plugins-official", "notion", "0.1.0")
   await write(

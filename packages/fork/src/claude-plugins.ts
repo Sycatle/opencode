@@ -294,15 +294,83 @@ export async function agents(opts: Options & { model?: string }): Promise<Record
   return Object.fromEntries(entries.flat())
 }
 
+export type Mcp =
+  | { type: "local"; command: string[]; environment?: Record<string, string> }
+  | { type: "remote"; url: string; headers?: Record<string, string> }
+
+// `${CLAUDE_PLUGIN_ROOT}` is expanded, `${VAR}` and `${VAR:-default}` are resolved now (injected
+// config is not run through opencode's `{env:VAR}` substitution).
+function expandValue(text: string, root: string, env: Record<string, string | undefined>) {
+  return expandRoot(text, root).replace(/\$\{(\w+)(?::-([^}]*))?\}/g, (_, name: string, fallback?: string) => {
+    return env[name] ?? fallback ?? ""
+  })
+}
+
+function strings(value: unknown, root: string, env: Record<string, string | undefined>) {
+  if (!isRecord(value)) return undefined
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([key, item]) => (typeof item === "string" ? [[key, expandValue(item, root, env)]] : [])),
+  )
+}
+
+// Converts the content of a plugin `.mcp.json` (either `{ mcpServers: {...} }` or the bare map)
+// into opencode MCP entries, keyed by server name. Unusable entries are dropped.
+export function mcpServers(input: unknown, root: string, env: Record<string, string | undefined> = process.env) {
+  const servers = isRecord(input) && isRecord(input.mcpServers) ? input.mcpServers : input
+  if (!isRecord(servers)) return {}
+  return Object.fromEntries(
+    Object.entries(servers).flatMap(([name, server]): [string, Mcp][] => {
+      if (!isRecord(server)) return []
+      if (typeof server.url === "string") {
+        const headers = strings(server.headers, root, env)
+        return [[name, { type: "remote", url: expandValue(server.url, root, env), ...(headers ? { headers } : {}) }]]
+      }
+      if (typeof server.command !== "string") return []
+      const args = Array.isArray(server.args) ? server.args.filter((arg): arg is string => typeof arg === "string") : []
+      const environment = strings(server.env, root, env)
+      return [
+        [
+          name,
+          {
+            type: "local",
+            command: [server.command, ...args].map((part) => expandValue(part, root, env)),
+            ...(environment ? { environment } : {}),
+          },
+        ],
+      ]
+    }),
+  )
+}
+
+// MCP servers of enabled plugins from `.mcp.json` and an inline `mcpServers` in plugin.json.
+// A server named like its plugin keeps that name; others are `<plugin>-<server>`.
+export async function mcp(opts: Options): Promise<Record<string, Mcp>> {
+  const plugins = await installed(opts)
+  const env = opts.env ?? process.env
+  const entries = await Promise.all(
+    plugins.map(async (plugin) => {
+      const manifest = await readJson(path.join(plugin.root, ".claude-plugin", "plugin.json"))
+      const files = await readJson(path.join(plugin.root, ".mcp.json"))
+      const inline = isRecord(manifest) && isRecord(manifest.mcpServers) ? manifest.mcpServers : {}
+      return Object.entries({
+        ...mcpServers(inline, plugin.root, env),
+        ...mcpServers(files, plugin.root, env),
+      }).map(([name, server]) => [name === plugin.name ? name : `${plugin.name}-${name}`, server] as const)
+    }),
+  )
+  return Object.fromEntries(entries.flat())
+}
+
 export interface Config {
   command: Record<string, Command>
   agent: Record<string, Agent>
+  mcp: Record<string, Mcp>
 }
 
 // Everything a plugin contributes to the opencode config. Callers merge it below the user's own
 // config so that explicit settings always win. `model` is the configured `provider/model`, used
 // to translate agent model aliases.
 export async function config(opts: Options & { model?: string }): Promise<Config> {
-  const [command, agent] = await Promise.all([commands(opts), agents(opts)])
-  return { command, agent }
+  const [command, agent, servers] = await Promise.all([commands(opts), agents(opts), mcp(opts)])
+  return { command, agent, mcp: servers }
 }

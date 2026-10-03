@@ -535,6 +535,7 @@ const layer = Layer.effect(
         )
         result.command = mergeDeep(plugged.command, result.command ?? {})
         result.agent = mergeDeep(plugged.agent, result.agent ?? {})
+        result.mcp = mergeDeep(plugged.mcp, result.mcp ?? {})
         const managedDir = ConfigManaged.managedConfigDir()
         if (existsSync(managedDir)) {
           for (const file of ["opencode.json", "opencode.jsonc"]) {
