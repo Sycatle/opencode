@@ -1,29 +1,82 @@
 // `opencode auto`: run the agent, then a completion check; feed failures back into
 // the same session until the check passes, the budget is spent, or iterations run out.
+// Without a check command, Jev judges from the task and the agent's last message whether it is done.
+
+import type { ForkJev } from "./jev"
 
 const MAX_CHECK_OUTPUT = 4000
 
 export type Check = { code: number; output: string }
 
+export type Judgement = { status: "done" | "partial" | "blocked"; confidence: number; verified: number }
+
 export type Decision =
-  | { action: "done"; reason: "check-passed" }
-  | { action: "stop"; reason: "budget" | "iterations" | "no-session" }
+  | { action: "done"; reason: "check-passed" | "judged-complete" }
+  | { action: "stop"; reason: "budget" | "iterations" | "no-session" | "blocked" | "judge-unavailable" }
   | { action: "continue"; prompt: string }
 
+// With a `command`, its check decides and `judged` is ignored. Without one, `judged` is Jev's verdict, or
+// "unavailable" when Jev could not answer: never a blind loop.
 export function decide(input: {
   check: Check | undefined
+  judged?: Judgement | "unavailable"
   sessionID: string | undefined
-  command: string
+  command: string | undefined
   iteration: number
   maxIterations: number
   spent: number
   budget: number | undefined
 }): Decision {
   if (!input.sessionID) return { action: "stop", reason: "no-session" }
-  if (input.check?.code === 0) return { action: "done", reason: "check-passed" }
+  if (input.command === undefined) {
+    if (input.judged === undefined || input.judged === "unavailable") return { action: "stop", reason: "judge-unavailable" }
+    if (input.judged.status === "done" && input.judged.confidence >= 0.8 && input.judged.verified >= 0.5)
+      return { action: "done", reason: "judged-complete" }
+    if (input.judged.status === "blocked" && input.judged.confidence >= 0.7) return { action: "stop", reason: "blocked" }
+  }
+  if (input.command !== undefined && input.check?.code === 0) return { action: "done", reason: "check-passed" }
   if (input.budget !== undefined && input.spent >= input.budget) return { action: "stop", reason: "budget" }
   if (input.iteration >= input.maxIterations) return { action: "stop", reason: "iterations" }
-  return { action: "continue", prompt: followUp(input.command, input.check) }
+  return { action: "continue", prompt: input.command === undefined ? JUDGED_FOLLOW_UP : followUp(input.command, input.check) }
+}
+
+const JUDGED_FOLLOW_UP =
+  "The task is not complete yet. Finish the remaining work, verify it (run the tests or the build when there are any), then stop."
+
+const JUDGE_TASK_CHARS = 2000
+const JUDGE_REPLY_CHARS = 2500
+
+export function judgeRequest(input: { task: string; reply: string }) {
+  return {
+    state: [
+      "A coding agent was given a task and has stopped. Decide whether the task is complete.",
+      `Task:\n${input.task.slice(0, JUDGE_TASK_CHARS)}`,
+      `The agent's last message:\n${input.reply.slice(-JUDGE_REPLY_CHARS)}`,
+    ].join("\n\n"),
+    questions: {
+      status: {
+        type: "choice",
+        instructions: "Is the task as stated fully done?",
+        criteria: {
+          done: "The task as stated is fully done",
+          partial: "Work remains",
+          blocked: "The agent cannot continue without the user",
+        },
+      },
+      verified: {
+        type: "noul",
+        instructions: "The agent verified its result (ran the tests, the build or other checks)",
+      },
+    } satisfies Record<string, ForkJev.Question>,
+  }
+}
+
+export function judgement(answers: Record<string, ForkJev.Answer> | undefined): Judgement | undefined {
+  const status = answers?.status
+  const verified = answers?.verified?.noul
+  if (!status || verified === undefined) return undefined
+  if (status.choice !== "done" && status.choice !== "partial" && status.choice !== "blocked") return undefined
+  return { status: status.choice, confidence: status.confidence ?? 0.5, verified }
 }
 
 export function followUp(command: string, check: Check | undefined) {
