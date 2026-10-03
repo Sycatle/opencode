@@ -43,6 +43,11 @@ export const FLAGS = {
   MEMORY: { kind: "switch", default: "on", description: "Inject the project memory index (MEMORY.md)" },
   LSP_FORMAT: { kind: "switch", default: "on", description: "Compact path:line:col output of the lsp tool" },
   SYSTEM_PROMPT: { kind: "switch", default: "on", description: "Fork system prompt for Anthropic models" },
+  UNATTENDED: {
+    kind: "switch",
+    default: "on",
+    description: "Tell sessions without the question tool (run, auto) not to wait for an approval",
+  },
   CC_TOOLS: { kind: "switch", default: "on", description: "Claude Code tool names and schemas for Anthropic models" },
   // ---- budget
   BUDGET_USD: { kind: "number", description: "Dollar budget per session tree: wrap-up at 100%, stop at 120%" },

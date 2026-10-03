@@ -7,6 +7,7 @@ import { McpCatalog } from "@/mcp/catalog"
 import { ForkTools } from "@opencode-fork/core/tools"
 import { ForkClaudeTools } from "@opencode-fork/core/claude-tools"
 import { Permission } from "@/permission"
+import { ForkSystemPrompt } from "@opencode-fork/core/system-prompt"
 import { Tool } from "@/tool/tool"
 import { ToolJsonSchema } from "@/tool/json-schema"
 import { ToolRegistry } from "@/tool/registry"
@@ -93,6 +94,9 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
       }).pipe(Effect.orDie),
   })
 
+  const unattended =
+    ForkSystemPrompt.unattendedEnabled() &&
+    Permission.disabled(["question"], Permission.merge(input.agent.permission, input.session.permission ?? [])).has("question")
   for (const item of yield* registry.tools({
     modelID: ModelV2.ID.make(input.model.api.id),
     providerID: input.model.providerID,
@@ -119,6 +123,11 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
             const result = yield* item.execute(args, ctx)
             const output = {
               ...result,
+              // FORK-SEAM: unattended (a loaded skill is the latest instruction; restate that nobody can approve)
+              output:
+                item.id === "skill" && unattended
+                  ? `${result.output}\n\n<system-reminder>\n${ForkSystemPrompt.UNATTENDED}\n</system-reminder>`
+                  : result.output,
               attachments: result.attachments?.map((attachment) => ({
                 ...attachment,
                 id: PartID.ascending(),

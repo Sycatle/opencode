@@ -18,6 +18,7 @@ import { Instruction } from "./instruction"
 import { Plugin } from "../plugin"
 import { MAX_STEPS_PROMPT } from "@opencode-ai/core/session/runner/max-steps"
 import { ForkBudget } from "@opencode-fork/core/budget"
+import { ForkSystemPrompt } from "@opencode-fork/core/system-prompt"
 import { ForkPreload } from "./fork-preload"
 import { ForkSessionMessaging } from "./fork-messaging"
 import { ForkWakeup } from "@opencode-fork/core/wakeup"
@@ -1028,6 +1029,21 @@ const layer = Layer.effect(
         const error = new NamedError.Unknown({ message: blockReason })
         yield* events.publish(Session.Event.Error, { sessionID: input.sessionID, error: error.toObject() })
         throw error
+      }
+
+      // FORK-SEAM: unattended (nobody can answer: do not wait for an approval). After the prompt, so it outweighs
+      // SessionStart context that tells the model to present a design for approval first.
+      if (ForkSystemPrompt.unattendedEnabled()) {
+        const session = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
+        if (Permission.disabled(["question"], Permission.merge(ag.permission, session.permission ?? [])).has("question"))
+          resolvedParts.push({
+            id: PartID.ascending(),
+            sessionID: input.sessionID,
+            messageID: info.id,
+            type: "text",
+            text: `<system-reminder>\n${ForkSystemPrompt.UNATTENDED}\n</system-reminder>`,
+            synthetic: true,
+          })
       }
 
       const parts = yield* Effect.forEach(resolvedParts, (part) =>

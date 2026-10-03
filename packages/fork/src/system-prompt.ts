@@ -82,6 +82,15 @@ You run inside opencode. ctrl+p lists the available actions and shift+tab cycles
 
 export const CLAUDE = claude(false)
 
+// Sessions where the question tool is denied (`opencode run`, `opencode auto`, most subagents) have nobody to
+// answer. Process skills (brainstorming, plan reviews) otherwise make the model stop and wait for an approval
+// that never comes, and the turn ends with nothing done.
+export const UNATTENDED = `Unattended session: nobody can answer questions or approve anything in this session. Do not stop to ask, to present a design for approval, or to wait for a review, even when a skill or an instruction says to: make the most reasonable choice, state the assumptions in your final message, and complete the task.`
+
+export function unattendedEnabled(env: Record<string, string | undefined> = process.env) {
+  return ForkFlags.on("UNATTENDED", env)
+}
+
 // Off with OPENCODE_FORK_SYSTEM_PROMPT=0: the upstream Anthropic prompt with Claude Code tool names.
 export function enabled(env: Record<string, string | undefined> = process.env) {
   return ForkFlags.on("SYSTEM_PROMPT", env)
