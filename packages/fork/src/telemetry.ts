@@ -40,6 +40,8 @@ export type Step = {
   est_tools: number
   est_history: number
   est_tool_output: number
+  // JSON object: tool name -> characters of its definition
+  tool_chars: string | null
 }
 
 type Measure = {
@@ -47,6 +49,7 @@ type Measure = {
   parentSessionID?: string
   chars: Chars
   tool_count: number
+  tool_chars: Record<string, number>
   message_count: number
   media_count: number
 }
@@ -128,7 +131,12 @@ export function allocate(total: number, chars: Chars) {
 export async function measureRequest(request: Request): Promise<Measure> {
   const system = request.messages.filter((message) => message.role === "system")
   const rest = request.messages.filter((message) => message.role !== "system")
-  const tools = await Promise.all(Object.entries(request.tools).map(([name, tool]) => toolChars(name, tool)))
+  const tools = await Promise.all(
+    // "invalid" only exists to repair malformed calls; it is never sent (see activeTools).
+    Object.entries(request.tools)
+      .filter(([name]) => name !== "invalid")
+      .map(async ([name, tool]) => [name, await toolChars(name, tool)] as const),
+  )
   const parts = rest.map((message) => contentChars(message.content))
   return {
     agent: request.agent,
@@ -137,11 +145,12 @@ export async function measureRequest(request: Request): Promise<Measure> {
       system: system.length
         ? system.reduce((sum, message) => sum + message.content.length, 0)
         : request.system.reduce((sum, text) => sum + text.length, 0),
-      tools: tools.reduce((sum, value) => sum + value, 0),
+      tools: tools.reduce((sum, [, value]) => sum + value, 0),
       history: rest.reduce((sum, message, i) => (message.role === "tool" ? sum : sum + parts[i].chars), 0),
       tool_output: rest.reduce((sum, message, i) => (message.role === "tool" ? sum + parts[i].chars : sum), 0),
     },
     tool_count: tools.length,
+    tool_chars: Object.fromEntries(tools),
     message_count: rest.length,
     media_count: parts.reduce((sum, value) => sum + value.media, 0),
   }
@@ -184,8 +193,8 @@ function insert(usage: Usage, measured: Measure | undefined) {
         input, output, reasoning, cache_read, cache_write, cost,
         tool_count, message_count, media_count,
         chars_system, chars_tools, chars_history, chars_tool_output,
-        est_system, est_tools, est_history, est_tool_output
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        est_system, est_tools, est_history, est_tool_output, tool_chars
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       usage.sessionID,
@@ -212,6 +221,7 @@ function insert(usage: Usage, measured: Measure | undefined) {
       est.tools,
       est.history,
       est.tool_output,
+      measured ? JSON.stringify(measured.tool_chars) : null,
     )
 }
 
@@ -246,8 +256,11 @@ function db() {
     est_system INTEGER NOT NULL,
     est_tools INTEGER NOT NULL,
     est_history INTEGER NOT NULL,
-    est_tool_output INTEGER NOT NULL
+    est_tool_output INTEGER NOT NULL,
+    tool_chars TEXT
   )`)
+  const columns = handle.query<{ name: string }, []>("PRAGMA table_info(fork_usage)").all()
+  if (!columns.some((column) => column.name === "tool_chars")) handle.run("ALTER TABLE fork_usage ADD tool_chars TEXT")
   handle.run("CREATE INDEX IF NOT EXISTS fork_usage_session ON fork_usage (session_id)")
   handle.run("CREATE INDEX IF NOT EXISTS fork_usage_parent ON fork_usage (parent_session_id)")
   return handle

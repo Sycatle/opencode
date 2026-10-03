@@ -9,6 +9,7 @@ export const UsageCommand = cmd({
       .positional("session", { type: "string", describe: "session ID (default: list recent sessions)" })
       .option("children", { type: "boolean", default: true, describe: "include subagent sessions" })
       .option("steps", { type: "boolean", default: false, describe: "print every provider turn" })
+      .option("tools", { type: "boolean", default: false, describe: "print tool definition sizes of the last turn" })
       .option("json", { type: "boolean", default: false, describe: "print raw rows as JSON" }),
   handler: (args) => {
     if (!args.session) {
@@ -52,6 +53,16 @@ export const UsageCommand = cmd({
         `  ${agent.padEnd(12)} ${String(rows.length).padStart(4)} turns  ${usd(sum((s) => s.cost, rows)).padStart(9)}  ${tok(sum((s) => s.input + s.cache_read + s.cache_write, rows)).padStart(8)} in`,
       ),
     )
+    const last = steps.findLast((s) => s.tool_chars)
+    if (args.tools && last) {
+      // Same chars -> tokens ratio the turn's allocation used for the tools category.
+      const ratio = last.chars_tools === 0 ? 0 : last.est_tools / last.chars_tools
+      console.log("")
+      console.log(`Tool definitions (last turn, ${last.tool_count} tools)`)
+      Object.entries(JSON.parse(last.tool_chars ?? "{}") as Record<string, number>)
+        .toSorted((a, b) => b[1] - a[1])
+        .forEach(([name, chars]) => console.log(`  ${name.padEnd(40)} ${tok(Math.round(chars * ratio)).padStart(8)}`))
+    }
     if (!args.steps) return
     console.log("")
     console.log("  #  agent        context    system     tools   history  tool out   output   cache      cost")

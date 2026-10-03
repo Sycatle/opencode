@@ -4,6 +4,7 @@ import { Provider } from "@/provider/provider"
 import { ProviderTransform } from "@/provider/transform"
 import { MCP } from "@/mcp"
 import { McpCatalog } from "@/mcp/catalog"
+import { ForkTools } from "@opencode-fork/core/tools"
 import { Permission } from "@/permission"
 import { Tool } from "@/tool/tool"
 import { ToolJsonSchema } from "@/tool/json-schema"
@@ -489,7 +490,12 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
     tools[key] = item
   }
 
-  return tools
+  // FORK-SEAM: deferred-tools
+  return ForkTools.defer(
+    tools,
+    [...Object.keys(yield* mcp.tools()), ...Object.values(MCP_RESOURCE_TOOLS)],
+    input.messages,
+  )
 })
 
 function toRecord(value: unknown) {

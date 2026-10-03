@@ -11,7 +11,8 @@
     "typecheck": "tsgo --noEmit"
   },
   "exports": {
-    "./telemetry": "./src/telemetry.ts"
+    "./telemetry": "./src/telemetry.ts",
+    "./tools": "./src/tools.ts"
   },
   "dependencies": {
     "@opencode-ai/core": "workspace:*",

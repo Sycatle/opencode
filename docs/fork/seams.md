@@ -6,6 +6,7 @@ Le code du fork vit dans `packages/fork`. Les seuls points de contact avec le co
 | --- | --- | --- |
 | `telemetry-measure` | `packages/opencode/src/session/llm.ts` | Mesure la requête finale (après plugins) : système, outils, historique, sorties d'outils |
 | `telemetry-record` | `packages/opencode/src/session/processor.ts` | Enregistre l'usage facturé à chaque `step-finish` |
+| `deferred-tools` | `packages/opencode/src/session/tools.ts` | Retient les outils MCP derrière `tool_search` (désactivable : `OPENCODE_FORK_DEFER_TOOLS=0`) |
 | `usage-command` | `packages/opencode/src/index.ts` | Enregistre la commande `opencode usage` |
 
 Fichiers ajoutés par le fork (sans conflit possible) :
