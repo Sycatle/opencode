@@ -744,7 +744,7 @@ describe("session.message-v2.toModelMessage", () => {
             type: "tool-result",
             toolCallId: "call-1",
             toolName: "bash",
-            output: { type: "text", value: "[Old tool result content cleared]" },
+            output: { type: "text", value: "[Old result of bash Bash cleared (1 lines). Re-run the tool if you need it again.]" },
           },
         ],
       },

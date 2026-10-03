@@ -1,5 +1,6 @@
 import { SessionID, MessageID } from "./schema"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
+import { ForkContext } from "@opencode-fork/core/context"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import {
   APIError,
@@ -295,7 +296,8 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
           toolNames.add(part.tool)
           if (part.state.status === "completed") {
             const outputText = part.state.time.compacted
-              ? "[Old tool result content cleared]"
+              ? // FORK-SEAM: pruned-stub
+                ForkContext.prunedStub({ tool: part.tool, state: part.state })
               : truncateToolOutput(part.state.output, options?.toolOutputMaxChars)
             const attachments = part.state.time.compacted || options?.stripMedia ? [] : (part.state.attachments ?? [])
 

@@ -1,5 +1,6 @@
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
+import { ForkContext } from "@opencode-fork/core/context"
 import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
 import { Session } from "./session"
 import { SessionID, MessageID, PartID } from "./schema"
@@ -272,7 +273,8 @@ const layer = Layer.effect(
     // calls, then erases output of older tool calls to free context space
     const prune = Effect.fn("SessionCompaction.prune")(function* (input: { sessionID: SessionID }) {
       const cfg = yield* config.get()
-      if (!cfg.compaction?.prune) return
+      // FORK-SEAM: prune-default
+      if (!ForkContext.pruneEnabled(cfg.compaction?.prune)) return
       yield* Effect.logInfo("pruning")
 
       const msgs = yield* session
