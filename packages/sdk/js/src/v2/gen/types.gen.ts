@@ -3841,22 +3841,29 @@ export type ConfigV2ReferenceLocal = {
 }
 
 export type ConfigV2HooksEntry = {
+  type?: "command" | "http" | "prompt"
   matcher?: string
-  /**
-   * Shell command run with sh -c in the project directory. The event JSON is written to stdin
-   */
-  command: string
+  command?: string
+  url?: string
+  headers?: {
+    [key: string]: string
+  }
+  prompt?: string
   timeout?: number
 }
 
 export type ConfigV2Hooks = {
   PreToolUse?: Array<ConfigV2HooksEntry>
   PostToolUse?: Array<ConfigV2HooksEntry>
+  PostToolUseFailure?: Array<ConfigV2HooksEntry>
   UserPromptSubmit?: Array<ConfigV2HooksEntry>
   SessionStart?: Array<ConfigV2HooksEntry>
+  SessionEnd?: Array<ConfigV2HooksEntry>
   Stop?: Array<ConfigV2HooksEntry>
+  SubagentStop?: Array<ConfigV2HooksEntry>
   PreCompact?: Array<ConfigV2HooksEntry>
   PermissionRequest?: Array<ConfigV2HooksEntry>
+  Notification?: Array<ConfigV2HooksEntry>
 }
 
 export type PolicyEffect = "allow" | "deny"
