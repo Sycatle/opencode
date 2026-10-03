@@ -21,6 +21,7 @@ Le code du fork vit dans `packages/fork`. Les seuls points de contact avec le co
 | `worktree-isolation` | `packages/opencode/src/tool/task.ts` | Paramètre `isolation: "worktree"` : le sous-agent tourne dans un worktree git, ses changements reviennent en commit sur une branche `opencode/<nom>` |
 | `run-wait-background` | `packages/opencode/src/cli/cmd/run.ts` | `opencode run` attend les sous-agents d'arrière-plan avant de quitter |
 | `tui-widgets` | `packages/tui/src/feature-plugins/builtins.ts` | Enregistre les widgets TUI du fork : section Usage, section Subagents, budget à droite du prompt |
+| `slim-tool-descriptions` | `packages/opencode/src/tool/registry.ts` | Descriptions d'outils compactes (−47 % sur les définitions natives ; `OPENCODE_FORK_SLIM_TOOLS=0` pour couper) |
 | `usage-command` | `packages/opencode/src/index.ts` | Enregistre les commandes `opencode usage` et `opencode auto` |
 
 Fichiers ajoutés par le fork (sans conflit possible) :

@@ -18,7 +18,8 @@
     "./compaction": "./src/compaction.ts",
     "./agents": "./src/agents.ts",
     "./autonomy": "./src/autonomy.ts",
-    "./summary": "./src/summary.ts"
+    "./summary": "./src/summary.ts",
+    "./descriptions": "./src/descriptions.ts"
   },
   "dependencies": {
     "@opencode-ai/core": "workspace:*",
