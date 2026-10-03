@@ -1,5 +1,6 @@
 import type { AssistantMessage } from "@opencode-ai/sdk/v2"
 import type { TuiPlugin, TuiPluginApi } from "@opencode-ai/plugin/tui"
+import { ForkQuota } from "@opencode-fork/core/quota"
 import { ForkStatusline } from "@opencode-fork/core/statusline"
 import { useTerminalDimensions } from "@opentui/solid"
 import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js"
@@ -22,6 +23,7 @@ function payload(api: TuiPluginApi, session: string) {
     model: last ? { providerID: last.providerID, modelID: last.modelID } : undefined,
     agent: last?.agent,
     cwd: api.state.path.directory,
+    quota: last ? ForkStatusline.quota(ForkQuota.fresh(last.providerID)) : undefined,
   })
 }
 

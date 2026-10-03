@@ -15,7 +15,6 @@ const id = "fork:usage"
 // message update reaches the TUI, so the widgets poll instead of only reacting.
 const REFRESH_MS = 1500
 // A quota snapshot older than this no longer describes the current windows.
-const QUOTA_FRESH_MS = 6 * 60 * 60 * 1000
 
 const money = (value: number) => `$${value < 1 ? value.toFixed(4) : value.toFixed(2)}`
 const tokens = (value: number) => (value >= 1000 ? `${(value / 1000).toFixed(1)}k` : String(value))
@@ -33,8 +32,7 @@ function useSummary(api: TuiPluginApi, sessionID: () => string) {
     // Only subscription responses carry quota headers, so a fresh snapshot for the
     // session's provider means the session runs on a subscription.
     const provider = steps.findLast((step) => step.session_id === sessionID())?.provider_id
-    const snapshot = provider ? ForkQuota.latest(provider) : undefined
-    const quota = snapshot && Date.now() - snapshot.time < QUOTA_FRESH_MS ? snapshot : undefined
+    const quota = provider ? ForkQuota.fresh(provider) : undefined
     return { ...summary, quota, windowSpent: quota ? ForkQuota.windowSpent(sessionID(), quota.provider) : undefined }
   })
 }

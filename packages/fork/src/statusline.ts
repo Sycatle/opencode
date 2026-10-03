@@ -14,13 +14,27 @@ export function config(raw: unknown): Config | undefined {
   return { command, interval: Math.max(INTERVAL_MIN, interval) }
 }
 
+export type Quota = {
+  five_hour?: { utilization: number; reset: number }
+  seven_day?: { utilization: number; reset: number }
+  status: string
+}
+
 export function input(data: {
   sessionID: string
   model?: { providerID: string; modelID: string }
   agent?: string
   cwd: string
+  quota?: Quota
 }) {
   return JSON.stringify(data)
+}
+
+// Subscription quota for the status line command: utilization 0-1, reset in ms.
+export function quota(snapshot: Quota | undefined): Quota | undefined {
+  if (!snapshot) return undefined
+  const window = (value: Quota["five_hour"]) => value && { utilization: value.utilization, reset: value.reset }
+  return { five_hour: window(snapshot.five_hour), seven_day: window(snapshot.seven_day), status: snapshot.status }
 }
 
 const ANSI = /\u001b\[[0-9;?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g

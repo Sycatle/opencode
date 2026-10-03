@@ -57,6 +57,15 @@ export function observe(response: Headers, request: HeadersInit | undefined) {
   } catch {}
 }
 
+// Headers are only seen on requests: an older snapshot no longer describes the windows.
+export const FRESH_MS = 6 * 60 * 60 * 1000
+
+// The latest snapshot for a provider, if recent enough to display.
+export function fresh(provider = "anthropic", now = Date.now()) {
+  const snapshot = latest(provider)
+  return snapshot && now - snapshot.time < FRESH_MS ? snapshot : undefined
+}
+
 export function latest(provider = "anthropic") {
   const row = table()
     .query<{ data: string }, [string]>("SELECT data FROM fork_quota WHERE provider = ?")

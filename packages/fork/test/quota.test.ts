@@ -61,3 +61,10 @@ test("autonomous runs wait for the reset above the threshold or when limited", (
   ForkQuota.observe(headers("0.30", future, "rejected"), undefined)
   expect(ForkQuota.waitUntil(0.9)).toBe(Number(future) * 1000)
 })
+
+test("a snapshot older than six hours is not fresh", () => {
+  ForkQuota.observe(headers("0.20"), undefined)
+  const time = ForkQuota.latest()?.time ?? 0
+  expect(ForkQuota.fresh("anthropic", time + 1000)?.five_hour?.utilization).toBe(0.2)
+  expect(ForkQuota.fresh("anthropic", time + ForkQuota.FRESH_MS + 1)).toBeUndefined()
+})

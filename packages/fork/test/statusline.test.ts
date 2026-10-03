@@ -13,6 +13,16 @@ test("config needs a command and clamps the interval", () => {
   expect(ForkStatusline.config({ command: "x", interval: 30000 })?.interval).toBe(30000)
 })
 
+test("quota keeps utilization, reset and status only", () => {
+  expect(ForkStatusline.quota(undefined)).toBeUndefined()
+  const five_hour = { utilization: 0.11, reset: 1000, status: "allowed" }
+  expect(ForkStatusline.quota({ five_hour, status: "allowed" })).toEqual({
+    five_hour: { utilization: 0.11, reset: 1000 },
+    seven_day: undefined,
+    status: "allowed",
+  })
+})
+
 test("input carries only session, model, agent and cwd", () => {
   const data = { sessionID: "s", model: { providerID: "p", modelID: "m" }, agent: "build", cwd: "/p" }
   expect(JSON.parse(ForkStatusline.input(data))).toEqual(data)
