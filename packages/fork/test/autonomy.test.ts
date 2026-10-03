@@ -39,3 +39,11 @@ test("re-invokes a dev script with its runtime, a compiled binary alone", () => 
     "/bin/opencode",
   ])
 })
+
+test("budgets are USD by default and 5-hour window points with %", () => {
+  expect(ForkAutonomy.parseBudget(undefined)).toBeUndefined()
+  expect(ForkAutonomy.parseBudget("0.5")).toEqual({ unit: "usd", amount: 0.5 })
+  expect(ForkAutonomy.parseBudget("$2")).toEqual({ unit: "usd", amount: 2 })
+  expect(ForkAutonomy.parseBudget(" 20% ")).toEqual({ unit: "window", amount: 20 })
+  expect(() => ForkAutonomy.parseBudget("lots")).toThrow()
+})

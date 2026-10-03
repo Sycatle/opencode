@@ -22,6 +22,7 @@
     "./descriptions": "./src/descriptions.ts",
     "./cache": "./src/cache.ts",
     "./pins": "./src/pins.ts",
+    "./quota": "./src/quota.ts",
     "./lsp": "./src/lsp.ts",
     "./shell": "./src/shell.ts",
     "./memory": "./src/memory.ts",

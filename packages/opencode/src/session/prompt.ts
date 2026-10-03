@@ -1181,7 +1181,7 @@ const layer = Layer.effect(
           const budget = ForkBudget.check(session)
           if (budget.state === "stop") {
             const error = new NamedError.Unknown({
-              message: `Budget exceeded: $${budget.spent.toFixed(2)} spent of $${budget.max.toFixed(2)}.`,
+              message: `Budget exceeded: ${ForkBudget.describe(budget)}.`,
             })
             yield* events.publish(Session.Event.Error, { sessionID, error: error.toObject() })
             break

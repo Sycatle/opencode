@@ -74,3 +74,16 @@ test("budget level warns at 80% and flags overspend", () => {
   expect(ForkSummary.budgetLevel(0.8, 1)).toBe("warning")
   expect(ForkSummary.budgetLevel(1.1, 1)).toBe("exceeded")
 })
+
+test("quota resets show the time today and the weekday otherwise", () => {
+  const now = new Date(2026, 9, 3, 14, 0).getTime()
+  expect(ForkSummary.formatReset(new Date(2026, 9, 3, 18, 0).getTime(), now)).toBe("18:00")
+  expect(ForkSummary.formatReset(new Date(2026, 9, 5, 10, 0).getTime(), now)).toBe("Mon 10:00")
+})
+
+test("quota level follows the most used window and any limited status", () => {
+  const window = (utilization: number, status = "allowed") => ({ utilization, status })
+  expect(ForkSummary.quotaLevel([window(0.11), window(0.25)])).toBe("ok")
+  expect(ForkSummary.quotaLevel([window(0.11), window(0.85)])).toBe("warning")
+  expect(ForkSummary.quotaLevel([window(0.3, "rejected"), undefined])).toBe("exceeded")
+})

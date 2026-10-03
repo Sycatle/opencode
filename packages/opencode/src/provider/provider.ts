@@ -1,4 +1,5 @@
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+import { ForkQuota } from "@opencode-fork/core/quota"
 import os from "os"
 import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
 import fuzzysort from "fuzzysort"
@@ -120,6 +121,8 @@ function timeoutFetch(options: Record<string, any>) {
       // @ts-ignore see here: https://github.com/oven-sh/bun/issues/16682
       timeout: false,
     }).finally(() => headerTimeoutCtl?.clear())
+    // FORK-SEAM: quota-headers (subscription usage windows)
+    ForkQuota.observe(res.headers, opts.headers)
 
     if (!chunkAbortCtl) return res
     return wrapSSE(res, chunkTimeout, chunkAbortCtl)

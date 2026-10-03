@@ -71,6 +71,22 @@ export function subagentTitle(title: string | undefined, agent: string) {
   return title?.replace(/\s*\(@[^)]*subagent\)$/, "").trim() || agent
 }
 
+// "18:00" today, "Mon 10:00" on another day.
+export function formatReset(reset: number, now = Date.now()) {
+  const date = new Date(reset)
+  const time = date.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })
+  return date.toDateString() === new Date(now).toDateString()
+    ? time
+    : `${date.toLocaleDateString("en-GB", { weekday: "short" })} ${time}`
+}
+
+export function quotaLevel(windows: readonly ({ utilization: number; status: string } | undefined)[]) {
+  const present = windows.filter((window) => window !== undefined)
+  if (present.some((window) => window.status !== "allowed" || window.utilization >= 1)) return "exceeded" as const
+  if (present.some((window) => window.utilization >= 0.8)) return "warning" as const
+  return "ok" as const
+}
+
 export function budgetLevel(spent: number, limit: number | undefined) {
   if (limit === undefined) return undefined
   const used = spent / limit

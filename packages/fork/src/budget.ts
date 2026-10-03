@@ -1,4 +1,5 @@
 import { ForkTelemetry } from "./telemetry"
+import { ForkQuota } from "./quota"
 
 // Session budget in USD, shared by a session and all of its subagents.
 // At the limit the agent gets one wrap-up turn without tools; if it keeps going
@@ -20,13 +21,40 @@ export function limit() {
   return Number.isFinite(value) && value > 0 ? value : undefined
 }
 
-export function check(session: { id: string; parentID?: string }) {
-  const max = limit()
-  if (max === undefined) return { state: "ok" as const }
-  const spent = ForkTelemetry.treeCost(ForkTelemetry.rootOf(session.parentID ?? session.id))
-  if (spent >= max * HARD_MARGIN) return { state: "stop" as const, spent, max }
-  if (spent >= max) return { state: "wrap-up" as const, spent, max }
-  return { state: "ok" as const, spent, max }
+// Subscription budget: percentage points of the 5-hour window, e.g. 20.
+export function windowLimit() {
+  const value = Number(process.env.OPENCODE_FORK_BUDGET_WINDOW)
+  return Number.isFinite(value) && value > 0 ? value : undefined
+}
+
+type Result =
+  | { state: "ok"; spent?: number; max?: number; unit?: "usd" | "window" }
+  | { state: "wrap-up" | "stop"; spent: number; max: number; unit: "usd" | "window" }
+
+// The stricter of the dollar and the window budget applies.
+export function check(session: { id: string; parentID?: string }): Result {
+  const usd = limit()
+  const window = windowLimit()
+  if (usd === undefined && window === undefined) return { state: "ok" }
+  const root = ForkTelemetry.rootOf(session.parentID ?? session.id)
+  const results = [
+    usd === undefined ? undefined : evaluate(ForkTelemetry.treeCost(root), usd, "usd"),
+    window === undefined ? undefined : evaluate(ForkQuota.windowSpent(root) ?? 0, window, "window"),
+  ].filter((item) => item !== undefined)
+  const rank = { ok: 0, "wrap-up": 1, stop: 2 }
+  return results.toSorted((a, b) => rank[b.state] - rank[a.state])[0]
+}
+
+export function describe(result: { spent: number; max: number; unit: "usd" | "window" }) {
+  return result.unit === "usd"
+    ? `$${result.spent.toFixed(2)} spent of $${result.max.toFixed(2)}`
+    : `${result.spent} points of the 5-hour window used of ${result.max}`
+}
+
+function evaluate(spent: number, max: number, unit: "usd" | "window") {
+  if (spent >= max * HARD_MARGIN) return { state: "stop" as const, spent, max, unit }
+  if (spent >= max) return { state: "wrap-up" as const, spent, max, unit }
+  return { state: "ok" as const, spent, max, unit }
 }
 
 export * as ForkBudget from "./budget"

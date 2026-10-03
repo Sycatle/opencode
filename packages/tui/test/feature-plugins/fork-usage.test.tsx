@@ -88,3 +88,57 @@ test("sidebar shows the last turn breakdown, subagents and the budget", async ()
   expect(frame).toContain("$0.0460/$0.0500")
   app.renderer.destroy()
 })
+
+test("on a subscription, quotas replace dollars as the primary figure", async () => {
+  const session = `sub-${run}`
+  await turn(session, "build", 0.02)
+  const { ForkQuota } = await import("@opencode-fork/core/quota")
+  const reset = String(Math.floor(Date.now() / 1000) + 3600)
+  ForkQuota.observe(
+    new Headers({
+      "anthropic-ratelimit-unified-status": "allowed",
+      "anthropic-ratelimit-unified-5h-utilization": "0.11",
+      "anthropic-ratelimit-unified-5h-reset": reset,
+      "anthropic-ratelimit-unified-5h-status": "allowed",
+      "anthropic-ratelimit-unified-7d-utilization": "0.25",
+      "anthropic-ratelimit-unified-7d-reset": reset,
+      "anthropic-ratelimit-unified-7d-status": "allowed",
+    }),
+    { "x-opencode-session-id": session },
+  )
+
+  const registered: Slots[] = []
+  const api = {
+    ...createTuiPluginApi({
+      state: {
+        session: { messages: () => [], status: () => undefined, get: () => undefined } as unknown as Partial<
+          TuiPluginApi["state"]["session"]
+        >,
+      },
+    }),
+    slots: { register: (input: { slots: Slots }) => registered.push(input.slots) },
+    route: { navigate: () => {} },
+  } as unknown as TuiPluginApi
+  await plugin.tui(api, undefined, { id: plugin.id } as never)
+  const app = await testRender(
+    () => (
+      <box flexDirection="column">
+        {registered.map((slots) => {
+          const render = slots.sidebar_content ?? slots.session_prompt_right
+          return render?.({}, { session_id: session }) as never
+        })}
+      </box>
+    ),
+    { width: 70, height: 20 },
+  )
+  await app.renderOnce()
+  const frame = app.captureCharFrame()
+
+  expect(frame).toContain("Quota subscription")
+  expect(frame).toMatch(/5h\s+11% · reset /)
+  expect(frame).toMatch(/week 25% · reset /)
+  expect(frame).toContain("session +0 pts")
+  expect(frame).toContain("≈ $0.0200 API eq.")
+  expect(frame).toContain("5h 11% · 7d 25%")
+  app.renderer.destroy()
+})
