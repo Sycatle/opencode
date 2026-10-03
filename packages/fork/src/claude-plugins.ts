@@ -1,5 +1,6 @@
 export * as ForkClaudePlugins from "./claude-plugins"
 
+import { cp, mkdir, rename, rm, stat } from "node:fs/promises"
 import path from "node:path"
 import { ForkHooks } from "./hooks"
 
@@ -51,7 +52,7 @@ async function glob(pattern: string, cwd: string) {
   const files = await Array.fromAsync(
     new Bun.Glob(pattern).scan({ cwd, absolute: true, dot: true, followSymlinks: true }),
   ).catch(() => [])
-  return files.filter((file) => !file.includes(`${path.sep}node_modules${path.sep}`)).sort()
+  return files.filter((file) => !file.includes(`${path.sep}node_modules${path.sep}`)).toSorted()
 }
 
 // `${CLAUDE_PLUGIN_ROOT}` (and the bare variable) point at the plugin's install directory.
@@ -101,7 +102,7 @@ async function enabledPlugins(opts: Options) {
     isRecord(data) && isRecord(data.enabledPlugins) ? [data.enabledPlugins] : [],
   )
   if (found.length === 0) return undefined
-  return Object.assign({}, ...found) as Record<string, unknown>
+  return found.reduce((merged, item) => ({ ...merged, ...item }), {})
 }
 
 function within(dir: string, target: string) {
@@ -109,16 +110,15 @@ function within(dir: string, target: string) {
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))
 }
 
-// Installed and enabled plugins. Project and local scoped installs only apply inside their project.
-export async function installed(opts: Options): Promise<Plugin[]> {
-  if (!enabled(opts.env)) return []
+// Every installed plugin with its enabled flag. Project and local scoped installs only apply
+// inside their project.
+export async function all(opts: Options): Promise<(Plugin & { enabled: boolean; scope: string })[]> {
   const data = await readJson(path.join(pluginsDir(opts.home), "installed_plugins.json"))
   if (!isRecord(data) || !isRecord(data.plugins)) return []
   const flags = await enabledPlugins(opts)
   return Object.entries(data.plugins).flatMap(([id, entries]) => {
     const at = id.lastIndexOf("@")
     if (at <= 0 || !Array.isArray(entries)) return []
-    if (flags && flags[id] !== true) return []
     const candidates = entries.filter(isRecord).filter((entry) => {
       if (typeof entry.installPath !== "string") return false
       if (entry.scope !== "project" && entry.scope !== "local") return true
@@ -133,9 +133,17 @@ export async function installed(opts: Options): Promise<Plugin[]> {
         marketplace: id.slice(at + 1),
         root: entry.installPath,
         version: typeof entry.version === "string" ? entry.version : undefined,
+        scope: typeof entry.scope === "string" ? entry.scope : "user",
+        enabled: !flags || flags[id] === true,
       },
     ]
   })
+}
+
+// Installed and enabled plugins.
+export async function installed(opts: Options): Promise<Plugin[]> {
+  if (!enabled(opts.env)) return []
+  return (await all(opts)).filter((plugin) => plugin.enabled)
 }
 
 // `skills/**/SKILL.md` of every enabled plugin, named `<plugin>:<skill>`.
@@ -223,7 +231,10 @@ export function model(value: unknown, current?: string) {
   if (typeof value !== "string") return undefined
   const provider = current?.includes("/") ? current.slice(0, current.indexOf("/")) : "anthropic"
   if (provider !== "anthropic") return undefined
-  const alias = value.trim().toLowerCase().replace(/\[.*\]$/, "")
+  const alias = value
+    .trim()
+    .toLowerCase()
+    .replace(/\[.*\]$/, "")
   const id = MODELS[alias] ?? (alias.startsWith("claude-") ? alias : undefined)
   return id ? `anthropic/${id}` : undefined
 }
@@ -244,7 +255,10 @@ function permissionKeys(entry: string) {
 function list(value: unknown) {
   if (Array.isArray(value)) return value.filter((item): item is string => typeof item === "string")
   if (typeof value !== "string") return undefined
-  return value.split(",").map((item) => item.trim()).filter(Boolean)
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean)
 }
 
 // An explicit `tools` list is an allowlist: everything else is denied. `disallowedTools` denies on top.
@@ -310,7 +324,9 @@ function expandValue(text: string, root: string, env: Record<string, string | un
 function strings(value: unknown, root: string, env: Record<string, string | undefined>) {
   if (!isRecord(value)) return undefined
   return Object.fromEntries(
-    Object.entries(value).flatMap(([key, item]) => (typeof item === "string" ? [[key, expandValue(item, root, env)]] : [])),
+    Object.entries(value).flatMap(([key, item]) =>
+      typeof item === "string" ? [[key, expandValue(item, root, env)]] : [],
+    ),
   )
 }
 
@@ -401,17 +417,11 @@ export async function pluginHooks(opts: Options): Promise<ForkHooks.Hooks> {
   const all = await Promise.all(
     plugins.map(async (plugin) => hooks(await readJson(path.join(plugin.root, "hooks", "hooks.json")), plugin.root)),
   )
-  return all.reduce<ForkHooks.Hooks>(
-    (merged, next) => ({
-      ...merged,
-      ...Object.fromEntries(
-        Object.entries(next).map(([event, entries]) => [
-          event,
-          [...(merged[event as ForkHooks.Event] ?? []), ...entries],
-        ]),
-      ),
+  return Object.fromEntries(
+    ForkHooks.EVENTS.flatMap((event) => {
+      const entries = all.flatMap((item) => item[event] ?? [])
+      return entries.length > 0 ? [[event, entries]] : []
     }),
-    {},
   )
 }
 
@@ -427,4 +437,208 @@ export interface Config {
 export async function config(opts: Options & { model?: string }): Promise<Config> {
   const [command, agent, servers] = await Promise.all([commands(opts), agents(opts), mcp(opts)])
   return { command, agent, mcp: servers }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Management (used by `opencode plugin-cc`). These are the only functions that write to
+// ~/.claude/plugins and ~/.claude/settings.json, in the files and format Claude Code uses.
+// They throw an Error with a readable message on failure.
+
+export interface Manage {
+  home: string
+  // Clone URL of a `owner/repo` GitHub shorthand (overridable for tests).
+  github?: (repo: string) => string
+}
+
+async function git(args: string[], cwd?: string) {
+  const proc = Bun.spawn({ cmd: ["git", ...args], cwd, stdout: "pipe", stderr: "pipe" })
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ])
+  if (code !== 0) throw new Error(`git ${args[0]} failed: ${stderr.trim() || `exit code ${code}`}`)
+  return stdout.trim()
+}
+
+async function isDir(target: string) {
+  return (await stat(target).catch(() => undefined))?.isDirectory() === true
+}
+
+// Atomic write so that Claude Code never reads a half-written file.
+async function writeJson(file: string, data: unknown) {
+  const temp = `${file}.${process.pid}.tmp`
+  await Bun.write(temp, JSON.stringify(data, null, 2) + "\n")
+  await rename(temp, file)
+}
+
+async function copyTree(from: string, to: string) {
+  await cp(from, to, { recursive: true, filter: (source) => path.basename(source) !== ".git" })
+}
+
+async function cloneShallow(url: string, target: string, ref?: string) {
+  await git(["clone", "--depth", "1", ...(ref ? ["--branch", ref] : []), url, target])
+  return git(["rev-parse", "HEAD"], target)
+}
+
+async function marketplaceOf(dir: string) {
+  const data = await readJson(path.join(dir, ".claude-plugin", "marketplace.json"))
+  if (!isRecord(data) || typeof data.name !== "string")
+    throw new Error(`${dir} is not a plugin marketplace (no .claude-plugin/marketplace.json with a name)`)
+  return { name: data.name, plugins: Array.isArray(data.plugins) ? data.plugins.filter(isRecord) : [] }
+}
+
+async function knownMarketplaces(home: string) {
+  const data = await readJson(path.join(pluginsDir(home), "known_marketplaces.json"))
+  return isRecord(data) ? data : {}
+}
+
+// `marketplace add <owner/repo | path>`: a directory is referenced in place, a GitHub repository is
+// cloned (depth 1) under plugins/marketplaces/<name>.
+export async function marketplaceAdd(opts: Manage, source: string) {
+  const dir = pluginsDir(opts.home)
+  const local = path.resolve(source.startsWith("~/") ? path.join(opts.home, source.slice(2)) : source)
+  const known = await knownMarketplaces(opts.home)
+  const entry = async (name: string, src: Record<string, string>, installLocation: string) => {
+    await mkdir(dir, { recursive: true })
+    await writeJson(path.join(dir, "known_marketplaces.json"), {
+      ...known,
+      [name]: { source: src, installLocation, lastUpdated: new Date().toISOString() },
+    })
+    return { name, installLocation }
+  }
+  if (await isDir(local)) return entry((await marketplaceOf(local)).name, { source: "directory", path: local }, local)
+  if (!/^[\w.-]+\/[\w.-]+$/.test(source))
+    throw new Error(`${source} is neither a directory nor an owner/repo GitHub repository`)
+  const staging = path.join(dir, "marketplaces", `.staging-${process.pid}-${Date.now()}`)
+  await mkdir(path.dirname(staging), { recursive: true })
+  await cloneShallow((opts.github ?? ((repo) => `https://github.com/${repo}.git`))(source), staging)
+  const name = (await marketplaceOf(staging)).name
+  const installLocation = path.join(dir, "marketplaces", name)
+  await rm(installLocation, { recursive: true, force: true })
+  await rename(staging, installLocation)
+  return entry(name, { source: "github", repo: source }, installLocation)
+}
+
+async function setEnabled(home: string, id: string, value: boolean | undefined) {
+  const file = path.join(home, ".claude", "settings.json")
+  const exists = await Bun.file(file).exists()
+  const settings = exists ? await readJson(file) : {}
+  // An unparsable settings.json is left alone rather than overwritten.
+  if (!isRecord(settings)) return false
+  const flags = isRecord(settings.enabledPlugins) ? { ...settings.enabledPlugins } : undefined
+  // Without an enabledPlugins key every installed plugin counts as enabled here: seed the key so
+  // that adding one entry does not switch the others off.
+  const base = flags ?? Object.fromEntries((await all({ home })).map((plugin) => [plugin.id, true]))
+  if (value === undefined) delete base[id]
+  else base[id] = value
+  await mkdir(path.dirname(file), { recursive: true })
+  await writeJson(file, { ...settings, enabledPlugins: base })
+  return true
+}
+
+async function pluginSource(
+  opts: Manage,
+  mkt: string,
+  location: string,
+  item: Record<string, unknown>,
+  target: string,
+) {
+  const source = item.source
+  if (typeof source === "string") {
+    const from = path.resolve(location, source)
+    if (!(await isDir(from))) throw new Error(`plugin source ${source} not found in marketplace ${mkt}`)
+    await copyTree(from, target)
+    const sha = await git(["rev-parse", "HEAD"], location).catch(() => undefined)
+    return { sha }
+  }
+  if (!isRecord(source)) throw new Error(`plugin ${String(item.name)} has no source`)
+  const repo = typeof source.repo === "string" ? source.repo : undefined
+  const url =
+    typeof source.url === "string"
+      ? source.url
+      : repo
+        ? (opts.github ?? ((r) => `https://github.com/${r}.git`))(repo)
+        : undefined
+  if (!url) throw new Error(`unsupported plugin source ${JSON.stringify(source)}`)
+  const clone = `${target}.clone`
+  const sha = await cloneShallow(url, clone, typeof source.ref === "string" ? source.ref : undefined)
+  const sub = typeof source.path === "string" ? path.join(clone, source.path) : clone
+  await copyTree(sub, target)
+  await rm(clone, { recursive: true, force: true })
+  return { sha }
+}
+
+// `add <plugin>@<marketplace>`: copies the plugin into plugins/cache/<marketplace>/<plugin>/<version>,
+// records it in installed_plugins.json (scope user) and enables it in settings.json.
+export async function add(opts: Manage, id: string) {
+  const at = id.lastIndexOf("@")
+  if (at <= 0) throw new Error(`expected <plugin>@<marketplace>, got ${id}`)
+  const name = id.slice(0, at)
+  const mkt = id.slice(at + 1)
+  const entry = (await knownMarketplaces(opts.home))[mkt]
+  if (!isRecord(entry) || typeof entry.installLocation !== "string")
+    throw new Error(`unknown marketplace ${mkt}; add it with: marketplace add <owner/repo | path>`)
+  const item = (await marketplaceOf(entry.installLocation)).plugins.find((plugin) => plugin.name === name)
+  if (!item) throw new Error(`plugin ${name} not found in marketplace ${mkt}`)
+  const parent = path.join(pluginsDir(opts.home), "cache", mkt, name)
+  const staging = path.join(parent, `.staging-${process.pid}-${Date.now()}`)
+  await mkdir(parent, { recursive: true })
+  const fetched = await pluginSource(opts, mkt, entry.installLocation, item, staging)
+  const manifest = await readJson(path.join(staging, ".claude-plugin", "plugin.json"))
+  const version =
+    (isRecord(manifest) && typeof manifest.version === "string" ? manifest.version : undefined) ??
+    (typeof item.version === "string" ? item.version : undefined) ??
+    fetched.sha?.slice(0, 12) ??
+    "unknown"
+  const installPath = path.join(parent, version)
+  await rm(installPath, { recursive: true, force: true })
+  await rename(staging, installPath)
+
+  const file = path.join(pluginsDir(opts.home), "installed_plugins.json")
+  const data = await readJson(file)
+  const plugins = isRecord(data) && isRecord(data.plugins) ? data.plugins : {}
+  const previous = (Array.isArray(plugins[id]) ? plugins[id] : []).filter(isRecord)
+  const existing = previous.find((item) => item.scope === "user")
+  const now = new Date().toISOString()
+  await writeJson(file, {
+    version: 2,
+    ...(isRecord(data) ? data : {}),
+    plugins: {
+      ...plugins,
+      [id]: [
+        ...previous.filter((item) => item.scope !== "user"),
+        {
+          scope: "user",
+          installPath,
+          version,
+          installedAt: typeof existing?.installedAt === "string" ? existing.installedAt : now,
+          lastUpdated: now,
+          ...(fetched.sha ? { gitCommitSha: fetched.sha } : {}),
+        },
+      ],
+    },
+  })
+  const flagged = await setEnabled(opts.home, id, true)
+  return { id, version, installPath, flagged }
+}
+
+// `rm <plugin>@<marketplace>`: drops the user scope install, its enabledPlugins flag and its cache directory.
+export async function remove(opts: Manage, id: string) {
+  const file = path.join(pluginsDir(opts.home), "installed_plugins.json")
+  const data = await readJson(file)
+  if (!isRecord(data) || !isRecord(data.plugins) || !Array.isArray(data.plugins[id]))
+    throw new Error(`${id} is not installed`)
+  const entries = data.plugins[id].filter(isRecord)
+  const kept = entries.filter((entry) => entry.scope !== "user")
+  const others = Object.entries(data.plugins).filter(([key]) => key !== id)
+  await writeJson(file, { ...data, plugins: Object.fromEntries(kept.length > 0 ? [...others, [id, kept]] : others) })
+  await setEnabled(opts.home, id, undefined)
+  const cache = path.join(pluginsDir(opts.home), "cache") + path.sep
+  await Promise.all(
+    entries
+      .flatMap((entry) => (entry.scope === "user" && typeof entry.installPath === "string" ? [entry.installPath] : []))
+      .filter((installPath) => installPath.startsWith(cache))
+      .map((installPath) => rm(installPath, { recursive: true, force: true })),
+  )
 }

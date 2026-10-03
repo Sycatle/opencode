@@ -19,6 +19,8 @@ import { UsageCommand } from "./cli/cmd/usage"
 import { ScheduleCommand } from "./cli/cmd/schedule"
 import { AutoCommand } from "./cli/cmd/auto"
 import { WorkflowCommand } from "./cli/cmd/workflow"
+// FORK-SEAM: cc-plugins-command
+import { PluginCcCommand } from "./cli/cmd/plugin-cc"
 import { McpCommand } from "./cli/cmd/mcp"
 import { GithubCommand } from "./cli/cmd/github"
 import { ExportCommand } from "./cli/cmd/export"
@@ -109,6 +111,8 @@ const cli = yargs(args)
   .command(PrCommand)
   .command(SessionCommand)
   .command(PluginCommand)
+  // FORK-SEAM: cc-plugins-command
+  .command(PluginCcCommand)
   .command(DbCommand)
   .fail((msg, err) => {
     if (

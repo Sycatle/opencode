@@ -178,7 +178,10 @@ color: blue
 You are a reviewer. See \${CLAUDE_PLUGIN_ROOT}/rules.md
 `,
   )
-  await write(path.join(dir, "agents", "free.md"), "---\ndescription: Free\ntools:\n  - Read\nmodel: inherit\n---\nbody")
+  await write(
+    path.join(dir, "agents", "free.md"),
+    "---\ndescription: Free\ntools:\n  - Read\nmodel: inherit\n---\nbody",
+  )
   await install({ "review-kit@claude-plugins-official": [{ root: dir }] })
   expect(await ForkClaudePlugins.agents({ home, env })).toEqual({
     "review-kit:code-reviewer": {
@@ -268,6 +271,103 @@ test("hooks.json converts to the fork hooks key", async () => {
   await install({ "superpowers@claude-plugins-official": [{ root: dir }] })
   const merged = await ForkClaudePlugins.pluginHooks({ home, env })
   expect(Object.keys(merged).sort()).toEqual(["PreToolUse", "SessionStart"])
+})
+
+async function git(cwd: string, ...args: string[]) {
+  const proc = Bun.spawn({
+    cmd: ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", ...args],
+    cwd,
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  const out = await new Response(proc.stdout).text()
+  expect(await proc.exited).toBe(0)
+  return out.trim()
+}
+
+// A git repository holding a marketplace with a relative plugin and a plugin cloned from another repo.
+async function marketplaceRepo() {
+  const external = path.join(home, "external-plugin")
+  await write(path.join(external, ".claude-plugin", "plugin.json"), { name: "ext", version: "2.1.0" })
+  await write(path.join(external, "skills", "hello", "SKILL.md"), "---\nname: hello\ndescription: hi\n---\nhello")
+  await git(home, "init", "-q", external)
+  await git(external, "add", "-A")
+  await git(external, "commit", "-q", "-m", "init")
+
+  const repo = path.join(home, "market")
+  await write(path.join(repo, ".claude-plugin", "marketplace.json"), {
+    name: "mkt",
+    owner: { name: "me" },
+    plugins: [
+      { name: "local", source: "./plugins/local" },
+      { name: "ext", source: { source: "url", url: `file://${external}` } },
+    ],
+  })
+  await write(path.join(repo, "plugins", "local", ".claude-plugin", "plugin.json"), { name: "local", version: "0.3.0" })
+  await write(path.join(repo, "plugins", "local", "commands", "go.md"), "---\ndescription: go\n---\ngo")
+  await git(home, "init", "-q", repo)
+  await git(repo, "add", "-A")
+  await git(repo, "commit", "-q", "-m", "init")
+  return { repo, external, sha: await git(external, "rev-parse", "HEAD") }
+}
+
+test("marketplace add, add, list and rm write the files Claude Code reads", async () => {
+  const { repo, sha } = await marketplaceRepo()
+  await write(path.join(home, ".claude", "settings.json"), { theme: "dark", enabledPlugins: { "other@x": true } })
+  const manage = { home, github: () => `file://${repo}` }
+
+  // directory source is referenced in place
+  expect(await ForkClaudePlugins.marketplaceAdd(manage, repo)).toEqual({ name: "mkt", installLocation: repo })
+  const known = (await Bun.file(path.join(home, ".claude", "plugins", "known_marketplaces.json")).json()) as any
+  expect(known.mkt.source).toEqual({ source: "directory", path: repo })
+
+  const local = await ForkClaudePlugins.add(manage, "local@mkt")
+  expect(local.version).toBe("0.3.0")
+  expect(local.installPath).toBe(root("mkt", "local", "0.3.0"))
+  expect(await Bun.file(path.join(local.installPath, "commands", "go.md")).exists()).toBe(true)
+  expect(await Bun.file(path.join(local.installPath, ".git")).exists()).toBe(false)
+
+  const ext = await ForkClaudePlugins.add(manage, "ext@mkt")
+  expect(ext.version).toBe("2.1.0")
+  const installedFile = (await Bun.file(path.join(home, ".claude", "plugins", "installed_plugins.json")).json()) as any
+  expect(installedFile.version).toBe(2)
+  expect(installedFile.plugins["ext@mkt"][0]).toMatchObject({ scope: "user", version: "2.1.0", gitCommitSha: sha })
+  const settings = (await Bun.file(path.join(home, ".claude", "settings.json")).json()) as any
+  expect(settings).toEqual({
+    theme: "dark",
+    enabledPlugins: { "other@x": true, "local@mkt": true, "ext@mkt": true },
+  })
+
+  // what Claude Code wrote is what opencode reads, and the other way round
+  expect((await ForkClaudePlugins.skills({ home, env })).map((skill) => skill.name)).toEqual(["ext:hello"])
+  expect(Object.keys(await ForkClaudePlugins.commands({ home, env }))).toEqual(["local:go"])
+  expect((await ForkClaudePlugins.all({ home })).map((plugin) => [plugin.id, plugin.enabled])).toEqual([
+    ["local@mkt", true],
+    ["ext@mkt", true],
+  ])
+
+  await ForkClaudePlugins.remove(manage, "local@mkt")
+  expect(await Bun.file(path.join(local.installPath, "commands", "go.md")).exists()).toBe(false)
+  expect((await ForkClaudePlugins.all({ home })).map((plugin) => plugin.id)).toEqual(["ext@mkt"])
+  expect(((await Bun.file(path.join(home, ".claude", "settings.json")).json()) as any).enabledPlugins).toEqual({
+    "other@x": true,
+    "ext@mkt": true,
+  })
+  await expect(ForkClaudePlugins.remove(manage, "local@mkt")).rejects.toThrow("not installed")
+})
+
+test("marketplace add clones a GitHub repository under plugins/marketplaces", async () => {
+  const { repo } = await marketplaceRepo()
+  const manage = { home, github: () => `file://${repo}` }
+  const result = await ForkClaudePlugins.marketplaceAdd(manage, "owner/market")
+  const location = path.join(home, ".claude", "plugins", "marketplaces", "mkt")
+  expect(result).toEqual({ name: "mkt", installLocation: location })
+  const known = (await Bun.file(path.join(home, ".claude", "plugins", "known_marketplaces.json")).json()) as any
+  expect(known.mkt.source).toEqual({ source: "github", repo: "owner/market" })
+  expect((await ForkClaudePlugins.add(manage, "local@mkt")).version).toBe("0.3.0")
+  await expect(ForkClaudePlugins.marketplaceAdd(manage, "nonsense")).rejects.toThrow("neither a directory")
+  await expect(ForkClaudePlugins.add(manage, "missing@mkt")).rejects.toThrow("not found")
+  await expect(ForkClaudePlugins.add(manage, "local@unknown")).rejects.toThrow("unknown marketplace")
 })
 
 test("commands are namespaced by plugin and subdirectory", async () => {
