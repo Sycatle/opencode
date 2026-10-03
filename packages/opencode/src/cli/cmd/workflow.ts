@@ -5,6 +5,7 @@ import { ForkWorkflow } from "@opencode-fork/core/workflow"
 import { cmd } from "./cmd"
 
 const STARTUP_TIMEOUT_MS = 60_000
+const children = new Set<Bun.Subprocess>()
 
 const RunCommand = cmd({
   command: "run <script>",
@@ -26,10 +27,19 @@ const RunCommand = cmd({
     if (typeof mod.meta?.name !== "string" || typeof mod.default !== "function")
       return fail("a workflow must `export const meta = { name, description }` and export a default async function")
     if (args.resume && !ForkWorkflow.hasRun(args.resume)) return fail(`unknown run id ${args.resume}`)
+    if (args.resume && ForkWorkflow.isRunning(args.resume)) return fail(`run ${args.resume} is still running`)
 
     const runID = args.resume ?? `wf_${crypto.randomUUID().slice(0, 8)}`
     ForkWorkflow.startRun(runID, file, mod.meta.name)
     console.error(`run ${runID} · ${mod.meta.name}${args.resume ? " (resumed)" : ""}`)
+    ;(["SIGINT", "SIGTERM"] as const).forEach((signal) =>
+      process.on(signal, () => {
+        children.forEach((child) => child.kill())
+        ForkWorkflow.finishRun(runID, "interrupted")
+        console.error(`== interrupted · resume with --resume ${runID}`)
+        process.exit(signal === "SIGINT" ? 130 : 143)
+      }),
+    )
 
     const self = ForkAutonomy.selfCommand(process.execPath, process.argv, process.execArgv)
     const runtime = ForkWorkflow.createRuntime({
@@ -90,10 +100,24 @@ const RunCommand = cmd({
   },
 })
 
+const ListCommand = cmd({
+  command: "list",
+  describe: "list workflow runs; runs whose process died are marked interrupted",
+  handler: () => {
+    const runs = ForkWorkflow.listRuns()
+    if (!runs.length) return console.log("No workflow runs yet.")
+    runs.forEach((run) =>
+      console.log(
+        `${run.id}  ${run.status.padEnd(11)} ${run.name}  $${run.cost.toFixed(4)}  ${new Date(run.started).toLocaleString()}`,
+      ),
+    )
+  },
+})
+
 export const WorkflowCommand = cmd({
   command: "workflow",
   describe: "run scripted multi-agent workflows",
-  builder: (yargs) => yargs.command(RunCommand).demandCommand(),
+  builder: (yargs) => yargs.command(RunCommand).command(ListCommand).demandCommand(),
   handler: () => {},
 })
 
@@ -104,6 +128,7 @@ function fail(message: string) {
 
 async function attempt(command: string[], env: Record<string, string | undefined>) {
   const proc = Bun.spawn(command, { stdout: "pipe", stderr: "ignore", env })
+  children.add(proc)
   const timer = setTimeout(() => proc.kill(), STARTUP_TIMEOUT_MS)
   const decoder = new TextDecoder()
   const state = { output: "", silent: true }
@@ -117,5 +142,6 @@ async function attempt(command: string[], env: Record<string, string | undefined
   }
   clearTimeout(timer)
   await proc.exited
+  children.delete(proc)
   return state.silent ? undefined : ForkWorkflow.replyFrom(state.output.split("\n"))
 }

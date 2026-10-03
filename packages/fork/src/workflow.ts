@@ -12,6 +12,7 @@ export type AgentOptions = { label?: string; agent?: string; model?: string; sch
 
 export type Execution = { text: string; sessionID: string }
 
+
 type Stage = (value: unknown, index: number) => unknown
 
 type Answer = { ok: true; value: unknown } | { ok: false; problem: string }
@@ -162,16 +163,57 @@ export function saveStep(runID: string, step: Step) {
 export function startRun(id: string, script: string, name: string) {
   table()
     .query(
-      "INSERT INTO fork_workflow_runs (id, script, name, status, cost, started) VALUES (?, ?, ?, 'running', 0, ?) ON CONFLICT(id) DO UPDATE SET status = 'running', finished = NULL",
+      "INSERT INTO fork_workflow_runs (id, script, name, status, cost, started, pid) VALUES (?, ?, ?, 'running', 0, ?, ?) ON CONFLICT(id) DO UPDATE SET status = 'running', finished = NULL, pid = excluded.pid",
     )
-    .run(id, script, name, Date.now())
+    .run(id, script, name, Date.now(), process.pid)
+}
+
+export type Run = {
+  id: string
+  name: string
+  status: string
+  cost: number
+  started: number
+  finished: number | null
+  pid: number | null
+}
+
+// A run still marked `running` whose process is gone was killed without a chance to say so.
+export function reapRuns() {
+  table()
+    .query<{ id: string; pid: number | null }, []>("SELECT id, pid FROM fork_workflow_runs WHERE status = 'running'")
+    .all()
+    .filter((run) => run.pid === null || !alive(run.pid))
+    .forEach((run) => finishRun(run.id, "interrupted"))
+}
+
+export function listRuns() {
+  reapRuns()
+  return table()
+    .query<Run, []>("SELECT id, name, status, cost, started, finished, pid FROM fork_workflow_runs ORDER BY started DESC")
+    .all()
+}
+
+export function isRunning(id: string) {
+  reapRuns()
+  return table().query("SELECT 1 FROM fork_workflow_runs WHERE id = ? AND status = 'running'").get(id) !== null
+}
+
+function alive(pid: number) {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    // EPERM: the process exists but belongs to someone else.
+    return (error as NodeJS.ErrnoException).code === "EPERM"
+  }
 }
 
 export function hasRun(id: string) {
   return table().query("SELECT 1 FROM fork_workflow_runs WHERE id = ?").get(id) !== null
 }
 
-export function finishRun(id: string, status: "done" | "failed" | "budget") {
+export function finishRun(id: string, status: "done" | "failed" | "budget" | "interrupted") {
   const total = table()
     .query<{ cost: number | null }, [string]>("SELECT sum(cost) AS cost FROM fork_workflow_steps WHERE run_id = ?")
     .get(id)
@@ -280,8 +322,11 @@ function table() {
     status TEXT NOT NULL,
     cost REAL NOT NULL,
     started INTEGER NOT NULL,
-    finished INTEGER
+    finished INTEGER,
+    pid INTEGER
   )`)
+  const columns = db.query<{ name: string }, []>("PRAGMA table_info(fork_workflow_runs)").all()
+  if (!columns.some((column) => column.name === "pid")) db.run("ALTER TABLE fork_workflow_runs ADD pid INTEGER")
   db.run(`CREATE TABLE IF NOT EXISTS fork_workflow_steps (
     run_id TEXT NOT NULL,
     key TEXT NOT NULL,

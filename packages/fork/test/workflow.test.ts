@@ -149,3 +149,19 @@ test("budgetEnv hands each agent the remaining run budget", () => {
   expect(ForkWorkflow.budgetEnv(2, 0.5)).toEqual({ OPENCODE_FORK_BUDGET_USD: "1.5" })
   expect(ForkWorkflow.budgetEnv(1, 3)).toEqual({ OPENCODE_FORK_BUDGET_USD: "0" })
 })
+
+const { ForkTelemetry } = await import("../src/telemetry")
+
+test("a running run whose process is gone becomes interrupted, and can be resumed", async () => {
+  const dead = Bun.spawn(["true"])
+  await dead.exited
+  ForkWorkflow.startRun("r5", "s.js", "demo")
+  ForkWorkflow.startRun("r6", "s.js", "alive")
+  ForkTelemetry.db().run("UPDATE fork_workflow_runs SET pid = ? WHERE id = 'r5'", [dead.pid])
+  const status = (id: string) => ForkWorkflow.listRuns().find((run) => run.id === id)?.status
+  expect(status("r5")).toBe("interrupted")
+  expect(status("r6")).toBe("running")
+  expect(ForkWorkflow.isRunning("r5")).toBe(false)
+  ForkWorkflow.startRun("r5", "s.js", "demo")
+  expect(ForkWorkflow.isRunning("r5")).toBe(true)
+})
