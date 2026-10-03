@@ -96,6 +96,8 @@ test("without enabledPlugins every installed plugin is enabled", async () => {
   const dir = await superpowers()
   await install({ "superpowers@claude-plugins-official": [{ root: dir }] })
   expect(await ForkClaudePlugins.skills({ home, env })).toHaveLength(2)
+  // no commands/ directory in this plugin
+  expect(await ForkClaudePlugins.commands({ home, env })).toEqual({})
 })
 
 test("project scoped installs only apply inside their project", async () => {
@@ -111,4 +113,21 @@ test("OPENCODE_FORK_CC_PLUGINS=0 and a missing plugins directory do nothing", as
   await install({ "superpowers@claude-plugins-official": [{ root: dir }] })
   expect(await ForkClaudePlugins.skills({ home, env: { OPENCODE_FORK_CC_PLUGINS: "0" } })).toEqual([])
   expect(await ForkClaudePlugins.skills({ home: path.join(home, "nothing"), env })).toEqual([])
+})
+
+test("commands are namespaced by plugin and subdirectory", async () => {
+  const dir = root("claude-plugins-official", "notion", "0.1.0")
+  await write(
+    path.join(dir, "commands", "tasks", "build.md"),
+    "---\ndescription: Build a task from a Notion page URL\nargs: task_url\n---\n\n# Build\n\nInput: $ARGUMENTS\nSee ${CLAUDE_PLUGIN_ROOT}/x\n",
+  )
+  await write(path.join(dir, "commands", "search.md"), "No frontmatter $1")
+  await install({ "notion@claude-plugins-official": [{ root: dir, version: "0.1.0" }] })
+  expect(await ForkClaudePlugins.commands({ home, env })).toEqual({
+    "notion:tasks:build": {
+      description: "Build a task from a Notion page URL",
+      template: `# Build\n\nInput: $ARGUMENTS\nSee ${dir}/x`,
+    },
+    "notion:search": { description: undefined, template: "No frontmatter $1" },
+  })
 })

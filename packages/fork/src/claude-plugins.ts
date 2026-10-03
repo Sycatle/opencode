@@ -46,7 +46,10 @@ export async function readJson(file: string): Promise<unknown> {
 }
 
 async function glob(pattern: string, cwd: string) {
-  const files = await Array.fromAsync(new Bun.Glob(pattern).scan({ cwd, absolute: true, dot: true, followSymlinks: true }))
+  // A missing directory (plugin without commands/, agents/...) makes the scan throw.
+  const files = await Array.fromAsync(
+    new Bun.Glob(pattern).scan({ cwd, absolute: true, dot: true, followSymlinks: true }),
+  ).catch(() => [])
   return files.filter((file) => !file.includes(`${path.sep}node_modules${path.sep}`)).sort()
 }
 
@@ -155,4 +158,45 @@ export async function skills(opts: Options): Promise<Skill[]> {
       ),
     )
   ).flat()
+}
+
+export interface Command {
+  description?: string
+  template: string
+}
+
+// `commands/**/*.md` become slash commands named `<plugin>:<path>` (`tasks/build.md` -> `notion:tasks:build`).
+// `$ARGUMENTS` and `$1` placeholders are shared by both tools.
+export async function commands(opts: Options): Promise<Record<string, Command>> {
+  const plugins = await installed(opts)
+  const entries = await Promise.all(
+    plugins.map(async (plugin) => {
+      const dir = path.join(plugin.root, "commands")
+      return Promise.all(
+        (await glob("**/*.md", dir)).map(async (file) => {
+          const md = frontmatter(await Bun.file(file).text())
+          const relative = path.relative(dir, file).slice(0, -".md".length).split(path.sep).join(":")
+          return [
+            `${plugin.name}:${relative}`,
+            {
+              description: typeof md.data.description === "string" ? md.data.description : undefined,
+              template: expandRoot(md.content.trim(), plugin.root),
+            },
+          ] as const
+        }),
+      )
+    }),
+  )
+  return Object.fromEntries(entries.flat())
+}
+
+export interface Config {
+  command: Record<string, Command>
+}
+
+// Everything a plugin contributes to the opencode config. Callers merge it below the user's own
+// config so that explicit settings always win. `model` is the configured `provider/model`, used
+// to translate agent model aliases.
+export async function config(opts: Options & { model?: string }): Promise<Config> {
+  return { command: await commands(opts) }
 }

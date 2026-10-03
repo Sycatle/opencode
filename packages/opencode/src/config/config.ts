@@ -6,6 +6,8 @@ import { pathToFileURL } from "url"
 import os from "os"
 import { mergeDeep } from "remeda"
 import { Global } from "@opencode-ai/core/global"
+// FORK-SEAM: cc-plugins-config
+import { ForkClaudePlugins } from "@opencode-fork/core/claude-plugins"
 import fsNode from "fs/promises"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { Auth } from "../auth"
@@ -527,6 +529,11 @@ const layer = Layer.effect(
           )
         }
 
+        // FORK-SEAM: cc-plugins-config (commands, agents and MCP servers of enabled Claude Code plugins, below user config)
+        const plugged = yield* Effect.promise(() =>
+          ForkClaudePlugins.config({ home: Global.Path.home, cwd: ctx.directory, model: result.model }),
+        )
+        result.command = mergeDeep(plugged.command, result.command ?? {})
         const managedDir = ConfigManaged.managedConfigDir()
         if (existsSync(managedDir)) {
           for (const file of ["opencode.json", "opencode.jsonc"]) {
