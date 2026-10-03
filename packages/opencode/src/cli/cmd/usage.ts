@@ -2,6 +2,7 @@ import type { ForkRoute } from "@opencode-fork/core/route"
 import { ForkCompactionLog } from "@opencode-fork/core/compaction-log"
 import { ForkJev } from "@opencode-fork/core/jev"
 import { ForkRouteLog } from "@opencode-fork/core/route-log"
+import { ForkOutcome } from "@opencode-fork/core/outcome"
 import { ForkTelemetry } from "@opencode-fork/core/telemetry"
 import { cmd } from "./cmd"
 
@@ -127,6 +128,15 @@ function route(session: string | undefined, json: boolean) {
     ForkRouteLog.summary().forEach((row) =>
       console.log(
         `  ${row.model.padEnd(44)} ${row.tier.padEnd(10)} ${String(row.turns).padStart(4)} turns  ${String(row.fallbacks).padStart(3)} fallbacks`,
+      ),
+    )
+    console.log("")
+    // A turn the user interrupted, reverted or that had to escalate hints the Router picked too low.
+    console.log("Router decisions, by outcome")
+    console.log(`  ${"model".padEnd(44)} ${"tier".padEnd(10)} ${"turns".padStart(5)} ${"aborted".padStart(8)} ${"reverted".padStart(8)} ${"error".padStart(8)} ${"escalated".padStart(9)}`)
+    ForkOutcome.byModel().forEach((row) =>
+      console.log(
+        `  ${row.model.padEnd(44)} ${row.tier.padEnd(10)} ${String(row.turns).padStart(5)} ${pct(row.aborted, row.turns).padStart(8)} ${pct(row.reverted, row.turns).padStart(8)} ${pct(row.error, row.turns).padStart(8)} ${pct(row.escalated, row.turns).padStart(9)}`,
       ),
     )
     console.log("")

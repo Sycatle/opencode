@@ -31,6 +31,7 @@ import { ForkCompaction } from "@opencode-fork/core/compaction"
 import { askWithPlugins } from "./fork-permission"
 import { ForkClaudeTools } from "@opencode-fork/core/claude-tools"
 import { ForkRouteTurn } from "./fork-route"
+import { ForkOutcome } from "@opencode-fork/core/outcome"
 
 const DOOM_LOOP_THRESHOLD = 3
 export type Result = "compact" | "stop" | "continue"
@@ -671,6 +672,13 @@ const layer = Layer.effect(
           return
         }
         ctx.assistantMessage.error = error
+        // FORK-SEAM: outcome (an interrupted or failed turn counts against the model that ran it)
+        ForkOutcome.record({
+          session_id: ctx.sessionID,
+          message_id: ctx.assistantMessage.parentID,
+          kind: SessionV1.AbortedError.isInstance(error) ? "aborted" : "error",
+          detail: SessionV1.AbortedError.isInstance(error) ? undefined : error.name,
+        })
         yield* events.publish(Session.Event.Error, {
           sessionID: ctx.assistantMessage.sessionID,
           error: ctx.assistantMessage.error,

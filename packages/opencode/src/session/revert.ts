@@ -9,6 +9,7 @@ import { MessageV2 } from "./message-v2"
 import { SessionID, MessageID, PartID } from "./schema"
 import { SessionRunState } from "./run-state"
 import { SessionSummary } from "./summary"
+import { ForkOutcome } from "@opencode-fork/core/outcome"
 
 export const RevertInput = Schema.Struct({
   sessionID: SessionID,
@@ -76,6 +77,13 @@ const layer = Layer.effect(
       const diffs = yield* summary.computeDiff({ messages: range })
       yield* storage.write(["session_diff", input.sessionID], diffs).pipe(Effect.ignore)
       yield* events.publish(Session.Event.Diff, { sessionID: input.sessionID, diff: diffs })
+      // FORK-SEAM: outcome (the user undid the turn; a partial revert points at the assistant message)
+      const reverted = all.find((msg) => msg.info.id === rev.messageID)?.info
+      ForkOutcome.record({
+        session_id: input.sessionID,
+        message_id: reverted?.role === "assistant" ? reverted.parentID : rev.messageID,
+        kind: "reverted",
+      })
       yield* sessions.setRevert({
         sessionID: input.sessionID,
         revert: rev,

@@ -111,7 +111,7 @@ export function summary() {
 
 let ready = false
 
-function table() {
+export function table() {
   const db = ForkTelemetry.db()
   if (ready) return db
   db.run(`CREATE TABLE IF NOT EXISTS fork_route (

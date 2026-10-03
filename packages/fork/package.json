@@ -42,6 +42,7 @@
     "./guard": "./src/guard.ts",
     "./route-jev": "./src/route-jev.ts",
     "./route-log": "./src/route-log.ts",
+    "./outcome": "./src/outcome.ts",
     "./wakeup": "./src/wakeup.ts",
     "./compaction-timing": "./src/compaction-timing.ts",
     "./compaction-log": "./src/compaction-log.ts",
