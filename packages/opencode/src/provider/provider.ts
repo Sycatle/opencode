@@ -1,4 +1,5 @@
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+import { ForkCache } from "@opencode-fork/core/cache"
 import { ForkQuota } from "@opencode-fork/core/quota"
 import os from "os"
 import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
@@ -115,6 +116,10 @@ function timeoutFetch(options: Record<string, any>) {
 
     const combined = signals.length === 0 ? null : signals.length === 1 ? signals[0] : AbortSignal.any(signals)
     if (combined) opts.signal = combined
+
+    // FORK-SEAM: auth-cache (1h breakpoint that survives the opencode-claude-auth body rewrite)
+    if (ForkCache.authCacheEnabled() && ForkCache.isMessagesRequest(input))
+      opts.body = ForkCache.pinFirstUserMessage(opts.body) ?? opts.body
 
     const res = await fetchFn(input, {
       ...opts,
