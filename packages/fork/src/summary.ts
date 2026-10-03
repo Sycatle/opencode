@@ -61,6 +61,16 @@ export function shares(value: Breakdown) {
   ) as Breakdown
 }
 
+// "claude-haiku-4-5-20251001" -> "haiku-4-5": the sidebar is narrow.
+export function shortModel(modelID: string) {
+  return modelID.replace(/^claude-/, "").replace(/-\d{8}$/, "")
+}
+
+// Task titles end with " (@<agent> subagent)", which the widget already shows.
+export function subagentTitle(title: string | undefined, agent: string) {
+  return title?.replace(/\s*\(@[^)]*subagent\)$/, "").trim() || agent
+}
+
 export function budgetLevel(spent: number, limit: number | undefined) {
   if (limit === undefined) return undefined
   const used = spent / limit

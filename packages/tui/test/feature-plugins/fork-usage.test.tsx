@@ -47,7 +47,7 @@ test("sidebar shows the last turn breakdown, subagents and the budget", async ()
         session: {
           messages: () => [],
           status: () => undefined,
-          get: (id: string) => (id === "child" ? { title: "Find discount code" } : undefined),
+          get: (id: string) => (id === "child" ? { title: "Find discount code (@explore subagent)" } : undefined),
         } as unknown as Partial<TuiPluginApi["state"]["session"]>,
       },
     }),
@@ -72,12 +72,14 @@ test("sidebar shows the last turn breakdown, subagents and the budget", async ()
 
   expect(frame).toContain("Usage")
   expect(frame).toContain("2.0k in · cache 90% · $0.0040")
-  expect(frame).toContain("sys 86% · tools 0% · hist 14% · out 0%")
-  expect(frame).toContain("2 turns")
+  expect(frame).toContain("sys 86% tools 0% hist 14% out 0%")
+  expect(frame).toContain("2 turns · cache 90%")
+  expect(frame).toContain("$0.0460 incl. subagents")
   expect(frame).toContain("budget $0.0460 / $0.0500")
   expect(frame).toContain("Subagents")
-  expect(frame).toContain("Find discount code")
-  expect(frame).toContain("explore · claude-haiku-4-5 · 1 turns · $0.0120")
+  expect(frame).toMatch(/• Find discount code\s*\n/)
+  expect(frame).not.toContain("@explore subagent")
+  expect(frame).toContain("  explore · haiku-4-5 · 1t · $0.0120")
   expect(frame).toContain("$0.0460/$0.0500")
   app.renderer.destroy()
 })

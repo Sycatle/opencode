@@ -59,6 +59,15 @@ test("shares round to exactly 100", () => {
   expect(ForkSummary.shares({ system: 0, tools: 0, history: 0, tool_output: 0 })).toBeUndefined()
 })
 
+test("model ids and subagent titles are shortened for the sidebar", () => {
+  expect(ForkSummary.shortModel("claude-haiku-4-5-20251001")).toBe("haiku-4-5")
+  expect(ForkSummary.shortModel("gpt-5")).toBe("gpt-5")
+  expect(ForkSummary.subagentTitle("Find discount computation (@explore subagent)", "explore")).toBe(
+    "Find discount computation",
+  )
+  expect(ForkSummary.subagentTitle(undefined, "explore")).toBe("explore")
+})
+
 test("budget level warns at 80% and flags overspend", () => {
   expect(ForkSummary.budgetLevel(1, undefined)).toBeUndefined()
   expect(ForkSummary.budgetLevel(0.5, 1)).toBe("ok")

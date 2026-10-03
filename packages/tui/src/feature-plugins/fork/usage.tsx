@@ -53,12 +53,15 @@ function Usage(props: { api: TuiPluginApi; session_id: string }) {
           <Show when={shares()}>
             {(value) => (
               <text fg={theme().textMuted}>
-                sys {value().system}% · tools {value().tools}% · hist {value().history}% · out {value().tool_output}%
+                sys {value().system}% tools {value().tools}% hist {value().history}% out {value().tool_output}%
               </text>
             )}
           </Show>
           <text fg={theme().textMuted}>
-            {summary().turns} turns · cache {percent(summary().cacheHit)} · {money(summary().cost)} total
+            {summary().turns} turns · cache {percent(summary().cacheHit)}
+          </text>
+          <text fg={theme().textMuted}>
+            {money(summary().cost)} {summary().children.length > 0 ? "incl. subagents" : "total"}
           </text>
           <Show when={limit}>
             {(max) => (
@@ -91,20 +94,20 @@ function Subagents(props: { api: TuiPluginApi; session_id: string }) {
         </text>
         <For each={summary().children}>
           {(child) => (
-            <box
-              flexDirection="row"
-              gap={1}
-              onMouseDown={() => props.api.route.navigate("session", { sessionID: child.sessionID })}
-            >
-              <text flexShrink={0} style={{ fg: dot(child.sessionID) }}>
-                •
-              </text>
-              <text fg={theme().text} wrapMode="word">
-                {props.api.state.session.get(child.sessionID)?.title ?? child.agent}{" "}
-                <span style={{ fg: theme().textMuted }}>
-                  {child.agent} · {child.model} · {child.turns} turns · {money(child.cost)}
-                </span>
-              </text>
+            <box onMouseDown={() => props.api.route.navigate("session", { sessionID: child.sessionID })}>
+              <box flexDirection="row" gap={1}>
+                <text flexShrink={0} style={{ fg: dot(child.sessionID) }}>
+                  •
+                </text>
+                <text fg={theme().text} wrapMode="word">
+                  {ForkSummary.subagentTitle(props.api.state.session.get(child.sessionID)?.title, child.agent)}
+                </text>
+              </box>
+              <box paddingLeft={2}>
+                <text fg={theme().textMuted}>
+                  {child.agent} · {ForkSummary.shortModel(child.model)} · {child.turns}t · {money(child.cost)}
+                </text>
+              </box>
             </box>
           )}
         </For>
