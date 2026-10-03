@@ -164,6 +164,33 @@ export function shouldReclassify(
   return text.length > SHORT_CHARS && text.split(/\s+/).length > SHORT_WORDS
 }
 
+// Signals read back from a journal row (`fork_route.signals`); undefined when a field is missing or off.
+export function readSignals(value: unknown): Signals | undefined {
+  if (typeof value !== "object" || value === null) return undefined
+  const fields = Object.fromEntries(Object.entries(value))
+  const number = (key: string) => (typeof fields[key] === "number" && Number.isFinite(fields[key]) ? fields[key] : undefined)
+  const task = TASK_TYPES.find((item) => item === fields.task_type)
+  const size = CONTEXT_SIZES.find((item) => item === fields.context_size)
+  const complexity = number("complexity")
+  const reasoning = number("reasoning")
+  const tool_intensity = number("tool_intensity")
+  const latency_sensitivity = number("latency_sensitivity")
+  const ambiguity = number("ambiguity")
+  const confidence = number("confidence")
+  if (
+    !task ||
+    !size ||
+    complexity === undefined ||
+    reasoning === undefined ||
+    tool_intensity === undefined ||
+    latency_sensitivity === undefined ||
+    ambiguity === undefined ||
+    confidence === undefined
+  )
+    return undefined
+  return { task_type: task, complexity, reasoning, tool_intensity, latency_sensitivity, ambiguity, context_size: size, confidence }
+}
+
 // Variant names by decreasing effort, as models.dev providers spell them.
 const EFFORT_HIGH = ["high"]
 const EFFORT_MAX = ["xhigh", "max", "high"]
