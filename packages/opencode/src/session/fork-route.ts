@@ -150,7 +150,7 @@ export const resolve = Effect.fn("ForkRouteTurn.resolve")(function* (input: {
   const real = choice ? models.get(choice.model) : undefined
   if (!choice || !real)
     return {
-      error: `Router: no connected model can serve this request (~${tokens} tokens, router/${input.user.model.modelID}).`,
+      error: `Router: no connected model can serve this request (~${tokens} tokens, router/${input.user.model.modelID}). Pick a model with /models, or check the provider login with \`opencode auth list\`.`,
     } as const
 
   const resolved: Resolved = { providerID: real.providerID, modelID: real.id }

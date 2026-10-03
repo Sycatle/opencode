@@ -2,7 +2,7 @@ import { ForkClassifier } from "@opencode-fork/core/classifier"
 import { ForkGuard } from "@opencode-fork/core/guard"
 import { ForkJev } from "@opencode-fork/core/jev"
 import { Global } from "@opencode-ai/core/global"
-import { Effect } from "effect"
+import { Cause, Effect } from "effect"
 import type { Permission } from "@/permission"
 import type { SessionID } from "./schema"
 import { Session } from "./session"
@@ -153,7 +153,11 @@ const judgeAction = Effect.fn("ForkClassify.judgeAction")(function* (
     return { decision: decision === "allow" ? ("allow" as const) : ("deny" as const), reason }
   }
 
-  if (exit._tag === "Failure") return settled("error", `Classifier unavailable: ${String(exit.cause).slice(0, 200)}`)
+  if (exit._tag === "Failure") {
+    const failure = Cause.squash(exit.cause)
+    const why = (failure instanceof Error ? failure.message : String(failure)).slice(0, 160)
+    return settled("error", `Classifier unavailable (${why}), so you decide`)
+  }
   if (exit.value._tag === "None")
     return settled("timeout", `Classifier timed out after ${ForkClassifier.TIMEOUT_MS / 1000}s`)
   const verdict = ForkClassifier.parse(exit.value.value.text)
