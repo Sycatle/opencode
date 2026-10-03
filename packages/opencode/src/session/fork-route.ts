@@ -8,7 +8,7 @@ import { ForkQuota } from "@opencode-fork/core/quota"
 import { ForkRoute } from "@opencode-fork/core/route"
 import { ForkRouteJev } from "@opencode-fork/core/route-jev"
 import { ForkRouteLog } from "@opencode-fork/core/route-log"
-import { Cause, Effect, Stream } from "effect"
+import { Cause, Effect, Option, Schema, Stream } from "effect"
 import { Provider } from "@/provider/provider"
 import { ForkRouteProvider } from "@/provider/fork-route"
 import { LLM } from "./llm"
@@ -24,8 +24,11 @@ import { SessionRetry } from "./retry"
 
 const health = ForkRoute.health()
 
-type Turn = { candidates: string[]; attempts: number; excluded: Set<string>; error?: string }
+// `floor` is the tier a struggling turn was raised to: it holds for every later step of the same message.
+type Turn = { candidates: string[]; attempts: number; excluded: Set<string>; error?: string; floor?: ForkRoute.Tier }
 const turns = new Map<string, Turn>()
+
+const parseJson = Schema.decodeUnknownOption(Schema.UnknownFromJsonString)
 
 const MAX_REROUTES = 4
 // System prompt and tool definitions of a session that has not run a turn yet.
@@ -43,7 +46,7 @@ export const resolve = Effect.fn("ForkRouteTurn.resolve")(function* (input: {
   assistant: SessionV1.Assistant | undefined
 }) {
   const own: Resolved = { providerID: input.user.model.providerID, modelID: input.user.model.modelID }
-  if (!routed(input.user)) return { model: own } as const
+  if (!routed(input.user)) return { model: own, variant: undefined, signals: undefined } as const
 
   const provider = yield* Provider.Service
   const mode = ForkRoute.parseMode(input.user.model.modelID) ?? ({ kind: "auto" } as const)
@@ -78,28 +81,50 @@ export const resolve = Effect.fn("ForkRouteTurn.resolve")(function* (input: {
       quota?.status === "rejected")
   const degraded = new Set([...health.degraded(now), ...turn.excluded, ...(overQuota ? ["anthropic"] : [])])
 
-  const needsClassify = mode.kind === "auto" && !continuation
-  const signals = needsClassify
-    ? yield* classify({
-        provider,
-        models,
-        catalog,
-        degraded,
-        view,
-        sessionID: input.session.id,
-        prompt,
-        tokens,
-        messages: input.messages,
-        user: input.user,
-      })
-    : undefined
+  // A short follow-up keeps the confident signals of the previous message instead of classifying again.
+  const latest = ForkRouteLog.decisions(input.session.id, 1)[0]
+  const before = latest?.signals ? ForkRoute.readSignals(Option.getOrUndefined(parseJson(latest.signals))) : undefined
+  const reused =
+    mode.kind === "auto" &&
+    !continuation &&
+    latest !== undefined &&
+    before !== undefined &&
+    !ForkRoute.shouldReclassify({ prompt, previous: { signals: before, time: latest.time }, now })
+  const needsClassify = mode.kind === "auto" && !continuation && !reused
+  const signals = reused
+    ? { ...before, context_size: ForkRoute.contextSize(tokens), source: "reused" as const }
+    : needsClassify
+      ? yield* classify({
+          provider,
+          models,
+          catalog,
+          degraded,
+          view,
+          sessionID: input.session.id,
+          prompt,
+          tokens,
+          messages: input.messages,
+          user: input.user,
+        })
+      : undefined
+
+  // A turn whose tool calls keep failing moves up one tier for the rest of the message.
+  const calls = input.messages.flatMap((m) =>
+    m.info.role === "assistant" && m.info.parentID === input.user.id
+      ? m.parts.flatMap((part) => (part.type === "tool" ? [{ status: part.state.status }] : []))
+      : [],
+  )
+  const floor =
+    turn.floor ?? (continuation && mode.kind === "auto" && view && ForkRoute.struggling(calls) ? ForkRoute.above(view.tier) : undefined)
 
   // Interactive sessions cache the stable prefix for an hour (seam cache-ttl), others for five minutes.
   const ttl = ForkCache.systemTtl() ? 60 * 60_000 : 5 * 60_000
+  const cold = lastTurn?.time.completed !== undefined && now - lastTurn.time.completed > ttl
   const recent = assistants.slice(-5)
   const choice = ForkRoute.choose(
     {
       mode,
+      minTier: floor,
       signals: signals ?? (needsClassify ? ForkRoute.unknown(ForkRoute.contextSize(tokens)) : undefined),
       continuation,
       session: view,
@@ -109,7 +134,7 @@ export const resolve = Effect.fn("ForkRouteTurn.resolve")(function* (input: {
       context,
       remaining: Number(process.env.OPENCODE_FORK_ROUTE_TURNS) || 6,
       output: recent.length ? recent.reduce((sum, m) => sum + m.tokens.output + m.tokens.reasoning, 0) / recent.length : 1500,
-      cold: lastTurn?.time.completed !== undefined && now - lastTurn.time.completed > ttl,
+      cold,
       warm: Object.fromEntries(
         assistants
           .filter((m) => m.time.completed !== undefined && now - m.time.completed <= ttl)
@@ -130,6 +155,7 @@ export const resolve = Effect.fn("ForkRouteTurn.resolve")(function* (input: {
   const resolved: Resolved = { providerID: real.providerID, modelID: real.id }
   turns.set(input.user.id, {
     ...turn,
+    floor,
     candidates: choice.candidates.map((c) => c.model),
   })
   trim()
@@ -137,12 +163,26 @@ export const resolve = Effect.fn("ForkRouteTurn.resolve")(function* (input: {
 
   // A continuation that kept its model is not news; a new decision or a move to another model is.
   const moved = done !== undefined && `${done.provider_id}/${done.model_id}` !== choice.model
-  if (continuation && !moved) return { model: resolved } as const
+  // The effort variant is fixed for the message; it is picked again only for a new message or a new model.
+  const variant =
+    continuation && !moved
+      ? (done?.variant ?? undefined)
+      : ForkRoute.effort({
+          signals,
+          tier: choice.tier,
+          available: Object.keys(real.variants ?? {}),
+          previous: continuation ? undefined : previousVariant(input.session.id),
+          switched: moved || (view !== undefined && view.model !== choice.model),
+          cold,
+        })
+  const fresh = needsClassify || reused ? signals : undefined
+  if (continuation && !moved) return { model: resolved, variant, signals: undefined } as const
+  const escalated = moved && floor !== undefined && turn.error === undefined
   ForkRouteLog.record({
     time: now,
     session_id: input.session.id,
     message_id: input.user.id,
-    kind: moved ? "fallback" : "decision",
+    kind: escalated ? "escalation" : moved ? "fallback" : "decision",
     mode: mode.kind === "auto" ? "auto" : mode.tier,
     tier: choice.tier,
     provider_id: real.providerID,
@@ -151,10 +191,17 @@ export const resolve = Effect.fn("ForkRouteTurn.resolve")(function* (input: {
     reason: choice.reason,
     score: choice.score,
     signals,
-    error: moved ? turn.error : undefined,
+    error: moved && !escalated ? turn.error : undefined,
+    variant,
   })
-  return { model: resolved } as const
+  return { model: resolved, variant, signals: fresh } as const
 })
+
+// The variant of the session's last routed message; undefined for a session that has none.
+function previousVariant(sessionID: string) {
+  const row = ForkRouteLog.latest(sessionID)
+  return row ? { variant: row.variant ?? undefined } : undefined
+}
 
 function catalogOf(models: Map<string, Provider.Model>, subscription: boolean): ForkRoute.Catalog {
   const known = [...models].map(([id, model]): ForkRoute.Known => {

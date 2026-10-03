@@ -10,7 +10,7 @@ export type Entry = {
   session_id: string
   // The user message the turn answers.
   message_id: string
-  kind: "decision" | "fallback"
+  kind: "decision" | "fallback" | "escalation"
   mode: string
   tier: Tier
   provider_id: string
@@ -21,22 +21,25 @@ export type Entry = {
   signals?: Signals
   // Why the previous attempt was abandoned (fallback rows).
   error?: string
+  // The reasoning effort variant the turn runs with, when the Router picked one.
+  variant?: string
 }
 
-export type Row = Omit<Entry, "signals" | "previous" | "score" | "error"> & {
+export type Row = Omit<Entry, "signals" | "previous" | "score" | "error" | "variant"> & {
   id: number
   previous: string | null
   score: number | null
   signals: string | null
   error: string | null
+  variant: string | null
 }
 
 export function record(entry: Entry) {
   try {
     table()
       .query(
-        `INSERT INTO fork_route (time, session_id, message_id, kind, mode, tier, provider_id, model_id, previous, reason, score, signals, error)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO fork_route (time, session_id, message_id, kind, mode, tier, provider_id, model_id, previous, reason, score, signals, error, variant)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         entry.time,
@@ -52,6 +55,7 @@ export function record(entry: Entry) {
         entry.score ?? null,
         entry.signals ? JSON.stringify(entry.signals) : null,
         entry.error ?? null,
+        entry.variant ?? null,
       )
   } catch {}
 }
@@ -124,8 +128,12 @@ function table() {
     reason TEXT NOT NULL,
     score REAL,
     signals TEXT,
-    error TEXT
+    error TEXT,
+    variant TEXT
   )`)
+  // Tables created before effort variants have no `variant` column.
+  const columns = db.query<{ name: string }, []>("PRAGMA table_info(fork_route)").all()
+  if (!columns.some((column) => column.name === "variant")) db.run("ALTER TABLE fork_route ADD variant TEXT")
   db.run("CREATE INDEX IF NOT EXISTS fork_route_session ON fork_route (session_id, id)")
   ready = true
   return db

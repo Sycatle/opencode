@@ -503,3 +503,26 @@ test("three failed tool calls among the last six mean struggling, and the next t
   expect(ForkRoute.above("fast")).toBe("standard")
   expect(ForkRoute.above("frontier")).toBeUndefined()
 })
+
+test("the journal keeps the effort variant and escalations, and signals read back from a row", () => {
+  ForkRouteLog.record({
+    time: Date.now(),
+    session_id: "ses_effort",
+    message_id: "msg_1",
+    kind: "escalation",
+    mode: "auto",
+    tier: "reasoning",
+    provider_id: "anthropic",
+    model_id: "opus",
+    reason: "raised to floor reasoning",
+    signals: { ...feature(), source: "reused" },
+    variant: "high",
+  })
+  const row = ForkRouteLog.latest("ses_effort")
+  expect(row?.kind).toBe("escalation")
+  expect(row?.variant).toBe("high")
+  expect(ForkRoute.readSignals(JSON.parse(row?.signals ?? "{}"))?.task_type).toBe("feature")
+  expect(ForkRoute.readSignals({ ...feature(), confidence: "high" })).toBeUndefined()
+  expect(ForkRoute.readSignals({ ...feature(), task_type: "poetry" })).toBeUndefined()
+  expect(ForkRoute.readSignals(null)).toBeUndefined()
+})
