@@ -238,7 +238,9 @@ it.instance("a routed model that fails before streaming hands the turn to anothe
     expect(row).toMatchObject({ kind: "fallback", provider_id: "test", model_id: "solid-model" })
     const answers = (yield* sessions.messages({ sessionID: session.id })).filter((item) => item.info.role === "assistant")
     // The failed attempt streamed nothing: it is removed rather than kept as an error message.
-    expect(answers.map((item) => item.info.role === "assistant" && item.info.modelID)).toEqual(["solid-model"])
+    expect(answers.map((item) => (item.info.role === "assistant" ? String(item.info.modelID) : ""))).toEqual([
+      "solid-model",
+    ])
   }),
   30_000,
 )
