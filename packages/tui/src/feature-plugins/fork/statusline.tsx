@@ -1,6 +1,9 @@
 import type { AssistantMessage } from "@opencode-ai/sdk/v2"
 import type { TuiPlugin, TuiPluginApi } from "@opencode-ai/plugin/tui"
+import { ForkClassifier } from "@opencode-fork/core/classifier"
+import { ForkCompactionLog } from "@opencode-fork/core/compaction-log"
 import { ForkFlags } from "@opencode-fork/core/flags"
+import { ForkJev } from "@opencode-fork/core/jev"
 import { ForkMessaging } from "@opencode-fork/core/messaging"
 import { ForkQuota } from "@opencode-fork/core/quota"
 import { ForkRouteLog } from "@opencode-fork/core/route-log"
@@ -114,6 +117,9 @@ function BuiltinLine(props: { api: TuiPluginApi }) {
     return ForkStatusline.firstLine(
       ForkStatusline.builtin({
         route: ForkRouteLog.latest(session),
+        auto: ForkClassifier.decisions(session),
+        compaction: ForkCompactionLog.latest(session),
+        jevPausedUntil: process.env.TYPESAFE_API_KEY ? ForkJev.pausedUntil() : undefined,
         wakeup: wakeup && { due: wakeup.due, reason: wakeup.reason || undefined, repeat: wakeup.every !== null },
       }),
       dimensions().width - 2,

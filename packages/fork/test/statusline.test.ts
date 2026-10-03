@@ -78,4 +78,11 @@ test("built-in line shows the routed model and a pending wakeup, nothing otherwi
   ).toBe("router → claude-opus · deep (escalation)  ·  loop in 5m: check CI")
   expect(ForkStatusline.builtin({ wakeup: { due: now + 90 * 60_000, repeat: false } }, now)).toBe("wakeup in 1h30")
   expect(ForkStatusline.builtin({ wakeup: { due: now - 1, repeat: false } }, now)).toBe("wakeup due")
+  expect(
+    ForkStatusline.builtin({ auto: [{ decision: "allow" }, { decision: "allow" }, { decision: "timeout" }] }, now),
+  ).toBe("auto: 2 approved, 1 asked")
+  expect(ForkStatusline.builtin({ auto: [{ decision: "allow" }] }, now)).toBe("auto: 1 approved")
+  expect(ForkStatusline.builtin({ compaction: { code: "not-boundary" } }, now)).toBe("compaction deferred: task not over")
+  expect(ForkStatusline.builtin({ compaction: { code: "below-threshold" } }, now)).toBe("")
+  expect(ForkStatusline.builtin({ jevPausedUntil: now + 4 * 60_000 }, now)).toBe("Jev failing, paused for 4m")
 })
