@@ -2001,6 +2001,7 @@ export type Config = {
             }
       }
   hooks?: ConfigV2Hooks
+  sandbox?: ConfigV2Sandbox
   instructions?: Array<string>
   layout?: LayoutConfig
   permission?: PermissionConfig
@@ -3864,6 +3865,23 @@ export type ConfigV2Hooks = {
   PreCompact?: Array<ConfigV2HooksEntry>
   PermissionRequest?: Array<ConfigV2HooksEntry>
   Notification?: Array<ConfigV2HooksEntry>
+}
+
+export type ConfigV2SandboxNetwork = {
+  /**
+   * Domains the sandboxed commands may reach. A non-empty list leaves the network open (there is no per-domain filtering); an empty list cuts it off
+   */
+  allow: Array<string>
+}
+
+export type ConfigV2Sandbox = {
+  /**
+   * Run bash commands inside a bubblewrap sandbox (Linux only; falls back to no sandbox when bwrap is missing)
+   */
+  enabled: boolean
+  network?: ConfigV2SandboxNetwork
+  write?: Array<string>
+  read_deny?: Array<string>
 }
 
 export type PolicyEffect = "allow" | "deny"
