@@ -74,3 +74,24 @@ test("HTTP errors, unusable bodies, network failures and timeouts are errors wit
     new Promise((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal?.reason)))) as typeof fetch
   expect((await ForkJev.ask(input, { ...env, OPENCODE_FORK_JEV_TIMEOUT_MS: "20" }, hang)).error).toStartWith("Jev request failed")
 })
+
+test("three failures in a row pause Jev, a success in between resets the count", async () => {
+  const calls: number[] = []
+  let status = 500
+  const fetcher = (async () => {
+    calls.push(status)
+    return new Response(JSON.stringify(body), { status })
+  }) as unknown as typeof fetch
+  await ForkJev.ask(input, env, fetcher)
+  await ForkJev.ask(input, env, fetcher)
+  status = 200
+  expect((await ForkJev.ask(input, env, fetcher)).answers).toBeDefined()
+  status = 500
+  await ForkJev.ask(input, env, fetcher)
+  await ForkJev.ask(input, env, fetcher)
+  await ForkJev.ask(input, env, fetcher)
+  const paused = await ForkJev.ask(input, env, fetcher)
+  expect(paused.error).toStartWith("Jev paused")
+  expect(paused.ms).toBe(0)
+  expect(calls).toHaveLength(6)
+})

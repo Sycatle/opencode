@@ -75,7 +75,8 @@ You run inside opencode. ctrl+p lists the available actions and shift+tab cycles
 
 // Off with OPENCODE_FORK_SYSTEM_PROMPT=0: the upstream Anthropic prompt with Claude Code tool names.
 export function enabled(env: Record<string, string | undefined> = process.env) {
-  return env.OPENCODE_FORK_SYSTEM_PROMPT !== "0"
+  return ForkFlags.on("SYSTEM_PROMPT", env)
 }
 
 export * as ForkSystemPrompt from "./system-prompt"
+import { ForkFlags } from "./flags"

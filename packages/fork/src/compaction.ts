@@ -7,9 +7,12 @@
 // Facts that structured data already holds (modified files, todo list, recent tool
 // errors) are not left to the model: they are appended verbatim to the summary.
 
-// Anthropic's default cache TTL is 5 minutes; past this the cache is likely cold
-// and the upstream path (truncated transcript) is cheaper.
-export const WARM_MS = 4.5 * 60 * 1000
+import { ForkFlags } from "./flags"
+import { ForkCache } from "./cache"
+
+// The replayed request is read from the history cache (see ForkCache.HISTORY_WARM_MS); past this the
+// cache is likely cold and the upstream path (truncated transcript) is cheaper.
+export const WARM_MS = ForkCache.HISTORY_WARM_MS
 const MIN_SUMMARY_CHARS = 200
 const MAX_FILES = 60
 const MAX_ERROR_CHARS = 300
@@ -19,8 +22,11 @@ type Remembered<T> = { messageID: string; input: T; time: number }
 
 const last = new Map<string, Remembered<unknown>>()
 
-export function remember<T>(sessionID: string, messageID: string, input: T) {
-  last.set(sessionID, { messageID, input, time: Date.now() })
+// The entry holds a whole provider request (history, images): once past WARM_MS recall ignores it,
+// so drop it instead of keeping every session ever run in memory.
+export function remember<T>(sessionID: string, messageID: string, input: T, now = Date.now()) {
+  for (const [id, entry] of last) if (now - entry.time > WARM_MS) last.delete(id)
+  last.set(sessionID, { messageID, input, time: now })
 }
 
 export function recall<T>(sessionID: string, now = Date.now()) {
@@ -34,7 +40,7 @@ export function forget(sessionID: string) {
 }
 
 export function enabled() {
-  return process.env.OPENCODE_FORK_CACHED_COMPACTION !== "0"
+  return ForkFlags.on("CACHED_COMPACTION")
 }
 
 export const PROMPT = `Stop working on the task. Do not call any tool.

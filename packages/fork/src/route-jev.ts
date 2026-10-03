@@ -116,11 +116,11 @@ export type Result =
 
 // Never throws: the error text says why the caller must fall back.
 export async function call(
-  input: Input & { size: ContextSize },
+  input: Input & { size: ContextSize; signal?: AbortSignal },
   env: Env = process.env,
   fetcher: typeof fetch = fetch,
 ): Promise<Result> {
-  const response = await ForkJev.ask(request(input), env, fetcher)
+  const response = await ForkJev.ask({ ...request(input), signal: input.signal }, env, fetcher)
   if (response.error !== undefined) return { error: response.error, ms: response.ms }
   const parsed = signals(response.answers, input.size)
   return parsed ? { signals: parsed, ms: response.ms } : { error: "Jev response unusable", ms: response.ms }

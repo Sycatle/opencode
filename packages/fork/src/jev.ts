@@ -95,19 +95,48 @@ export function confidence(all: Record<string, Answer>) {
   return values.length ? clamp(values.reduce((sum, value) => sum + value, 0) / values.length) : undefined
 }
 
-// POST to Jev with a bearer token. The error text says why the caller must keep its old path.
+// After BREAKER_FAILURES failures in a row Jev is skipped for BREAKER_MS: every feature then takes its fallback
+// at once instead of waiting for a timeout on each call. One breaker per transport (the global fetch in use).
+const BREAKER_FAILURES = 3
+const BREAKER_MS = 5 * 60_000
+const breakers = new WeakMap<typeof fetch, { failures: number; until: number }>()
+
+// POST to Jev with a bearer token. The error text says why the caller must keep its old path. `signal`
+// cancels the request when the caller is interrupted (the turn is aborted).
 export async function ask(
-  input: { state: string; questions: Record<string, Question> },
+  input: { state: string; questions: Record<string, Question>; signal?: AbortSignal },
   env: Env = process.env,
   fetcher: typeof fetch = fetch,
   timeoutMs = timeout(env),
+): Promise<Result> {
+  const breaker = breakers.get(fetcher) ?? { failures: 0, until: 0 }
+  breakers.set(fetcher, breaker)
+  if (breaker.until > Date.now())
+    return { error: `Jev paused after ${BREAKER_FAILURES} failures in a row`, ms: 0 }
+  const result = await post(input, env, fetcher, timeoutMs)
+  // A call the caller cancelled says nothing about Jev's health.
+  if (result.error !== undefined && !input.signal?.aborted) {
+    breaker.failures++
+    if (breaker.failures >= BREAKER_FAILURES) breaker.until = Date.now() + BREAKER_MS
+  }
+  if (result.error === undefined) breaker.failures = 0
+  return result
+}
+
+async function post(
+  input: { state: string; questions: Record<string, Question>; signal?: AbortSignal },
+  env: Env,
+  fetcher: typeof fetch,
+  timeoutMs: number,
 ): Promise<Result> {
   const started = Date.now()
   const response = await fetcher(endpoint(env), {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${env.TYPESAFE_API_KEY}` },
     body: JSON.stringify({ state: input.state, model: model(env), questions: input.questions }),
-    signal: AbortSignal.timeout(timeoutMs),
+    signal: input.signal
+      ? AbortSignal.any([input.signal, AbortSignal.timeout(timeoutMs)])
+      : AbortSignal.timeout(timeoutMs),
   }).catch((error: unknown) => (error instanceof Error ? error : new Error(String(error))))
   const ms = () => Date.now() - started
   if (response instanceof Error) return { error: `Jev request failed: ${response.message}`, ms: ms() }

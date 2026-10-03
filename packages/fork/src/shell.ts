@@ -1,8 +1,9 @@
+import { ForkFlags } from "./flags"
 import { ForkAgents } from "./agents"
 
 // Background shell commands are on unless OPENCODE_FORK_BACKGROUND_SHELL=0.
 export function enabled() {
-  return process.env.OPENCODE_FORK_BACKGROUND_SHELL !== "0"
+  return ForkFlags.on("BACKGROUND_SHELL")
 }
 
 export const JOB_TYPE = "shell"

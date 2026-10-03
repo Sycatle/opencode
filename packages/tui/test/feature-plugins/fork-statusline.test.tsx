@@ -1,9 +1,14 @@
 /** @jsxImportSource @opentui/solid */
 import { expect, test } from "bun:test"
+import os from "os"
+import path from "path"
 import { testRender } from "@opentui/solid"
 import type { TuiPluginApi } from "@opencode-ai/plugin/tui"
-import plugin from "../../src/feature-plugins/fork/statusline"
 import { createTuiPluginApi } from "../fixture/tui-plugin"
+
+// The built-in line reads fork.db: never the user's own.
+process.env.OPENCODE_FORK_DB ??= path.join(os.tmpdir(), `fork-tui-statusline-${process.pid}-${Date.now()}.db`)
+const { default: plugin } = await import("../../src/feature-plugins/fork/statusline")
 
 type Slots = Record<string, (ctx: unknown, props: unknown) => unknown>
 type Handler = (event: { properties: { part: Record<string, unknown> } }) => void
@@ -27,6 +32,7 @@ function setup(statusline?: unknown, parentID?: string) {
     state: { ...base.state, path: { directory: process.cwd() }, provider: [] },
     route: { current: { name: "session", params: { sessionID: "ses_1" } } },
     slots: { register: (input: { slots: Slots }) => registered.push(input.slots) },
+    keymap: { registerLayer: () => () => {} },
     event: { on: (_name: string, handler: Handler) => handlers.push(handler) },
   } as unknown as TuiPluginApi
   return { api, registered, handlers, notified }
@@ -47,10 +53,17 @@ test("renders the first line of the command output", async () => {
   app.renderer.destroy()
 })
 
-test("registers nothing without a command", async () => {
+test("without a command the built-in line stays empty when the Router and wakeups have nothing to say", async () => {
   const { api, registered } = setup(undefined)
   await plugin.tui(api, undefined, { id: plugin.id } as never)
-  expect(registered).toHaveLength(0)
+  expect(registered).toHaveLength(1)
+  const app = await testRender(() => <box>{registered[0]?.app_bottom?.({}, {}) as never}</box>, {
+    width: 40,
+    height: 3,
+  })
+  await app.renderOnce()
+  expect(app.captureCharFrame().trim()).toBe("")
+  app.renderer.destroy()
 })
 
 test("notifies once when a background job message lands", async () => {

@@ -1,10 +1,11 @@
+import { ForkFlags } from "./flags"
 import path from "node:path"
 
 // Main-session worktrees (enter_worktree / exit_worktree). Pure logic: names, paths, the merge plan and
 // the per-session state. The git and instance plumbing lives in opencode (tool/fork-session-worktree.ts).
 
 export function enabled() {
-  return process.env.OPENCODE_FORK_SESSION_WORKTREE !== "0"
+  return ForkFlags.on("SESSION_WORKTREE")
 }
 
 export interface Entry {

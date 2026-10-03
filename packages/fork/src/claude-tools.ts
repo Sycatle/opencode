@@ -1,3 +1,4 @@
+import { ForkFlags } from "./flags"
 import { jsonSchema, type Tool } from "ai"
 import { ForkSandbox } from "./sandbox"
 
@@ -31,7 +32,7 @@ interface Spec {
 const MAX_NAME = 64
 
 export function enabled(model: { providerID: string; api?: { npm?: string } }) {
-  if (process.env.OPENCODE_FORK_CC_TOOLS === "0") return false
+  if (!ForkFlags.on("CC_TOOLS")) return false
   const npm = model.api?.npm
   return model.providerID === "anthropic" || npm === "@ai-sdk/anthropic" || npm === "@ai-sdk/google-vertex/anthropic"
 }

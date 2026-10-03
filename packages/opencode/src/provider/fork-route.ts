@@ -1,3 +1,4 @@
+import { ForkFlags } from "@opencode-fork/core/flags"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ForkRoute } from "@opencode-fork/core/route"
@@ -8,7 +9,7 @@ import type { Info, Model } from "./provider"
 // model to a concrete one (session/fork-route.ts), and the assistant message records that one.
 export const ID = "router"
 
-export const enabled = () => process.env.OPENCODE_FORK_ROUTE !== "0"
+export const enabled = () => ForkFlags.on("ROUTE")
 
 export const isRouter = (providerID: string) => providerID === ID
 

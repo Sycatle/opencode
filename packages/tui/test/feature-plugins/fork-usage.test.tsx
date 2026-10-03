@@ -46,8 +46,8 @@ test("sidebar shows the last turn breakdown, subagents and the budget", async ()
 
   const registered: Slots[] = []
   const navigated: unknown[] = []
-  const api = {
-    ...createTuiPluginApi({
+  const toasts: { title?: string }[] = []
+  const base = createTuiPluginApi({
       state: {
         session: {
           messages: () => [],
@@ -55,7 +55,10 @@ test("sidebar shows the last turn breakdown, subagents and the budget", async ()
           get: (id: string) => (id === CHILD ? { title: "Find discount code (@explore subagent)" } : undefined),
         } as unknown as Partial<TuiPluginApi["state"]["session"]>,
       },
-    }),
+    })
+  const api = {
+    ...base,
+    ui: { ...base.ui, toast: (input: { title?: string }) => toasts.push(input) },
     slots: { register: (input: { slots: Slots }) => registered.push(input.slots) },
     route: { navigate: (name: string, params?: unknown) => navigated.push({ name, params }) },
   } as unknown as TuiPluginApi
@@ -86,6 +89,7 @@ test("sidebar shows the last turn breakdown, subagents and the budget", async ()
   expect(frame).not.toContain("@explore subagent")
   expect(frame).toContain("  explore · haiku-4-5 · 1t · $0.0120")
   expect(frame).toContain("$0.0460/$0.0500")
+  expect(toasts.map((toast) => toast.title)).toEqual(["Budget at 80%"])
   app.renderer.destroy()
 })
 
@@ -137,8 +141,8 @@ test("on a subscription, quotas replace dollars as the primary figure", async ()
   expect(frame).toContain("Quota subscription")
   expect(frame).toMatch(/5h\s+11% · reset /)
   expect(frame).toMatch(/week 25% · reset /)
-  expect(frame).toContain("session +0 pts")
-  expect(frame).toContain("≈ $0.0200 API eq.")
+  expect(frame).toContain("session +0% of the 5h window")
+  expect(frame).toContain("≈ $0.0200 at API prices")
   expect(frame).toContain("5h 11% · 7d 25%")
   app.renderer.destroy()
 })

@@ -20,7 +20,7 @@ export function maxBackground() {
 const SMALL_MODEL_AGENTS = ["explore"]
 
 export function routeToSmallModel(agent: { name: string; model?: unknown }) {
-  if (process.env.OPENCODE_FORK_ROUTE_SUBAGENTS === "0") return false
+  if (!ForkFlags.on("ROUTE_SUBAGENTS")) return false
   return agent.model === undefined && SMALL_MODEL_AGENTS.includes(agent.name)
 }
 
@@ -29,7 +29,7 @@ export function routeToSmallModel(agent: { name: string; model?: unknown }) {
 const LOW_EFFORT_VARIANTS = ["minimal", "low", "none"]
 
 export function defaultVariant(agent: { name: string; variant?: string }, available: string[]) {
-  if (process.env.OPENCODE_FORK_SUBAGENT_EFFORT === "0") return undefined
+  if (!ForkFlags.on("SUBAGENT_EFFORT")) return undefined
   if (agent.variant !== undefined || !SMALL_MODEL_AGENTS.includes(agent.name)) return undefined
   return LOW_EFFORT_VARIANTS.find((name) => available.includes(name))
 }
@@ -80,7 +80,7 @@ export function backgroundTracker() {
 // `inherit: true` subagents start from a copy of the parent's conversation, with the
 // parent's agent, tools and model, so their request shares the parent's cached prefix.
 export function inheritEnabled() {
-  return process.env.OPENCODE_FORK_SUBAGENT_INHERIT !== "0"
+  return ForkFlags.on("SUBAGENT_INHERIT")
 }
 
 export const FORK_PREAMBLE = [
@@ -101,3 +101,4 @@ export function historyBefore<T extends { info: { id: string } }>(messages: T[],
 }
 
 export * as ForkAgents from "./agents"
+import { ForkFlags } from "./flags"

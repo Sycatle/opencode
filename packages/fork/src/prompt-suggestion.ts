@@ -1,3 +1,4 @@
+import { ForkFlags } from "./flags"
 import type { ForkJev } from "./jev"
 import { ForkTelemetry } from "./telemetry"
 
@@ -18,7 +19,7 @@ const MAX_SUGGESTION_CHARS = 100
 const MAX_SUGGESTION_WORDS = 16
 
 export function enabled(env: Record<string, string | undefined> = process.env) {
-  return env.OPENCODE_FORK_PROMPT_SUGGESTION !== "0"
+  return ForkFlags.on("PROMPT_SUGGESTION", env)
 }
 
 // Set by the `tui` command: `opencode run`, workflows and sub-agents never display a suggestion.

@@ -1,3 +1,4 @@
+import { ForkFlags } from "./flags"
 import { createHash } from "crypto"
 import { mkdirSync } from "fs"
 import path from "path"
@@ -9,7 +10,7 @@ export const JOB_TYPE = "workflow"
 
 // The workflow tool is on unless OPENCODE_FORK_WORKFLOW_TOOL=0.
 export function toolEnabled() {
-  return process.env.OPENCODE_FORK_WORKFLOW_TOOL !== "0"
+  return ForkFlags.on("WORKFLOW_TOOL")
 }
 
 export type Schema = {

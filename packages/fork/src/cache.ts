@@ -10,6 +10,17 @@ export function systemTtl() {
   return process.env.OPENCODE_FORK_CACHE_TTL === "1h" ? ("1h" as const) : undefined
 }
 
+// How long each part of a request stays cached, minus a margin. Only the stable prefix gets the 1h TTL: the
+// history breakpoints keep 5 minutes, so after a 5-minute pause the history is written again whatever the
+// session. Decisions about the history (cold-cache compaction, model switch cost) use HISTORY_WARM_MS;
+// decisions about the tool block or the system prompt use prefixWarmMs().
+export const HISTORY_WARM_MS = 4.5 * 60_000
+const LONG_WARM_MS = 55 * 60_000
+
+export function prefixWarmMs() {
+  return systemTtl() ? LONG_WARM_MS : HISTORY_WARM_MS
+}
+
 // `opencode-claude-auth` (Claude subscription) rewrites the request inside its own
 // fetch, which opencode wraps: it moves every system block except the billing header
 // and the Claude Code identity into the first user message and drops their
@@ -22,7 +33,7 @@ const PLUGIN_IDENTITY = "You are Claude Code, Anthropic's official CLI for Claud
 const MAX_BREAKPOINTS = 4
 
 export function authCacheEnabled() {
-  return systemTtl() !== undefined && process.env.OPENCODE_FORK_AUTH_CACHE !== "0"
+  return systemTtl() !== undefined && ForkFlags.on("AUTH_CACHE")
 }
 
 export function isMessagesRequest(input: unknown) {
@@ -34,7 +45,8 @@ export function isMessagesRequest(input: unknown) {
 // will relocate (no identity-led system prompt) or nothing needs to change.
 // Applied before the plugin, so system blocks still carry their (soon dropped) markers.
 export function pinFirstUserMessage(body: unknown) {
-  if (typeof body !== "string") return undefined
+  // Every Anthropic request of an interactive session passes here: skip the parse when the identity is absent.
+  if (typeof body !== "string" || !body.includes(PLUGIN_IDENTITY)) return undefined
   const parsed = parse(body)
   if (!isRecord(parsed) || !Array.isArray(parsed.system) || !Array.isArray(parsed.messages)) return undefined
   const first = parsed.system[0]
@@ -91,3 +103,4 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export * as ForkCache from "./cache"
+import { ForkFlags } from "./flags"

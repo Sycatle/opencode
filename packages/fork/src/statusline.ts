@@ -1,4 +1,5 @@
 export * as ForkStatusline from "./statusline"
+import { ForkFlags } from "./flags"
 
 export const INTERVAL_DEFAULT = 5000
 export const INTERVAL_MIN = 1000
@@ -54,8 +55,36 @@ export function firstLine(stdout: string, width: number) {
     .join("")
 }
 
+// The built-in line shown when no `statusline.command` is configured: what the fork decided on its own that the
+// prompt area does not show (the model the Router picked, a pending wakeup). Empty when there is nothing to say.
+export function builtin(
+  data: {
+    route?: { model_id: string; tier: string; kind: string }
+    wakeup?: { due: number; reason?: string; repeat: boolean }
+  },
+  now = Date.now(),
+) {
+  const route =
+    data.route &&
+    `router → ${data.route.model_id} · ${data.route.tier}${data.route.kind === "decision" ? "" : ` (${data.route.kind})`}`
+  const wakeup =
+    data.wakeup &&
+    [
+      `${data.wakeup.repeat ? "loop" : "wakeup"} ${data.wakeup.due <= now ? "due" : `in ${duration(data.wakeup.due - now)}`}`,
+      data.wakeup.reason ? `: ${data.wakeup.reason}` : "",
+    ].join("")
+  return [route, wakeup].filter((part): part is string => !!part).join("  ·  ")
+}
+
+function duration(ms: number) {
+  const minutes = Math.round(ms / 60_000)
+  if (minutes < 1) return `${Math.ceil(ms / 1000)}s`
+  if (minutes < 60) return `${minutes}m`
+  return `${Math.floor(minutes / 60)}h${String(minutes % 60).padStart(2, "0")}`
+}
+
 export function backgroundNotifyEnabled() {
-  return process.env.OPENCODE_FORK_BACKGROUND_NOTIFY !== "0"
+  return ForkFlags.on("BACKGROUND_NOTIFY")
 }
 
 export type Finished = { kind: "task" | "shell"; state: "completed" | "error"; exit?: number }

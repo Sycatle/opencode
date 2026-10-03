@@ -2,17 +2,16 @@ import { ForkCache } from "@opencode-fork/core/cache"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
-import { LLMEvent } from "@opencode-ai/llm"
 import { ForkJev } from "@opencode-fork/core/jev"
 import { ForkQuota } from "@opencode-fork/core/quota"
 import { ForkRoute } from "@opencode-fork/core/route"
 import { ForkRouteJev } from "@opencode-fork/core/route-jev"
 import { ForkRouteLog } from "@opencode-fork/core/route-log"
-import { Cause, Effect, Option, Schema, Stream } from "effect"
+import { Cause, Effect, Option, Schema } from "effect"
 import { Provider } from "@/provider/provider"
 import { ForkRouteProvider } from "@/provider/fork-route"
-import { LLM } from "./llm"
-import { MessageID, SessionID } from "./schema"
+import { smallModelRun } from "./fork-small-model"
+import { PartID } from "./schema"
 import type { Session } from "./session"
 import { SessionRetry } from "./retry"
 
@@ -33,7 +32,11 @@ const parseJson = Schema.decodeUnknownOption(Schema.UnknownFromJsonString)
 const MAX_REROUTES = 4
 // System prompt and tool definitions of a session that has not run a turn yet.
 const FIXED_CONTEXT = 12_000
-const SIGNALS_TIMEOUT = "20 seconds"
+// The first small-model call of a process pays the provider's cold start; once one answered, a slow call
+// costs the user more than routing on default signals does.
+const SIGNALS_TIMEOUT_COLD = "20 seconds"
+const SIGNALS_TIMEOUT_WARM = "5 seconds"
+let signalsWarm = false
 
 export type Resolved = { providerID: ProviderV2.ID; modelID: ModelV2.ID }
 
@@ -95,7 +98,6 @@ export const resolve = Effect.fn("ForkRouteTurn.resolve")(function* (input: {
     ? { ...before, context_size: ForkRoute.contextSize(tokens), source: "reused" as const }
     : needsClassify
       ? yield* classify({
-          provider,
           models,
           catalog,
           degraded,
@@ -117,8 +119,8 @@ export const resolve = Effect.fn("ForkRouteTurn.resolve")(function* (input: {
   const floor =
     turn.floor ?? (continuation && mode.kind === "auto" && view && ForkRoute.struggling(calls) ? ForkRoute.above(view.tier) : undefined)
 
-  // Interactive sessions cache the stable prefix for an hour (seam cache-ttl), others for five minutes.
-  const ttl = ForkCache.systemTtl() ? 60 * 60_000 : 5 * 60_000
+  // Coldness and model-switch cost are about the history, cached for five minutes even when the prefix has an hour.
+  const ttl = ForkCache.HISTORY_WARM_MS
   const cold = lastTurn?.time.completed !== undefined && now - lastTurn.time.completed > ttl
   const recent = assistants.slice(-5)
   const choice = ForkRoute.choose(
@@ -149,7 +151,7 @@ export const resolve = Effect.fn("ForkRouteTurn.resolve")(function* (input: {
   const real = choice ? models.get(choice.model) : undefined
   if (!choice || !real)
     return {
-      error: `Router: no connected model can serve this request (~${tokens} tokens, router/${input.user.model.modelID}).`,
+      error: `Router: no connected model can serve this request (~${tokens} tokens, router/${input.user.model.modelID}). Pick a model with /models, or check the provider login with \`opencode auth list\`.`,
     } as const
 
   const resolved: Resolved = { providerID: real.providerID, modelID: real.id }
@@ -265,7 +267,6 @@ function textOf(message: SessionV1.WithParts | undefined) {
 }
 
 const classify = Effect.fn("ForkRouteTurn.classify")(function* (input: {
-  provider: Provider.Interface
   models: Map<string, Provider.Model>
   catalog: ForkRoute.Catalog
   degraded: ReadonlySet<string>
@@ -288,7 +289,7 @@ const classify = Effect.fn("ForkRouteTurn.classify")(function* (input: {
 
   // Jev first when TYPESAFE_API_KEY is set; any failure falls back to the small model below.
   if (ForkRouteJev.enabled()) {
-    const jev = yield* Effect.promise(() => ForkRouteJev.call({ prompt: input.prompt, summary, size }))
+    const jev = yield* Effect.promise((signal) => ForkRouteJev.call({ prompt: input.prompt, summary, size, signal }))
     ForkJev.journal({
       feature: "route",
       session_id: input.sessionID,
@@ -311,8 +312,15 @@ const classify = Effect.fn("ForkRouteTurn.classify")(function* (input: {
     input.catalog.tiers.standard[0]
   const base = input.models.get(home ?? "")
   if (!base) return undefined
-  const text = yield* ask(input.provider, base, ForkRoute.signalsPrompt(input.prompt, summary)).pipe(
-    Effect.timeout(SIGNALS_TIMEOUT),
+  const text = yield* smallModelRun({
+    prompt: ForkRoute.signalsPrompt(input.prompt, summary),
+    current: { providerID: base.providerID, modelID: base.id },
+    noThinking: true,
+    maxOutputTokens: 200,
+  }).pipe(
+    Effect.map((result) => result.text),
+    Effect.timeout(signalsWarm ? SIGNALS_TIMEOUT_WARM : SIGNALS_TIMEOUT_COLD),
+    Effect.tap(() => Effect.sync(() => (signalsWarm = true))),
     Effect.catchCause((cause) =>
       Effect.logWarning("router signals failed", { cause: Cause.pretty(cause).slice(0, 500) }).pipe(Effect.as(undefined)),
     ),
@@ -323,40 +331,30 @@ const classify = Effect.fn("ForkRouteTurn.classify")(function* (input: {
   return signals && ({ ...signals, source: "small-model" } as const)
 })
 
-// One-shot completion on the small model of the provider (same call path as the prompt hooks of
-// plugin/fork-hooks-model.ts, here from inside the session layer).
-const ask = Effect.fn("ForkRouteTurn.ask")(function* (provider: Provider.Interface, base: Provider.Model, prompt: string) {
-  const llm = yield* LLM.Service
-  const model = (yield* provider.getSmallModel(base.providerID)) ?? base
-  // A plain completion: the small model's default thinking would slow the routing of every prompt.
-  const options: Record<string, unknown> =
-    model.api.npm === "@ai-sdk/anthropic" ? { thinking: { type: "disabled" } } : {}
-  const agent = { name: "fork-route", mode: "primary" as const, permission: [], options, native: true, prompt: "" }
-  return yield* llm
-    .stream({
-      agent,
-      user: {
-        id: MessageID.ascending(),
-        sessionID: SessionID.descending(),
-        role: "user",
-        time: { created: Date.now() },
-        agent: agent.name,
-        model: { providerID: model.providerID, modelID: model.id },
-      },
-      system: [],
-      small: true,
-      tools: {},
-      model,
-      sessionID: SessionID.descending(),
-      retries: 1,
-      messages: [{ role: "user", content: prompt }],
-      maxOutputTokens: 200,
-    })
-    .pipe(
-      Stream.filter(LLMEvent.is.textDelta),
-      Stream.map((part) => part.text),
-      Stream.mkString,
-    )
+// Adds the plan-mode reminder to the latest user message once, when the Router's signals call for it.
+export const planNudge = Effect.fn("ForkRouteTurn.planNudge")(function* (input: {
+  sessions: Session.Interface
+  messages: SessionV1.WithParts[]
+  signals: ForkRoute.Signals | undefined
+  agent: string
+  root: boolean
+  available: boolean
+}) {
+  const user = input.messages.findLast((m) => m.info.role === "user")
+  if (!user || user.parts.some((part) => part.type === "text" && part.metadata?.forkPlanNudge)) return
+  if (!ForkRoute.planNudge({ signals: input.signals, agent: input.agent, root: input.root, available: input.available }))
+    return
+  user.parts.push(
+    yield* input.sessions.updatePart({
+      id: PartID.ascending(),
+      messageID: user.info.id,
+      sessionID: user.info.sessionID,
+      type: "text",
+      text: ForkRoute.PLAN_NUDGE,
+      synthetic: true,
+      metadata: { forkPlanNudge: true },
+    }),
+  )
 })
 
 // ---------------------------------------------------------------- fallback

@@ -1,6 +1,8 @@
 export * as ForkSandboxTool from "./fork-sandbox"
 
 import { Effect } from "effect"
+import { EventV2Bridge } from "@/event-v2-bridge"
+import { TuiEvent } from "@/server/tui-event"
 import { statSync } from "node:fs"
 import os from "os"
 import { ForkSandbox } from "@opencode-fork/core/sandbox"
@@ -39,6 +41,17 @@ export const resolve = Effect.fn("ForkSandbox.resolve")(function* (config: Confi
     if (!warned) {
       warned = true
       yield* Effect.logWarning(ForkSandbox.UNAVAILABLE_WARNING)
+      // The user believes bash is confined: say it where they look, not only in the log.
+      const events = yield* Effect.serviceOption(EventV2Bridge.Service)
+      if (events._tag === "Some")
+        yield* events.value
+          .publish(TuiEvent.ToastShow, {
+            title: "Sandbox unavailable",
+            message: ForkSandbox.UNAVAILABLE_WARNING,
+            variant: "warning",
+            duration: 15_000,
+          })
+          .pipe(Effect.ignore)
     }
     return undefined
   }

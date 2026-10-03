@@ -1,3 +1,4 @@
+import { ForkFlags } from "./flags"
 import { jsonSchema, tool, type Tool } from "ai"
 import type { ForkJev } from "./jev"
 
@@ -60,7 +61,7 @@ export function defer(
   messages: { parts: readonly HistoryPart[] }[],
   view = NATIVE_VIEW,
 ) {
-  if (process.env.OPENCODE_FORK_DEFER_TOOLS === "0") return tools
+  if (!ForkFlags.on("DEFER_TOOLS")) return tools
   const candidates = deferrable.filter((name) => name in tools).toSorted()
   if (!candidates.length) return tools
   const loaded = loadedTools(messages)

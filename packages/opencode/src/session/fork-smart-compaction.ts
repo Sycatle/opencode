@@ -1,5 +1,4 @@
 import { SessionV1 } from "@opencode-ai/core/v1/session"
-import { ForkCache } from "@opencode-fork/core/cache"
 import { ForkCompaction } from "@opencode-fork/core/compaction"
 import { ForkJev } from "@opencode-fork/core/jev"
 import { ForkCompactionLog } from "@opencode-fork/core/compaction-log"
@@ -60,14 +59,15 @@ const confirmBoundary = Effect.fn("ForkSmartCompaction.boundary")(function* (
     (input.messages.findLast((message) => message.info.role === role)?.parts ?? [])
       .flatMap((part) => (part.type === "text" && !part.synthetic && !part.ignored ? [part.text] : []))
       .join("\n")
-  const response = yield* Effect.promise(() =>
-    ForkJev.ask(
-      ForkCompactionTiming.jevRequest({
+  const response = yield* Effect.promise((signal) =>
+    ForkJev.ask({
+      ...ForkCompactionTiming.jevRequest({
         user: text("user"),
         reply: text("assistant"),
         todos: state.todos.filter((todo) => todo.status !== "completed").length,
       }),
-    ),
+      signal,
+    }),
   )
   const boundary = response.answers?.boundary?.noul
   const second = boundary === undefined ? first : ForkCompactionTiming.decide({ ...state, boundary })
@@ -118,7 +118,7 @@ function snapshot(
       cacheWrite: cost.cache?.write ?? cost.input,
     },
     idleMs: Date.now() - (assistant.time.completed ?? assistant.time.created),
-    ttlMs: ForkCache.systemTtl() ? ForkCompactionTiming.LONG_TTL_MS : ForkCompactionTiming.WARM_TTL_MS,
+    ttlMs: ForkCompactionTiming.WARM_TTL_MS,
     toolLoop:
       ["tool-calls", "unknown"].includes(assistant.finish ?? "") ||
       (lastMessage?.parts.some((part) => part.type === "tool" && !part.metadata?.providerExecuted) ?? false),

@@ -1,7 +1,9 @@
 import type { AssistantMessage } from "@opencode-ai/sdk/v2"
 import type { TuiPlugin, TuiPluginApi } from "@opencode-ai/plugin/tui"
+import { ForkFlags } from "@opencode-fork/core/flags"
 import { ForkMessaging } from "@opencode-fork/core/messaging"
 import { ForkQuota } from "@opencode-fork/core/quota"
+import { ForkRouteLog } from "@opencode-fork/core/route-log"
 import { ForkStatusline } from "@opencode-fork/core/statusline"
 import { ForkWakeup } from "@opencode-fork/core/wakeup"
 import { useTerminalDimensions } from "@opentui/solid"
@@ -13,7 +15,9 @@ import type { BuiltinTuiPlugin } from "../builtins"
 const id = "fork:statusline"
 
 function sessionID(api: TuiPluginApi) {
-  return api.route.current.name === "session" ? (api.route.current.params as { sessionID: string }).sessionID : undefined
+  return api.route.current.name === "session"
+    ? (api.route.current.params as { sessionID: string }).sessionID
+    : undefined
 }
 
 function payload(api: TuiPluginApi, session: string) {
@@ -58,9 +62,11 @@ function Line(props: { api: TuiPluginApi; config: ForkStatusline.Config }) {
       return
     }
     running = true
-    const stdout = await execute(props.config.command, props.api.state.path.directory, payload(props.api, current)).catch(
-      () => undefined,
-    )
+    const stdout = await execute(
+      props.config.command,
+      props.api.state.path.directory,
+      payload(props.api, current),
+    ).catch(() => undefined)
     running = false
     if (stdout !== undefined) setOutput(stdout)
     if (!again) return
@@ -90,18 +96,97 @@ function Line(props: { api: TuiPluginApi; config: ForkStatusline.Config }) {
   )
 }
 
+// Without a configured command: the Router's model and a pending wakeup, read from the local fork.db (nothing
+// when the TUI is attached to a remote server). Polled because both are written by the server, not sent as events.
+const BUILTIN_REFRESH_MS = 2000
+
+function BuiltinLine(props: { api: TuiPluginApi }) {
+  const dimensions = useTerminalDimensions()
+  const [tick, setTick] = createSignal(0)
+  const timer = setInterval(() => setTick((value) => value + 1), BUILTIN_REFRESH_MS)
+  onCleanup(() => clearInterval(timer))
+  const line = createMemo(() => {
+    tick()
+    const session = sessionID(props.api)
+    if (!session) return ""
+    props.api.state.session.messages(session).length
+    const wakeup = ForkWakeup.enabled() ? ForkWakeup.get(session) : undefined
+    return ForkStatusline.firstLine(
+      ForkStatusline.builtin({
+        route: ForkRouteLog.latest(session),
+        wakeup: wakeup && { due: wakeup.due, reason: wakeup.reason || undefined, repeat: wakeup.every !== null },
+      }),
+      dimensions().width - 2,
+    )
+  })
+  return (
+    <Show when={line()}>
+      {(text) => (
+        <box paddingLeft={1} paddingRight={1} flexShrink={0}>
+          <text fg={props.api.theme.current.textMuted} wrapMode="none">
+            {text()}
+          </text>
+        </box>
+      )}
+    </Show>
+  )
+}
+
+// Read-only: the values this process sees. Flags are environment variables, so changing one means a restart.
+function showFlags(api: TuiPluginApi) {
+  const options = ForkFlags.describe().map((flag) => ({
+    title: flag.name,
+    value: flag.name,
+    category: flag.kind === "jev" ? "Jev (needs TYPESAFE_API_KEY)" : flag.set ? "Set in the environment" : "Defaults",
+    description: flag.description,
+    footer: flag.set ? flag.value : flag.default,
+    onSelect: () => {},
+  }))
+  api.ui.dialog.replace(() => <api.ui.DialogSelect title="Fork features (OPENCODE_FORK_*)" options={options} />)
+}
+
 const tui: TuiPlugin = async (api) => {
   const config = ForkStatusline.config(api.tuiConfig.statusline)
-  if (config) {
-    api.slots.register({
-      order: 900,
-      slots: {
-        app_bottom() {
-          return <Line api={api} config={config} />
+  api.slots.register({
+    order: 900,
+    slots: {
+      app_bottom() {
+        return config ? <Line api={api} config={config} /> : <BuiltinLine api={api} />
+      },
+    },
+  })
+
+  api.keymap.registerLayer({
+    commands: [
+      {
+        name: "fork.flags",
+        title: "Fork features",
+        category: "System",
+        namespace: "palette",
+        run() {
+          showFlags(api)
         },
       },
-    })
-  }
+      ...(ForkWakeup.enabled()
+        ? [
+            {
+              name: "fork.wakeup.cancel",
+              title: "Cancel scheduled wakeup / loop",
+              category: "Session",
+              namespace: "palette",
+              run() {
+                const session = sessionID(api)
+                const cancelled = session ? ForkWakeup.cancel(session) : false
+                api.ui.toast({
+                  variant: "info",
+                  message: cancelled ? "Scheduled wakeup cancelled" : "No scheduled wakeup in this session",
+                })
+              },
+            },
+          ]
+        : []),
+    ],
+  })
 
   if (ForkMessaging.enabled()) {
     const delivered = new Set<string>()

@@ -1,5 +1,6 @@
 export * as ForkWakeup from "./wakeup"
 
+import { ForkFlags } from "./flags"
 import { ForkTelemetry } from "./telemetry"
 
 // In-session wakeups: a live session schedules its own next turn (`schedule_wakeup` tool, `/loop` command).
@@ -13,7 +14,7 @@ const MAX_PROMPT = 20_000
 const KEEP_OVERDUE_MS = 7 * 24 * 3600_000
 
 export function enabled() {
-  return process.env.OPENCODE_FORK_WAKEUPS !== "0"
+  return ForkFlags.on("WAKEUPS")
 }
 
 // Test hook: lowers the 60 s floor (`OPENCODE_FORK_WAKEUP_MIN_SECONDS=1`), for tests and trials only.

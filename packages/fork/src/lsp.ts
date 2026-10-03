@@ -1,3 +1,4 @@
+import { ForkFlags } from "./flags"
 import path from "path"
 import { fileURLToPath } from "url"
 
@@ -47,7 +48,7 @@ const KINDS = [
 ]
 
 export function enabled() {
-  return process.env.OPENCODE_FORK_LSP_FORMAT !== "0"
+  return ForkFlags.on("LSP_FORMAT")
 }
 
 export async function format(operation: string, result: readonly unknown[], options: Options) {

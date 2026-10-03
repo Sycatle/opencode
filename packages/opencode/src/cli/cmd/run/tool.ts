@@ -471,6 +471,7 @@ function runLsp(p: ToolProps<typeof LspTool>): ToolInline {
   }
 }
 
+// FORK-SEAM: plan-enter (how `opencode run` renders the plan_enter tool)
 function runPlanEnter(p: ToolProps<typeof PlanEnterTool>): ToolInline {
   return {
     icon: "→",
@@ -1229,6 +1230,7 @@ const TOOL_RULES = {
       start: scrollSkillStart,
     },
   },
+  // FORK-SEAM: plan-enter
   plan_enter: {
     view: {
       output: true,

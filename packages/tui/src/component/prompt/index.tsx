@@ -322,6 +322,7 @@ export function Prompt(props: PromptProps) {
 
   // FORK-SEAM: prompt-suggestion (the next request proposed by the small model, shown grey in the empty prompt)
   const suggestions = ForkPromptSuggest.createSuggestions(() => props.sessionID)
+  const suggestionKey = useCommandShortcut("prompt.suggestion.accept")
   const suggestion = createMemo(() =>
     store.mode !== "normal"
       ? undefined
@@ -1378,7 +1379,7 @@ export function Prompt(props: PromptProps) {
       return `Run a command… "${example}"`
     }
     // FORK-SEAM: prompt-suggestion
-    if (suggestion()) return suggestion()
+    if (suggestion()) return suggestionKey() ? `${suggestion()}  (${suggestionKey()})` : suggestion()
     if (!list().length) return undefined
     return `Ask anything… "${list()[store.placeholder % list().length]}"`
   })

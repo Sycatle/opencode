@@ -4,7 +4,7 @@
 // runtime value cannot be extracted, the original description is kept.
 
 export function enabled() {
-  return process.env.OPENCODE_FORK_SLIM_TOOLS !== "0"
+  return ForkFlags.on("SLIM_TOOLS")
 }
 
 export function slim(toolID: string, description: string) {
@@ -93,3 +93,4 @@ function slimShell(original: string) {
 }
 
 export * as ForkDescriptions from "./descriptions"
+import { ForkFlags } from "./flags"

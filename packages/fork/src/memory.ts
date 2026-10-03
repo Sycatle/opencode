@@ -1,6 +1,7 @@
 // Persistent per-project memory. The model sees a compact index (one line per fact) in the
 // system prompt; the facts themselves are read on demand. The rendered block is snapshotted
 // per session by the caller so the prompt prefix stays byte-identical between turns.
+import { ForkFlags } from "./flags"
 import path from "path"
 import { Global } from "@opencode-ai/core/global"
 
@@ -8,7 +9,7 @@ export const MAX_LINES = 200
 export const MAX_BYTES = 8 * 1024
 
 export function enabled() {
-  return process.env.OPENCODE_FORK_MEMORY !== "0"
+  return ForkFlags.on("MEMORY")
 }
 
 export function dir(projectID: string) {
