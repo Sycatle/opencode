@@ -446,3 +446,60 @@ test("the journal keeps decisions and fallbacks per session", () => {
   expect(ForkRouteLog.summary().find((r) => r.model === "anthropic/haiku")?.fallbacks).toBe(1)
   expect(JSON.parse(ForkRouteLog.recent(1)[0].signals ?? "{}").task_type).toBe("feature")
 })
+
+const seen: ForkRoute.Signals = { ...ForkRoute.unknown("small"), task_type: "feature", reasoning: 0.7, confidence: 0.8, source: "jev" }
+
+test("a short follow-up reuses confident, recent signals; long, stale, unsure or first messages are classified", () => {
+  const previous = { signals: seen, time: 1_000_000 }
+  const at = (prompt: string, over: Partial<{ signals: ForkRoute.Signals; time: number }> = {}, now = 1_060_000) =>
+    ForkRoute.shouldReclassify({ prompt, previous: { ...previous, ...over }, now }, {})
+  expect(at("ok, go on")).toBe(false)
+  expect(at("run the tests and fix whatever fails in the billing module first")).toBe(false)
+  expect(at("Please refactor the whole billing module so that invoices are computed lazily and cached per customer")).toBe(true)
+  expect(at("ok", {}, 1_000_000 + 31 * 60_000)).toBe(true)
+  expect(at("ok", { signals: { ...seen, confidence: 0.5 } })).toBe(true)
+  expect(ForkRoute.shouldReclassify({ prompt: "ok", now: 5 }, {})).toBe(true)
+  expect(ForkRoute.shouldReclassify({ prompt: "ok", previous, now: 1_060_000 }, { OPENCODE_FORK_ROUTE_RECLASSIFY: "0" })).toBe(true)
+})
+
+test("effort follows the reasoning signal, only moves with the model or a cold cache, and needs the variant", () => {
+  const input = { tier: "reasoning" as const, available: ["low", "high", "max"], switched: false, cold: false }
+  const hard = { ...seen, reasoning: 0.8 }
+  expect(ForkRoute.effort({ ...input, signals: hard }, {})).toBe("high")
+  expect(ForkRoute.effort({ ...input, signals: hard, tier: "frontier" }, {})).toBe("high")
+  expect(ForkRoute.effort({ ...input, signals: { ...hard, reasoning: 1 }, tier: "frontier" }, {})).toBe("max")
+  expect(ForkRoute.effort({ ...input, signals: { ...seen, reasoning: 0.05, task_type: "question" } }, {})).toBe("low")
+  expect(ForkRoute.effort({ ...input, signals: { ...seen, reasoning: 0.05, task_type: "feature" } }, {})).toBeUndefined()
+  expect(ForkRoute.effort({ ...input, signals: hard, available: [] }, {})).toBeUndefined()
+  expect(ForkRoute.effort({ ...input, signals: { ...hard, confidence: 0.2 } }, {})).toBeUndefined()
+  // Same model, warm cache: the previous variant is kept, whatever the new signals say.
+  expect(ForkRoute.effort({ ...input, signals: { ...hard, reasoning: 0.05 }, previous: { variant: "high" } }, {})).toBe("high")
+  expect(ForkRoute.effort({ ...input, signals: hard, previous: { variant: undefined } }, {})).toBeUndefined()
+  expect(ForkRoute.effort({ ...input, signals: hard, previous: { variant: "xhigh" } }, {})).toBeUndefined()
+  expect(ForkRoute.effort({ ...input, signals: hard, previous: { variant: "low" }, switched: true }, {})).toBe("high")
+  expect(ForkRoute.effort({ ...input, signals: hard, previous: { variant: "low" }, cold: true }, {})).toBe("high")
+  expect(ForkRoute.effort({ ...input, signals: hard }, { OPENCODE_FORK_ROUTE_EFFORT: "0" })).toBeUndefined()
+})
+
+test("the plan nudge needs an ambiguous, confident request to a root build agent with plan mode available", () => {
+  const input = { signals: { ...seen, ambiguity: 0.8 }, agent: "build", root: true, available: true }
+  expect(ForkRoute.planNudge(input, {})).toBe(true)
+  expect(ForkRoute.planNudge({ ...input, signals: { ...seen, ambiguity: 0.6 } }, {})).toBe(false)
+  expect(ForkRoute.planNudge({ ...input, signals: { ...input.signals, confidence: 0.2 } }, {})).toBe(false)
+  expect(ForkRoute.planNudge({ ...input, agent: "plan" }, {})).toBe(false)
+  expect(ForkRoute.planNudge({ ...input, root: false }, {})).toBe(false)
+  expect(ForkRoute.planNudge({ ...input, available: false }, {})).toBe(false)
+  expect(ForkRoute.planNudge({ ...input, signals: undefined }, {})).toBe(false)
+  expect(ForkRoute.planNudge({ ...input, signals: { ...seen, ambiguity: 0.6 } }, { OPENCODE_FORK_ROUTE_PLAN_AT: "0.5" })).toBe(true)
+  expect(ForkRoute.planNudge(input, { OPENCODE_FORK_ROUTE_PLAN: "0" })).toBe(false)
+})
+
+test("three failed tool calls among the last six mean struggling, and the next tier is above", () => {
+  const run = (...status: string[]) => ForkRoute.struggling(status.map((item) => ({ status: item })), {})
+  expect(run("error", "completed", "error", "completed", "error")).toBe(true)
+  expect(run("error", "error", "completed")).toBe(false)
+  expect(run("error", "error", "error", "completed", "completed", "completed", "completed")).toBe(false)
+  expect(ForkRoute.struggling([{ status: "error" }, { status: "error" }, { status: "error" }], { OPENCODE_FORK_ROUTE_ESCALATE: "0" })).toBe(false)
+  expect(ForkRoute.above("fast")).toBe("standard")
+  expect(ForkRoute.above("frontier")).toBeUndefined()
+})
