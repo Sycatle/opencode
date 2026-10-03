@@ -1,4 +1,8 @@
-import { describe, expect } from "bun:test"
+import { describe, expect, test } from "bun:test"
+import type { PluginInput } from "@opencode-ai/plugin"
+import { ForkHooks } from "@opencode-fork/core/hooks"
+import fs from "fs/promises"
+import os from "os"
 import { Cause, Effect, Exit, Layer } from "effect"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Npm } from "@opencode-ai/core/npm"
@@ -12,6 +16,7 @@ import { RuntimeFlags } from "../../src/effect/runtime-flags"
 import { EventV2Bridge } from "../../src/event-v2-bridge"
 import { Permission } from "../../src/permission"
 import { Plugin } from "../../src/plugin/index"
+import { createForkHooksPlugin } from "../../src/plugin/fork-hooks"
 import { InstanceBootstrap } from "../../src/project/bootstrap"
 import { InstanceStore } from "../../src/project/instance-store"
 import { askWithPlugins } from "../../src/session/fork-permission"
@@ -168,4 +173,114 @@ describe("fork hooks plugin", () => {
       }),
     ),
   )
+})
+
+describe("fork hooks events and hook types", () => {
+  // `hooks` may be built from `record`, a command hook that appends each event payload to the log read by `events`.
+  const start = async (
+    hooks: Record<string, unknown> | ((record: { command: string }) => Record<string, unknown>),
+    deps?: ForkHooks.Deps,
+  ) => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "fork-hooks-"))
+    const log = path.join(dir, "log")
+    const input = { directory: dir, client: { app: { log: async () => undefined } } } as unknown as PluginInput
+    const plugin = await createForkHooksPlugin(input, deps)
+    const record = { command: `cat >> ${log}; echo >> ${log}` }
+    await plugin.config?.({ hooks: typeof hooks === "function" ? hooks(record) : hooks } as never)
+    const events = async () =>
+      (await Bun.file(log).text().catch(() => ""))
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as ForkHooks.Payload)
+    const emit = (type: string, properties: unknown) => plugin.event!({ event: { type, properties } as never })
+    return { plugin, record, events, emit }
+  }
+
+  test("SubagentStop fires for a finished child session, Stop and idle Notification for the root", async () => {
+    const run = await start((record) => ({ SubagentStop: [record], Stop: [record], Notification: [record] }))
+    await run.emit("session.created", { info: { id: "root" } })
+    await run.emit("session.created", { info: { id: "child", parentID: "root" } })
+    await run.emit("message.updated", { sessionID: "child", info: { sessionID: "child", role: "assistant", agent: "explore" } })
+    await run.emit("session.idle", { sessionID: "child" })
+    expect((await run.events()).map((e) => [e.event, e.sessionID, e.parentID, e.agent])).toEqual([
+      ["SubagentStop", "child", "root", "explore"],
+    ])
+    await run.emit("session.idle", { sessionID: "root" })
+    const events = await run.events()
+    expect(events.slice(1).map((e) => [e.event, e.notificationType])).toEqual(
+      expect.arrayContaining([
+        ["Stop", undefined],
+        ["Notification", "idle"],
+      ]),
+    )
+    expect(events).toHaveLength(3)
+  })
+
+  test("SessionEnd fires on deletion and, for the sessions still alive, on dispose", async () => {
+    const run = await start((record) => ({ SessionEnd: [record] }))
+    await run.emit("session.created", { info: { id: "a" } })
+    await run.emit("session.created", { info: { id: "b", parentID: "a" } })
+    await run.emit("session.deleted", { sessionID: "a", info: { id: "a" } })
+    expect((await run.events()).map((e) => [e.sessionID, e.reason])).toEqual([["a", "deleted"]])
+    await run.plugin.dispose!()
+    expect((await run.events()).map((e) => [e.sessionID, e.parentID, e.reason])).toEqual([
+      ["a", undefined, "deleted"],
+      ["b", "a", "exit"],
+    ])
+  })
+
+  test("Notification fires for permission and question requests", async () => {
+    const run = await start((record) => ({ Notification: [record] }))
+    await run.emit("permission.asked", { sessionID: "s", permission: "bash", patterns: ["rm *"] })
+    await run.emit("question.asked", { sessionID: "s", questions: [{ question: "Which one?" }] })
+    expect((await run.events()).map((e) => [e.notificationType, e.message])).toEqual([
+      ["permission", "Permission requested: bash rm *"],
+      ["question", "Which one?"],
+    ])
+  })
+
+  test("PostToolUseFailure appends context to the error, except for calls a PreToolUse hook blocked", async () => {
+    const run = await start({
+      PreToolUse: [{ matcher: "edit", command: 'echo "blocked" >&2; exit 2' }],
+      PostToolUseFailure: [{ matcher: "bash", command: json({ additionalContext: "check the cwd" }) }],
+    })
+    const failure = { tool: "bash", sessionID: "s", callID: "c1", args: { command: "false" } }
+    const out = { error: "exit 1" }
+    await run.plugin["tool.execute.failure"]!(failure, out)
+    expect(out.error).toBe("exit 1\n\ncheck the cwd")
+
+    const edit = { tool: "edit", sessionID: "s", callID: "c2" }
+    await run.plugin["tool.execute.before"]!(edit, { args: {} }).catch(() => undefined)
+    const skipped = { error: "blocked" }
+    await run.plugin["tool.execute.failure"]!({ ...edit, args: {} }, skipped)
+    expect(skipped.error).toBe("blocked")
+  })
+
+  test("prompt hooks block through the injected model", async () => {
+    const prompts: string[] = []
+    const run = await start(
+      { PreToolUse: [{ type: "prompt", prompt: "Allow? $ARGUMENTS", matcher: "bash" }] },
+      {
+        ask: async (prompt) => {
+          prompts.push(prompt)
+          return '{"ok": false, "reason": "model says no"}'
+        },
+      },
+    )
+    const blocked = await run.plugin["tool.execute.before"]!({ tool: "bash", sessionID: "s", callID: "c" }, { args: {} }).then(
+      () => undefined,
+      (error: Error) => error.message,
+    )
+    expect(blocked).toBe("model says no")
+    expect(prompts[0]).toContain('"tool":"bash"')
+  })
+
+  test("http hooks decide permission requests", async () => {
+    const server = Bun.serve({ port: 0, fetch: () => Response.json({ decision: "deny" }) })
+    const run = await start({ PermissionRequest: [{ type: "http", url: `http://localhost:${server.port}/hook` }] })
+    const output = { status: "ask" as "ask" | "deny" | "allow" }
+    await run.plugin["permission.ask"]!({ type: "bash", pattern: "*", sessionID: "s" } as never, output)
+    server.stop(true)
+    expect(output.status).toBe("deny")
+  })
 })

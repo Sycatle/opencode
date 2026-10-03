@@ -190,18 +190,27 @@ const layer = Layer.effect(
       const failToolCall = Effect.fn("SessionProcessor.failToolCall")(function* (toolCallID: string, error: unknown) {
         const match = yield* readToolCall(toolCallID)
         if (!match || match.part.state.status !== "running") return false
+        const rejected = error instanceof PermissionV1.RejectedError || error instanceof Question.RejectedError
+        // FORK-SEAM: tool-failure-hook (PostToolUseFailure; a user rejection is not a tool failure)
+        const failure = rejected
+          ? { error: errorMessage(error) }
+          : yield* plugin.trigger(
+              "tool.execute.failure",
+              { tool: match.part.tool, sessionID: ctx.sessionID, callID: toolCallID, args: match.part.state.input },
+              { error: errorMessage(error) },
+            )
         yield* session.updatePart({
           ...match.part,
           state: {
             status: "error",
             input: match.part.state.input,
-            error: errorMessage(error),
+            error: failure.error,
             // Keep metadata streamed while running so failures retain progress detail (e.g. execute's child calls).
             metadata: match.part.state.metadata,
             time: { start: match.part.state.time.start, end: Date.now() },
           },
         })
-        if (error instanceof PermissionV1.RejectedError || error instanceof Question.RejectedError) {
+        if (rejected) {
           ctx.blocked = ctx.shouldBreak
         }
         yield* settleToolCall(toolCallID)

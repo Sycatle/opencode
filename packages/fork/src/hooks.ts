@@ -3,20 +3,41 @@ export * as ForkHooks from "./hooks"
 export const EVENTS = [
   "PreToolUse",
   "PostToolUse",
+  "PostToolUseFailure",
   "UserPromptSubmit",
   "SessionStart",
+  "SessionEnd",
   "Stop",
+  "SubagentStop",
   "PreCompact",
   "PermissionRequest",
+  "Notification",
 ] as const
 
 export type Event = (typeof EVENTS)[number]
 
-export interface Entry {
+interface Base {
   matcher?: string
-  command: string
   timeout?: number
 }
+
+export interface CommandEntry extends Base {
+  type: "command"
+  command: string
+}
+
+export interface HttpEntry extends Base {
+  type: "http"
+  url: string
+  headers?: Record<string, string>
+}
+
+export interface PromptEntry extends Base {
+  type: "prompt"
+  prompt: string
+}
+
+export type Entry = CommandEntry | HttpEntry | PromptEntry
 
 export type Hooks = Partial<Record<Event, Entry[]>>
 
@@ -31,6 +52,12 @@ export interface Payload {
   output?: unknown
   prompt?: string
   permission?: unknown
+  parentID?: string
+  agent?: string
+  error?: string
+  message?: string
+  notificationType?: string
+  reason?: string
 }
 
 export interface Outcome {
@@ -41,13 +68,26 @@ export interface Outcome {
   error?: string
 }
 
-// Contract: SessionStart (session.created) and Stop (session.idle) are fire-and-forget event hooks;
-// nothing waits on them, so a Stop hook's additionalContext is ignored.
+// Sends a prompt to the (small) model of the current provider and resolves with its raw text answer.
+export type Ask = (prompt: string, event: Payload) => Promise<string>
+
+export interface Deps {
+  ask?: Ask
+}
+
+// Contract: SessionStart (session.created), Stop and SubagentStop (session.idle), SessionEnd and Notification
+// are fire-and-forget event hooks; nothing waits on them, so they cannot block and their additionalContext is ignored.
 export const DEFAULT_TIMEOUT = 60_000
 
 // Hooks are on unless OPENCODE_FORK_HOOKS=0.
 export function enabled() {
   return process.env.OPENCODE_FORK_HOOKS !== "0"
+}
+
+export function describe(entry: Entry) {
+  if (entry.type === "http") return entry.url
+  if (entry.type === "prompt") return entry.prompt
+  return entry.command
 }
 
 // Lenient normalisation of the `hooks` config value: malformed entries are dropped.
@@ -61,18 +101,35 @@ export function parse(input: unknown): Hooks {
       const entries = raw.flatMap((item): Entry[] => {
         if (typeof item !== "object" || item === null) return []
         const entry = item as Record<string, unknown>
-        if (typeof entry.command !== "string" || !entry.command.trim()) return []
-        return [
-          {
-            command: entry.command,
-            ...(typeof entry.matcher === "string" ? { matcher: entry.matcher } : {}),
-            ...(typeof entry.timeout === "number" && entry.timeout > 0 ? { timeout: entry.timeout } : {}),
-          },
-        ]
+        const base = {
+          ...(typeof entry.matcher === "string" ? { matcher: entry.matcher } : {}),
+          ...(typeof entry.timeout === "number" && entry.timeout > 0 ? { timeout: entry.timeout } : {}),
+        }
+        const type = entry.type ?? "command"
+        if (type === "command") {
+          if (typeof entry.command !== "string" || !entry.command.trim()) return []
+          return [{ type, command: entry.command, ...base }]
+        }
+        if (type === "http") {
+          if (typeof entry.url !== "string" || !/^https?:\/\//.test(entry.url)) return []
+          const headers = parseHeaders(entry.headers)
+          return [{ type, url: entry.url, ...(headers ? { headers } : {}), ...base }]
+        }
+        if (type === "prompt") {
+          if (typeof entry.prompt !== "string" || !entry.prompt.trim()) return []
+          return [{ type, prompt: entry.prompt, ...base }]
+        }
+        return []
       })
       return entries.length ? [[event, entries] as const] : []
     }),
   )
+}
+
+function parseHeaders(input: unknown) {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) return undefined
+  const pairs = Object.entries(input).flatMap(([key, value]) => (typeof value === "string" ? [[key, value] as const] : []))
+  return pairs.length ? Object.fromEntries(pairs) : undefined
 }
 
 // A missing matcher, "" or "*" matches everything. Otherwise the whole name must match
@@ -110,7 +167,12 @@ export function interpret(result: { code: number | null; stdout: string; stderr:
   if (result.timedOut) return { error: "hook timed out" }
   if (result.code === 2) return { decision: "block", reason: result.stderr.trim() || "Blocked by hook" }
   if (result.code !== 0) return { error: result.stderr.trim() || `hook exited with code ${result.code}` }
-  const text = result.stdout.trim()
+  return interpretJson(result.stdout)
+}
+
+// The JSON contract shared by command stdout and http response bodies.
+export function interpretJson(stdout: string): Outcome {
+  const text = stdout.trim()
   if (!text.startsWith("{")) return {}
   const json = parseObject(text)
   if (!json) return {}
@@ -169,7 +231,13 @@ export function promptBlockReason(parts: readonly { type: string; text?: string;
   return parts.find((part) => part.type === "text" && part.metadata?.[PROMPT_BLOCK_KEY] === true)?.text
 }
 
-export async function run(entry: Entry, event: Payload): Promise<Outcome> {
+export async function run(entry: Entry, event: Payload, deps?: Deps): Promise<Outcome> {
+  if (entry.type === "http") return runHttp(entry, event)
+  if (entry.type === "prompt") return runPrompt(entry, event, deps?.ask)
+  return runCommand(entry, event)
+}
+
+async function runCommand(entry: CommandEntry, event: Payload): Promise<Outcome> {
   const timeout = entry.timeout ?? DEFAULT_TIMEOUT
   const proc = Bun.spawn(["sh", "-c", entry.command], {
     cwd: event.cwd,
@@ -202,14 +270,74 @@ function killGroup(pid: number) {
   }
 }
 
+// Expands $VAR and ${VAR} from the environment; unset variables become empty.
+export function expand(value: string) {
+  return value.replace(
+    /\$\{(\w+)\}|\$(\w+)/g,
+    (_, braced: string | undefined, bare: string | undefined) => process.env[braced ?? bare ?? ""] ?? "",
+  )
+}
+
+// A 2xx response with a JSON body follows the stdout contract; any other status is a non-blocking error.
+async function runHttp(entry: HttpEntry, event: Payload): Promise<Outcome> {
+  const signal = AbortSignal.timeout(entry.timeout ?? DEFAULT_TIMEOUT)
+  const response = await fetch(entry.url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...Object.fromEntries(Object.entries(entry.headers ?? {}).map(([key, value]) => [key, expand(value)])),
+    },
+    body: payload(event),
+    signal,
+  }).catch((error: unknown) => (signal.aborted ? "timeout" : error instanceof Error ? error.message : String(error)))
+  if (response === "timeout") return { error: "hook timed out" }
+  if (typeof response === "string") return { error: response }
+  if (!response.ok) return { error: `hook returned HTTP ${response.status}` }
+  return interpretJson(await response.text().catch(() => ""))
+}
+
+const PROMPT_INSTRUCTIONS =
+  'Answer with a single JSON object and nothing else: { "ok": boolean, "reason"?: string }. Use ok=false to block, with the reason.'
+
+async function runPrompt(entry: PromptEntry, event: Payload, ask: Ask | undefined): Promise<Outcome> {
+  if (!ask) return { error: "prompt hooks need model access, which is unavailable here" }
+  const text = entry.prompt.replaceAll("$ARGUMENTS", () => payload(event))
+  const timer = Promise.withResolvers<"timeout">()
+  const handle = setTimeout(() => timer.resolve("timeout"), entry.timeout ?? DEFAULT_TIMEOUT)
+  const answer = await Promise.race([
+    ask(`${text}\n\n${PROMPT_INSTRUCTIONS}`, event).catch((error: unknown) => ({
+      failed: error instanceof Error ? error.message : String(error),
+    })),
+    timer.promise,
+  ])
+  clearTimeout(handle)
+  if (answer === "timeout") return { error: "hook timed out" }
+  if (typeof answer !== "string") return { error: `prompt hook failed: ${answer.failed}` }
+  return interpretVerdict(answer)
+}
+
+// The model must answer { ok: boolean, reason?: string }; ok=false blocks with the reason.
+export function interpretVerdict(answer: string): Outcome {
+  const start = answer.indexOf("{")
+  const end = answer.lastIndexOf("}")
+  const json = start >= 0 && end > start ? parseObject(answer.slice(start, end + 1)) : undefined
+  if (!json || typeof json.ok !== "boolean") return { error: "prompt hook did not answer with { ok, reason }" }
+  if (json.ok) return {}
+  return {
+    decision: "block",
+    reason: typeof json.reason === "string" && json.reason ? json.reason : "Blocked by prompt hook",
+  }
+}
+
 // Runs every selected hook in parallel and merges their outcomes. Non-blocking errors are reported
 // through `onError` and otherwise ignored.
 export async function runAll(
   entries: Entry[],
   event: Payload,
   onError?: (entry: Entry, error: string) => void,
+  deps?: Deps,
 ): Promise<Outcome> {
-  const outcomes = await Promise.all(entries.map((entry) => run(entry, event)))
+  const outcomes = await Promise.all(entries.map((entry) => run(entry, event, deps)))
   outcomes.forEach((outcome, index) => {
     if (outcome.error) onError?.(entries[index]!, outcome.error)
   })

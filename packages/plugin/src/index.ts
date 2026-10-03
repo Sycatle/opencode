@@ -279,6 +279,11 @@ export interface Hooks {
       metadata: any
     },
   ) => Promise<void>
+  // FORK-SEAM: tool-failure-hook
+  "tool.execute.failure"?: (
+    input: { tool: string; sessionID: string; callID: string; args: any },
+    output: { error: string },
+  ) => Promise<void>
   "experimental.chat.messages.transform"?: (
     input: {},
     output: {

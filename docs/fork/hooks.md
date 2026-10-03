@@ -1,8 +1,8 @@
 # Hooks déclaratifs
 
-Commandes shell déclarées dans la clé `hooks` de `opencode.json`. Logique pure et runner :
-`packages/fork/src/hooks.ts` ; plugin : `packages/opencode/src/plugin/fork-hooks.ts`.
-`OPENCODE_FORK_HOOKS=0` coupe tout.
+Hooks (commande shell, POST HTTP ou prompt au petit modèle) déclarés dans la clé `hooks` de `opencode.json`.
+Logique pure et runner : `packages/fork/src/hooks.ts` ; plugin : `packages/opencode/src/plugin/fork-hooks.ts` ;
+appel du petit modèle : `packages/opencode/src/plugin/fork-hooks-model.ts`. `OPENCODE_FORK_HOOKS=0` coupe tout.
 
 ```json
 { "hooks": { "PreToolUse": [{ "matcher": "bash|edit", "command": "./guard.sh", "timeout": 5000 }] } }
@@ -16,30 +16,61 @@ Commandes shell déclarées dans la clé `hooks` de `opencode.json`. Logique pur
 | --- | --- | --- | --- |
 | `PreToolUse` | avant un outil | nom de l'outil | bloquer, réécrire `args` |
 | `PostToolUse` | après un outil | nom de l'outil | `additionalContext` ajouté à la sortie |
+| `PostToolUseFailure` | l'outil a échoué (ni refus utilisateur, ni blocage `PreToolUse`) | nom de l'outil | `additionalContext` ajouté à l'erreur |
 | `UserPromptSubmit` | avant la persistance du message | (aucun) | bloquer, `additionalContext` en part synthétique |
 | `PermissionRequest` | demande de permission | type de permission | `allow` / `deny` / `ask` |
 | `PreCompact` | avant compaction | (aucun) | `additionalContext` ajouté au contexte du résumé |
+| `Notification` | permission demandée, question posée, session racine idle | type : `permission`, `question`, `idle` | aucun (fire-and-forget) |
 | `SessionStart` | `session.created` | (aucun) | aucun (fire-and-forget) |
-| `Stop` | `session.idle` | (aucun) | aucun (fire-and-forget) |
+| `SessionEnd` | `session.deleted`, ou arrêt de l'instance pour les sessions encore vivantes | (aucun) | aucun (fire-and-forget) |
+| `Stop` | `session.idle` d'une session racine | (aucun) | aucun (fire-and-forget) |
+| `SubagentStop` | `session.idle` d'une session enfant (sous-agent task, arrière-plan compris) | (aucun) | aucun (fire-and-forget) |
+
+`Stop` ne peut pas bloquer (l'événement bus n'attend personne), donc `SubagentStop` non plus.
+
+Champs de payload en plus de `event`, `sessionID`, `cwd` : `parentID` (`SessionStart`, `SessionEnd`,
+`SubagentStop`, pour une session enfant), `agent` (`SubagentStop`), `reason` (`SessionEnd` : `deleted` ou `exit`),
+`notificationType` et `message` (`Notification`), `tool`, `args` et `error` (`PostToolUseFailure`).
 
 Matcher : absent, `""` ou `*` = tout. Sinon regex insensible à la casse sur le nom entier
 (`^(?:matcher)$`) ; une regex invalide ne matche rien.
 
-## Exécution
+## Types de hook
+
+`type` vaut `command` par défaut.
+
+```json
+{ "hooks": { "PostToolUseFailure": [
+  { "type": "http", "url": "https://hooks.example.com/fail", "headers": { "Authorization": "Bearer $HOOK_TOKEN" } },
+  { "type": "prompt", "prompt": "Is this failure recoverable? $ARGUMENTS", "matcher": "bash" }
+] } }
+```
+
+- `command` : `command` obligatoire, voir Exécution.
+- `http` : `url` (http/https) obligatoire. POST du JSON de l'événement (`content-type: application/json`),
+  `headers` optionnels dont les valeurs expansent `$VAR` / `${VAR}` depuis l'environnement (variable absente = vide).
+  Même `timeout`. Réponse 2xx : un corps JSON suit le même contrat que le stdout JSON d'une commande (un corps non
+  JSON est ignoré). Non-2xx, erreur réseau ou timeout : erreur non bloquante.
+- `prompt` : `prompt` obligatoire, `$ARGUMENTS` est remplacé par le JSON de l'événement. Envoyé au petit modèle du
+  provider de la session (`Provider.getSmallModel`, repli sur le modèle de la session, puis le modèle par défaut).
+  Le modèle doit répondre `{ "ok": boolean, "reason"?: string }` ; `ok: false` = blocage avec `reason`. Réponse non
+  conforme, échec du modèle ou timeout : erreur non bloquante.
+
+## Exécution (command)
 
 - `sh -c <command>`, cwd = répertoire du projet, env `OPENCODE_HOOK_EVENT=<événement>`.
-- stdin : JSON `{ event, sessionID, cwd, tool?, args?, output?, prompt?, permission? }`.
+- stdin : JSON `{ event, sessionID, cwd, tool?, args?, output?, prompt?, permission?, parentID?, agent?, error?, message?, notificationType?, reason? }`.
 - Tous les hooks d'un événement tournent en parallèle.
 - Chaque hook tourne dans son propre groupe de processus (Unix) ; au timeout le groupe entier
   reçoit SIGKILL, petits-enfants compris. Sous Windows seul le processus direct est tué.
 
-## Codes de sortie
+## Codes de sortie (command)
 
 - `0` : continue ; stdout peut contenir un objet JSON (voir ci-dessous).
 - `2` : bloque, stderr sert de raison (« Blocked by hook » si vide).
 - autre code ou timeout : erreur non bloquante, journalisée (`service: fork-hooks`) puis ignorée.
 
-## Sortie JSON (exit 0, stdout commençant par `{`)
+## Sortie JSON (exit 0, stdout commençant par `{`, ou corps d'une réponse HTTP 2xx)
 
 | Champ | Valeur | Rôle |
 | --- | --- | --- |
