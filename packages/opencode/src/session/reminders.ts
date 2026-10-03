@@ -17,6 +17,8 @@ export const apply = Effect.fn("SessionReminders.apply")(function* (input: {
   messages: SessionV1.WithParts[]
   agent: Agent.Info
   session: Session.Info
+  // FORK-SEAM: claude-tools (the model that runs the turn, which a router/* user message does not name)
+  providerID?: string
 }) {
   const flags = yield* RuntimeFlags.Service
   const fsys = yield* FSUtil.Service
@@ -81,7 +83,7 @@ export const apply = Effect.fn("SessionReminders.apply")(function* (input: {
     type: "text",
     // FORK-SEAM: claude-tools (the reminder names the tools the model is given)
     text: reminderTools(
-      userMessage.info.role === "user" ? userMessage.info.model.providerID : "",
+      input.providerID ?? (userMessage.info.role === "user" ? userMessage.info.model.providerID : ""),
       PLAN_MODE.replace("${planInfo}", () =>
         exists
           ? `A plan file already exists at ${plan}. You can read it and make incremental edits using the edit tool.`

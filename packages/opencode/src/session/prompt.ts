@@ -38,6 +38,7 @@ import { Tool } from "@/tool/tool"
 import { Permission } from "@/permission"
 import { SessionStatus } from "./status"
 import { LLM } from "./llm"
+import { ForkRouteTurn } from "./fork-route"
 import { Shell } from "@opencode-ai/core/shell"
 import { ShellID } from "@/tool/shell/id"
 import { FSUtil } from "@opencode-ai/core/fs-util"
@@ -1151,16 +1152,29 @@ const layer = Layer.effect(
             break
           }
 
+          // FORK-SEAM: route-turn (a router/* model resolves to a concrete one for this turn; its id is what runs and is recorded)
+          const routed = yield* ForkRouteTurn.resolve({
+            session,
+            user: lastUser,
+            messages: msgs,
+            assistant: lastAssistant,
+          }).pipe(Effect.provideService(Provider.Service, provider), Effect.provideService(LLM.Service, llm))
+          if (!routed.model) {
+            const error = new NamedError.Unknown({ message: routed.error })
+            yield* events.publish(Session.Event.Error, { sessionID, error: error.toObject() })
+            throw error
+          }
+
           step++
           if (step === 1)
             yield* title({
               session,
-              modelID: lastUser.model.modelID,
-              providerID: lastUser.model.providerID,
+              modelID: routed.model.modelID,
+              providerID: routed.model.providerID,
               history: msgs,
             }).pipe(Effect.ignore, Effect.forkIn(scope))
 
-          const model = yield* getModel(lastUser.model.providerID, lastUser.model.modelID, sessionID)
+          const model = yield* getModel(routed.model.providerID, routed.model.modelID, sessionID)
           const task = tasks.pop()
 
           if (task?.type === "subtask") {
@@ -1208,7 +1222,7 @@ const layer = Layer.effect(
             break
           }
           const isLastStep = step >= maxSteps || budget.state === "wrap-up"
-          msgs = yield* SessionReminders.apply({ messages: msgs, agent, session }).pipe(
+          msgs = yield* SessionReminders.apply({ messages: msgs, agent, session, providerID: model.providerID }).pipe(
             Effect.provideService(RuntimeFlags.Service, flags),
             Effect.provideService(FSUtil.Service, fsys),
             Effect.provideService(Session.Service, sessions),
@@ -1324,6 +1338,12 @@ const layer = Layer.effect(
               toolChoice:
                 format.type === "json_schema" ? "required" : budget.state === "wrap-up" ? "none" : undefined,
             })
+
+            // FORK-SEAM: route-fallback (nothing was streamed: drop the failed attempt and route the turn again)
+            if (handle.rerouted) {
+              yield* sessions.removeMessage({ sessionID, messageID: handle.message.id }).pipe(Effect.orDie)
+              return "continue" as const
+            }
 
             if (structured !== undefined) {
               handle.message.structured = structured

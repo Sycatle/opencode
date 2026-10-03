@@ -36,7 +36,9 @@
     "./sandbox": "./src/sandbox.ts",
     "./classifier": "./src/classifier.ts",
     "./messaging": "./src/messaging.ts",
-    "./system-prompt": "./src/system-prompt.ts"
+    "./system-prompt": "./src/system-prompt.ts",
+    "./route": "./src/route.ts",
+    "./route-log": "./src/route-log.ts"
   },
   "dependencies": {
     "@opencode-ai/core": "workspace:*",

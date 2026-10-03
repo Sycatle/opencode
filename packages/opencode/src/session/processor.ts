@@ -30,6 +30,7 @@ import { ForkTelemetry } from "@opencode-fork/core/telemetry"
 import { ForkCompaction } from "@opencode-fork/core/compaction"
 import { askWithPlugins } from "./fork-permission"
 import { ForkClaudeTools } from "@opencode-fork/core/claude-tools"
+import { ForkRouteTurn } from "./fork-route"
 
 const DOOM_LOOP_THRESHOLD = 3
 export type Result = "compact" | "stop" | "continue"
@@ -50,6 +51,8 @@ export interface Handle {
     },
   ) => Effect.Effect<void>
   readonly process: (streamInput: LLM.StreamInput) => Effect.Effect<Result>
+  // FORK-SEAM: route-fallback (the attempt streamed nothing and the turn must be routed again)
+  readonly rerouted?: boolean
 }
 
 type Input = {
@@ -75,6 +78,9 @@ interface ProcessorContext extends Input {
   snapshot: string | undefined
   blocked: boolean
   needsCompaction: boolean
+  // FORK-SEAM: route-fallback
+  streamed: boolean
+  reroute: boolean
   currentText: SessionV1.TextPart | undefined
   reasoningMap: Record<string, SessionV1.ReasoningPart>
 }
@@ -114,6 +120,8 @@ const layer = Layer.effect(
         snapshot: initialSnapshot,
         blocked: false,
         needsCompaction: false,
+        streamed: false,
+        reroute: false,
         currentText: undefined,
         reasoningMap: {},
       }
@@ -688,6 +696,7 @@ const layer = Layer.effect(
             const stream = llm.stream(streamInput)
 
             yield* stream.pipe(
+              Stream.tap((event) => Effect.sync(() => void (ctx.streamed ||= ForkRouteTurn.output(event.type)))),
               Stream.tap((event) => handleEvent(event)),
               Stream.takeUntil(() => ctx.needsCompaction),
               Stream.runDrain,
@@ -705,6 +714,16 @@ const layer = Layer.effect(
               (cause) => !Cause.hasInterruptsOnly(cause),
               (cause) => Effect.fail(Cause.squash(cause)),
             ),
+            // FORK-SEAM: route-fallback (before the first streamed byte, a router/* turn moves to another model instead of retrying this one)
+            Effect.catch((error) =>
+              Effect.fail(
+                !ctx.streamed &&
+                  !ctx.assistantMessage.summary &&
+                  ForkRouteTurn.failed({ user: streamInput.user, model: ctx.model, error: parse(error) })
+                  ? ForkRouteTurn.REROUTE
+                  : error,
+              ),
+            ),
             Effect.retry(
               SessionRetry.policy({
                 provider: input.model.providerID,
@@ -720,10 +739,13 @@ const layer = Layer.effect(
                 },
               }),
             ),
-            Effect.catch(halt),
+            Effect.catch((error) =>
+              error === ForkRouteTurn.REROUTE ? Effect.sync(() => void (ctx.reroute = true)) : halt(error),
+            ),
             Effect.ensuring(cleanup()),
           )
 
+          if (ctx.reroute) return "stop"
           if (ctx.needsCompaction) return "compact"
           if (ctx.blocked || ctx.assistantMessage.error) return "stop"
           return "continue"
@@ -733,6 +755,9 @@ const layer = Layer.effect(
       return {
         get message() {
           return ctx.assistantMessage
+        },
+        get rerouted() {
+          return ctx.reroute
         },
         updateToolCall,
         completeToolCall,

@@ -17,6 +17,9 @@ import { Database } from "@opencode-ai/core/database/database"
 import { Provider } from "@/provider/provider"
 import { ForkAgents } from "@opencode-fork/core/agents"
 import { ForkWorktree } from "./fork-worktree"
+import { ForkRouteTurn } from "@/session/fork-route"
+import { ModelV2 } from "@opencode-ai/core/model"
+import { ProviderV2 } from "@opencode-ai/core/provider"
 import { Worktree } from "@/worktree"
 import { InstanceStore } from "@/project/instance-store"
 import { InstanceRef } from "@/effect/instance-ref"
@@ -285,8 +288,11 @@ export const TaskTool = Tool.define(
         !inheriting && ForkAgents.routeToSmallModel(next) && Option.isSome(provider)
           ? yield* provider.value.getSmallModel(msg.info.providerID)
           : undefined
+      // FORK-SEAM: route-subagent (under a router/* turn a subagent without its own model is routed too)
+      const routed = inheriting ? undefined : ForkRouteTurn.subagent(ctx.sessionID, msg.info)
       const model = (inheriting ? undefined : next.model) ??
-        (small ? { modelID: small.id, providerID: small.providerID } : undefined) ?? {
+        (small ? { modelID: small.id, providerID: small.providerID } : undefined) ??
+        (routed ? { modelID: ModelV2.ID.make(routed.modelID), providerID: ProviderV2.ID.make(routed.providerID) } : undefined) ?? {
           modelID: msg.info.modelID,
           providerID: msg.info.providerID,
         }

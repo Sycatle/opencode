@@ -1,6 +1,7 @@
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { ForkCache } from "@opencode-fork/core/cache"
 import { ForkQuota } from "@opencode-fork/core/quota"
+import { ForkRouteProvider } from "./fork-route"
 import os from "os"
 import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
 import fuzzysort from "fuzzysort"
@@ -1777,6 +1778,9 @@ const layer = Layer.effect(
           }
         }
 
+        // FORK-SEAM: route-provider (virtual router/* models in /models)
+        ForkRouteProvider.inject(providers, disabled)
+
         return {
           models: languages,
           providers,
@@ -1923,7 +1927,12 @@ const layer = Layer.effect(
       return info
     })
 
-    const getLanguage = Effect.fn("Provider.getLanguage")(function* (model: Model) {
+    const getLanguage = Effect.fn("Provider.getLanguage")(function* (virtual: Model) {
+      // FORK-SEAM: route-language (a virtual router model runs on the concrete model its turn resolved to)
+      const routed = ForkRouteProvider.concrete(virtual)
+      const model = routed
+        ? yield* getModel(ProviderV2.ID.make(routed.providerID), ModelV2.ID.make(routed.modelID))
+        : virtual
       const s = yield* InstanceState.get(state)
       const envs = yield* env.all()
       const key = `${model.providerID}/${model.id}`
