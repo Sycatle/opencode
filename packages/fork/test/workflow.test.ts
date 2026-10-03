@@ -135,3 +135,17 @@ test("the budget stops new launches and flags the run", async () => {
   expect(rt.halted).toBe(true)
   expect(calls).toHaveLength(1)
 })
+
+test("parseScriptArgs reports malformed JSON with a clear message", () => {
+  expect(ForkWorkflow.parseScriptArgs(undefined)).toEqual({ ok: true, value: undefined })
+  expect(ForkWorkflow.parseScriptArgs('{"a":1}')).toEqual({ ok: true, value: { a: 1 } })
+  const bad = ForkWorkflow.parseScriptArgs("{nope")
+  expect(bad.ok).toBe(false)
+  expect(!bad.ok && bad.message).toStartWith("Invalid --args JSON: ")
+})
+
+test("budgetEnv hands each agent the remaining run budget", () => {
+  expect(ForkWorkflow.budgetEnv(undefined, 1)).toEqual({})
+  expect(ForkWorkflow.budgetEnv(2, 0.5)).toEqual({ OPENCODE_FORK_BUDGET_USD: "1.5" })
+  expect(ForkWorkflow.budgetEnv(1, 3)).toEqual({ OPENCODE_FORK_BUDGET_USD: "0" })
+})

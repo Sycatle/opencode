@@ -18,6 +18,8 @@ const RunCommand = cmd({
       .option("concurrency", { type: "number", default: 4, describe: "maximum agents running at once" })
       .option("dir", { type: "string", describe: "directory to run in" }),
   handler: async (args) => {
+    const scriptArgs = ForkWorkflow.parseScriptArgs(args.args)
+    if (!scriptArgs.ok) return fail(scriptArgs.message)
     const file = path.resolve(args.script)
     const dir = path.resolve(args.dir ?? process.cwd())
     const mod = await import(pathToFileURL(file).href)
@@ -48,8 +50,9 @@ const RunCommand = cmd({
           ...(options.agent ? ["--agent", options.agent] : []),
           prompt,
         ]
+        const env = { ...process.env, ...ForkWorkflow.budgetEnv(args.budget, runtime.spent()) }
         // A slow dev startup can leave `run` silent; one silent attempt is killed and retried once.
-        const reply = (await attempt(command)) ?? (await attempt(command))
+        const reply = (await attempt(command, env)) ?? (await attempt(command, env))
         if (!reply) throw new Error(`agent produced no event in ${STARTUP_TIMEOUT_MS / 1000}s, twice`)
         const id = reply.sessionID ?? sessionID
         if (!id) throw new Error("agent produced no session")
@@ -65,7 +68,7 @@ const RunCommand = cmd({
         pipeline: runtime.pipeline,
         phase: runtime.phase,
         log: runtime.log,
-        args: args.args ? JSON.parse(args.args) : undefined,
+        args: scriptArgs.value,
       }),
     ).then(
       (value) => ({ value, error: undefined, failed: false }),
@@ -99,8 +102,8 @@ function fail(message: string) {
   process.exitCode = 1
 }
 
-async function attempt(command: string[]) {
-  const proc = Bun.spawn(command, { stdout: "pipe", stderr: "ignore", env: process.env })
+async function attempt(command: string[], env: Record<string, string | undefined>) {
+  const proc = Bun.spawn(command, { stdout: "pipe", stderr: "ignore", env })
   const timer = setTimeout(() => proc.kill(), STARTUP_TIMEOUT_MS)
   const decoder = new TextDecoder()
   const state = { output: "", silent: true }

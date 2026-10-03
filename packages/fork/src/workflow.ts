@@ -108,6 +108,17 @@ function safeParse(text: string): Answer {
   }
 }
 
+export function parseScriptArgs(text: string | undefined) {
+  if (text === undefined) return { ok: true as const, value: undefined }
+  const parsed = safeParse(text)
+  return parsed.ok ? parsed : { ok: false as const, message: `Invalid --args JSON: ${parsed.problem}` }
+}
+
+// Lets the fork budget inside a child agent stop it (with a wrap-up turn) before it overshoots the run budget.
+export function budgetEnv(budget: number | undefined, spent: number): Record<string, string> {
+  return budget === undefined ? {} : { OPENCODE_FORK_BUDGET_USD: String(Math.max(0, budget - spent)) }
+}
+
 type RunEvent = { type?: string; sessionID?: string; error?: unknown; part?: { text?: string } }
 
 // Reads `opencode run --format json` lines; the answer is the text written after the last tool call.
