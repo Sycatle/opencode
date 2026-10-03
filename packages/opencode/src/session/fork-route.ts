@@ -2,17 +2,15 @@ import { ForkCache } from "@opencode-fork/core/cache"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
-import { LLMEvent } from "@opencode-ai/llm"
 import { ForkJev } from "@opencode-fork/core/jev"
 import { ForkQuota } from "@opencode-fork/core/quota"
 import { ForkRoute } from "@opencode-fork/core/route"
 import { ForkRouteJev } from "@opencode-fork/core/route-jev"
 import { ForkRouteLog } from "@opencode-fork/core/route-log"
-import { Cause, Effect, Option, Schema, Stream } from "effect"
+import { Cause, Effect, Option, Schema } from "effect"
 import { Provider } from "@/provider/provider"
 import { ForkRouteProvider } from "@/provider/fork-route"
-import { LLM } from "./llm"
-import { MessageID, SessionID } from "./schema"
+import { smallModelRun } from "./fork-small-model"
 import type { Session } from "./session"
 import { SessionRetry } from "./retry"
 
@@ -33,7 +31,11 @@ const parseJson = Schema.decodeUnknownOption(Schema.UnknownFromJsonString)
 const MAX_REROUTES = 4
 // System prompt and tool definitions of a session that has not run a turn yet.
 const FIXED_CONTEXT = 12_000
-const SIGNALS_TIMEOUT = "20 seconds"
+// The first small-model call of a process pays the provider's cold start; once one answered, a slow call
+// costs the user more than routing on default signals does.
+const SIGNALS_TIMEOUT_COLD = "20 seconds"
+const SIGNALS_TIMEOUT_WARM = "5 seconds"
+let signalsWarm = false
 
 export type Resolved = { providerID: ProviderV2.ID; modelID: ModelV2.ID }
 
@@ -95,7 +97,6 @@ export const resolve = Effect.fn("ForkRouteTurn.resolve")(function* (input: {
     ? { ...before, context_size: ForkRoute.contextSize(tokens), source: "reused" as const }
     : needsClassify
       ? yield* classify({
-          provider,
           models,
           catalog,
           degraded,
@@ -265,7 +266,6 @@ function textOf(message: SessionV1.WithParts | undefined) {
 }
 
 const classify = Effect.fn("ForkRouteTurn.classify")(function* (input: {
-  provider: Provider.Interface
   models: Map<string, Provider.Model>
   catalog: ForkRoute.Catalog
   degraded: ReadonlySet<string>
@@ -311,8 +311,15 @@ const classify = Effect.fn("ForkRouteTurn.classify")(function* (input: {
     input.catalog.tiers.standard[0]
   const base = input.models.get(home ?? "")
   if (!base) return undefined
-  const text = yield* ask(input.provider, base, ForkRoute.signalsPrompt(input.prompt, summary)).pipe(
-    Effect.timeout(SIGNALS_TIMEOUT),
+  const text = yield* smallModelRun({
+    prompt: ForkRoute.signalsPrompt(input.prompt, summary),
+    current: { providerID: base.providerID, modelID: base.id },
+    noThinking: true,
+    maxOutputTokens: 200,
+  }).pipe(
+    Effect.map((result) => result.text),
+    Effect.timeout(signalsWarm ? SIGNALS_TIMEOUT_WARM : SIGNALS_TIMEOUT_COLD),
+    Effect.tap(() => Effect.sync(() => (signalsWarm = true))),
     Effect.catchCause((cause) =>
       Effect.logWarning("router signals failed", { cause: Cause.pretty(cause).slice(0, 500) }).pipe(Effect.as(undefined)),
     ),
@@ -321,42 +328,6 @@ const classify = Effect.fn("ForkRouteTurn.classify")(function* (input: {
   if (text !== undefined && !signals) yield* Effect.logWarning("router signals unreadable", { text: text.slice(0, 300) })
   if (signals) yield* Effect.logInfo("router signals", { source: "small-model" })
   return signals && ({ ...signals, source: "small-model" } as const)
-})
-
-// One-shot completion on the small model of the provider (same call path as the prompt hooks of
-// plugin/fork-hooks-model.ts, here from inside the session layer).
-const ask = Effect.fn("ForkRouteTurn.ask")(function* (provider: Provider.Interface, base: Provider.Model, prompt: string) {
-  const llm = yield* LLM.Service
-  const model = (yield* provider.getSmallModel(base.providerID)) ?? base
-  // A plain completion: the small model's default thinking would slow the routing of every prompt.
-  const options: Record<string, unknown> =
-    model.api.npm === "@ai-sdk/anthropic" ? { thinking: { type: "disabled" } } : {}
-  const agent = { name: "fork-route", mode: "primary" as const, permission: [], options, native: true, prompt: "" }
-  return yield* llm
-    .stream({
-      agent,
-      user: {
-        id: MessageID.ascending(),
-        sessionID: SessionID.descending(),
-        role: "user",
-        time: { created: Date.now() },
-        agent: agent.name,
-        model: { providerID: model.providerID, modelID: model.id },
-      },
-      system: [],
-      small: true,
-      tools: {},
-      model,
-      sessionID: SessionID.descending(),
-      retries: 1,
-      messages: [{ role: "user", content: prompt }],
-      maxOutputTokens: 200,
-    })
-    .pipe(
-      Stream.filter(LLMEvent.is.textDelta),
-      Stream.map((part) => part.text),
-      Stream.mkString,
-    )
 })
 
 // ---------------------------------------------------------------- fallback
