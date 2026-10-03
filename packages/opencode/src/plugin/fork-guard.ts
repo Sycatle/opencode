@@ -3,7 +3,7 @@ import { ForkGuard } from "@opencode-fork/core/guard"
 import { ForkJev } from "@opencode-fork/core/jev"
 
 // Prompt-injection guard on the output of webfetch (default on with TYPESAFE_API_KEY) and of MCP tools (opt-in:
-// OPENCODE_FORK_INJECTION_JEV_MCP=1). Fail-open: a Jev failure leaves the output as it is (see ForkGuard).
+// OPENCODE_FORK_INJECTION_MCP_JEV=1). Fail-open: a Jev failure leaves the output as it is (see ForkGuard).
 // MCP results reach this hook raw (`content` items), native tools as `{ output }`.
 export async function ForkGuardPlugin(): Promise<Hooks> {
   return {
