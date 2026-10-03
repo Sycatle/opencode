@@ -2002,6 +2002,9 @@ export type Config = {
       }
   hooks?: ConfigV2Hooks
   sandbox?: ConfigV2Sandbox
+  fork?: {
+    [key: string]: boolean | number | string
+  }
   instructions?: Array<string>
   layout?: LayoutConfig
   permission?: PermissionConfig
@@ -3842,7 +3845,7 @@ export type ConfigV2ReferenceLocal = {
 }
 
 export type ConfigV2HooksEntry = {
-  type?: "command" | "http" | "prompt"
+  type?: "command" | "http" | "prompt" | "classify"
   matcher?: string
   command?: string
   url?: string
@@ -3850,6 +3853,12 @@ export type ConfigV2HooksEntry = {
     [key: string]: string
   }
   prompt?: string
+  question?: string
+  /**
+   * type classify: probability from which the hook blocks (0..1, default 0.5)
+   */
+  threshold?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  reason?: string
   timeout?: number
 }
 
