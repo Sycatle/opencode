@@ -39,7 +39,9 @@
     "./system-prompt": "./src/system-prompt.ts",
     "./route": "./src/route.ts",
     "./route-log": "./src/route-log.ts",
-    "./wakeup": "./src/wakeup.ts"
+    "./wakeup": "./src/wakeup.ts",
+    "./compaction-timing": "./src/compaction-timing.ts",
+    "./compaction-log": "./src/compaction-log.ts"
   },
   "dependencies": {
     "@opencode-ai/core": "workspace:*",

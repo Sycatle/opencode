@@ -281,7 +281,7 @@ function turnCost(price: Price, context: number, output: number) {
   return (context * price.cacheRead + output * price.output) / 1_000_000
 }
 
-function writeCost(price: Price, context: number) {
+export function writeCost(price: Price, context: number) {
   return (context * (price.cacheWrite || price.input)) / 1_000_000
 }
 
