@@ -17,6 +17,8 @@ import { Glob } from "@opencode-ai/core/util/glob"
 import { Discovery } from "./discovery"
 import { isRecord } from "@/util/record"
 import { escapeHtml } from "@/util/html"
+// FORK-SEAM: cc-plugins-skills
+import { ForkClaudePlugins } from "@opencode-fork/core/claude-plugins"
 
 const CLAUDE_EXTERNAL_DIR = ".claude"
 const AGENTS_EXTERNAL_DIR = ".agents"
@@ -271,7 +273,7 @@ const layer = Layer.effect(
       }),
     )
     const state = yield* InstanceState.make(
-      Effect.fn("Skill.state")(function* () {
+      Effect.fn("Skill.state")(function* (ctx) {
         const s: State = { skills: {}, dirs: new Set() }
         // Register the built-in skill BEFORE disk discovery so a user-disk
         // skill with the same name can override it.
@@ -281,7 +283,18 @@ const layer = Layer.effect(
           location: "<built-in>",
           content: CUSTOMIZE_OPENCODE_SKILL_BODY,
         }
-        yield* loadSkills(s, yield* InstanceState.get(discovered), events)
+        const found = yield* InstanceState.get(discovered)
+        yield* loadSkills(s, found, events)
+        // FORK-SEAM: cc-plugins-skills (skills of enabled Claude Code plugins, named <plugin>:<skill>)
+        if (!flags.disableExternalSkills && !flags.disableClaudeCodeSkills) {
+          const plugged = yield* Effect.promise(() =>
+            ForkClaudePlugins.skills({ home: global.home, cwd: ctx.directory }),
+          )
+          for (const item of plugged) {
+            s.skills[item.name] = item
+            found.dirs.push(path.dirname(item.location))
+          }
+        }
         return s
       }),
     )

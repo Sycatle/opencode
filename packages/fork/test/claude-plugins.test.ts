@@ -1,0 +1,114 @@
+import { afterEach, beforeEach, expect, test } from "bun:test"
+import { mkdtemp, rm } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+import { ForkClaudePlugins } from "../src/claude-plugins"
+
+// Fixtures reproduce the layout Claude Code writes under ~/.claude (installed_plugins.json v2,
+// plugins/cache/<marketplace>/<plugin>/<version>/...).
+let home: string
+const env = {}
+
+beforeEach(async () => {
+  home = await mkdtemp(path.join(os.tmpdir(), "fork-cc-"))
+})
+
+afterEach(async () => {
+  await rm(home, { recursive: true, force: true })
+})
+
+async function write(file: string, content: string | object) {
+  await Bun.write(file, typeof content === "string" ? content : JSON.stringify(content, null, 2))
+}
+
+function root(marketplace: string, name: string, version: string) {
+  return path.join(home, ".claude", "plugins", "cache", marketplace, name, version)
+}
+
+async function install(
+  entries: Record<string, { root: string; scope?: string; projectPath?: string; version?: string }[]>,
+  enabledPlugins?: Record<string, boolean>,
+) {
+  await write(path.join(home, ".claude", "plugins", "installed_plugins.json"), {
+    version: 2,
+    plugins: Object.fromEntries(
+      Object.entries(entries).map(([id, list]) => [
+        id,
+        list.map((item) => ({
+          scope: item.scope ?? "user",
+          installPath: item.root,
+          version: item.version ?? "1.0.0",
+          installedAt: "2026-04-05T00:46:42.828Z",
+          lastUpdated: "2026-09-23T07:00:12.751Z",
+          ...(item.projectPath ? { projectPath: item.projectPath } : {}),
+        })),
+      ]),
+    ),
+  })
+  if (enabledPlugins) await write(path.join(home, ".claude", "settings.json"), { enabledPlugins })
+}
+
+const BRAINSTORMING = `---
+name: brainstorming
+description: "You MUST use this before any creative work - creating features."
+---
+
+# Brainstorming
+
+Run \${CLAUDE_PLUGIN_ROOT}/scripts/x.sh
+`
+
+async function superpowers() {
+  const dir = root("claude-plugins-official", "superpowers", "6.4.1")
+  await write(path.join(dir, ".claude-plugin", "plugin.json"), { name: "superpowers", version: "6.4.1" })
+  await write(path.join(dir, "skills", "brainstorming", "SKILL.md"), BRAINSTORMING)
+  await write(path.join(dir, "skills", "nested", "deep", "SKILL.md"), "---\ndescription: Deep: with colon\n---\nbody")
+  return dir
+}
+
+test("skills are namespaced <plugin>:<skill> and expand the plugin root", async () => {
+  const dir = await superpowers()
+  await install({ "superpowers@claude-plugins-official": [{ root: dir, version: "6.4.1" }] })
+  const result = await ForkClaudePlugins.skills({ home, env })
+  expect(result.map((skill) => skill.name)).toEqual(["superpowers:brainstorming", "superpowers:deep"])
+  const first = result[0]!
+  expect(first.description).toStartWith("You MUST use this")
+  expect(first.location).toBe(path.join(dir, "skills", "brainstorming", "SKILL.md"))
+  expect(first.content).toContain(`Run ${dir}/scripts/x.sh`)
+  // invalid YAML (unquoted colon) falls back to line parsing
+  expect(result[1]!.description).toBe("Deep: with colon")
+})
+
+test("enabledPlugins in settings.json is respected", async () => {
+  const dir = await superpowers()
+  const other = root("local-skills", "ux-designer", "unknown")
+  await write(path.join(other, "skills", "ux", "SKILL.md"), "---\nname: ux\ndescription: d\n---\nx")
+  await install(
+    { "superpowers@claude-plugins-official": [{ root: dir }], "ux-designer@local-skills": [{ root: other }] },
+    { "superpowers@claude-plugins-official": true, "ux-designer@local-skills": false },
+  )
+  const names = (await ForkClaudePlugins.skills({ home, env })).map((skill) => skill.name)
+  expect(names).toContain("superpowers:brainstorming")
+  expect(names).not.toContain("ux-designer:ux")
+})
+
+test("without enabledPlugins every installed plugin is enabled", async () => {
+  const dir = await superpowers()
+  await install({ "superpowers@claude-plugins-official": [{ root: dir }] })
+  expect(await ForkClaudePlugins.skills({ home, env })).toHaveLength(2)
+})
+
+test("project scoped installs only apply inside their project", async () => {
+  const dir = await superpowers()
+  const project = path.join(home, "work", "app")
+  await install({ "superpowers@claude-plugins-official": [{ root: dir, scope: "project", projectPath: project }] })
+  expect(await ForkClaudePlugins.skills({ home, env, cwd: path.join(home, "elsewhere") })).toEqual([])
+  expect(await ForkClaudePlugins.skills({ home, env, cwd: path.join(project, "src") })).toHaveLength(2)
+})
+
+test("OPENCODE_FORK_CC_PLUGINS=0 and a missing plugins directory do nothing", async () => {
+  const dir = await superpowers()
+  await install({ "superpowers@claude-plugins-official": [{ root: dir }] })
+  expect(await ForkClaudePlugins.skills({ home, env: { OPENCODE_FORK_CC_PLUGINS: "0" } })).toEqual([])
+  expect(await ForkClaudePlugins.skills({ home: path.join(home, "nothing"), env })).toEqual([])
+})

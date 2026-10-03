@@ -30,7 +30,8 @@
     "./schedule": "./src/schedule.ts",
     "./workflow": "./src/workflow.ts",
     "./monitor": "./src/monitor.ts",
-    "./hooks": "./src/hooks.ts"
+    "./hooks": "./src/hooks.ts",
+    "./claude-plugins": "./src/claude-plugins.ts"
   },
   "dependencies": {
     "@opencode-ai/core": "workspace:*",
