@@ -3,7 +3,7 @@ import { ForkBudget } from "@opencode-fork/core/budget"
 import { ForkQuota } from "@opencode-fork/core/quota"
 import { ForkSummary } from "@opencode-fork/core/summary"
 import { ForkTelemetry } from "@opencode-fork/core/telemetry"
-import { createMemo, createSignal, For, onCleanup, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, For, on, onCleanup, Show } from "solid-js"
 import type { BuiltinTuiPlugin } from "../builtins"
 
 // Fork widgets (see docs/fork/seams.md). Data comes from the fork telemetry
@@ -20,21 +20,41 @@ const money = (value: number) => `$${value < 1 ? value.toFixed(4) : value.toFixe
 const tokens = (value: number) => (value >= 1000 ? `${(value / 1000).toFixed(1)}k` : String(value))
 const percent = (value: number | undefined) => (value === undefined ? "-" : `${Math.round(value * 100)}%`)
 
+// One timer for every widget, and one computation per session and refresh: the sidebar and the prompt show
+// several widgets for the same session, each would otherwise walk the session tree on its own.
+const [tick, setTick] = createSignal(0)
+let timer: ReturnType<typeof setInterval> | undefined
+let users = 0
+const computed = new Map<string, { key: string; value: ReturnType<typeof summarize> }>()
+
 function useSummary(api: TuiPluginApi, sessionID: () => string) {
-  const [tick, setTick] = createSignal(0)
-  const timer = setInterval(() => setTick((value) => value + 1), REFRESH_MS)
-  onCleanup(() => clearInterval(timer))
-  return createMemo(() => {
-    tick()
-    api.state.session.messages(sessionID()).length
-    const steps = ForkTelemetry.steps(sessionID(), { children: true })
-    const summary = ForkSummary.summarize(steps, sessionID())
-    // Only subscription responses carry quota headers, so a fresh snapshot for the
-    // session's provider means the session runs on a subscription.
-    const provider = steps.findLast((step) => step.session_id === sessionID())?.provider_id
-    const quota = provider ? ForkQuota.fresh(provider) : undefined
-    return { ...summary, quota, windowSpent: quota ? ForkQuota.windowSpent(sessionID(), quota.provider) : undefined }
+  users++
+  timer ??= setInterval(() => setTick((value) => value + 1), REFRESH_MS)
+  onCleanup(() => {
+    users--
+    if (users > 0 || !timer) return
+    clearInterval(timer)
+    timer = undefined
+    computed.clear()
   })
+  return createMemo(() => {
+    const key = `${tick()}:${api.state.session.messages(sessionID()).length}`
+    const cached = computed.get(sessionID())
+    if (cached?.key === key) return cached.value
+    const value = summarize(sessionID())
+    computed.set(sessionID(), { key, value })
+    return value
+  })
+}
+
+function summarize(sessionID: string) {
+  const steps = ForkTelemetry.steps(sessionID, { children: true })
+  const summary = ForkSummary.summarize(steps, sessionID)
+  // Only subscription responses carry quota headers, so a fresh snapshot for the
+  // session's provider means the session runs on a subscription.
+  const provider = steps.findLast((step) => step.session_id === sessionID)?.provider_id
+  const quota = provider ? ForkQuota.fresh(provider) : undefined
+  return { ...summary, quota, windowSpent: quota ? ForkQuota.windowSpent(sessionID, quota.provider) : undefined }
 }
 
 function quotaColor(api: TuiPluginApi, quota: ForkQuota.Snapshot) {
@@ -64,7 +84,7 @@ function Quota(props: { api: TuiPluginApi; session_id: string }) {
           </Show>
           <Show when={summary().windowSpent !== undefined}>
             <text fg={theme().textMuted}>
-              session +{summary().windowSpent} pts{window ? ` / ${window} budget` : ""}
+              session +{summary().windowSpent}% of the 5h window{window ? ` / ${window}% budget` : ""}
             </text>
           </Show>
         </box>
@@ -107,7 +127,7 @@ function Usage(props: { api: TuiPluginApi; session_id: string }) {
           <text fg={theme().textMuted}>
             {summary().quota ? "≈ " : ""}
             {money(summary().cost)}
-            {summary().quota ? " API eq." : ""} {summary().children.length > 0 ? "incl. subagents" : "total"}
+            {summary().quota ? " at API prices" : ""} {summary().children.length > 0 ? "incl. subagents" : "total"}
           </text>
           <Show when={limit}>
             {(max) => (
@@ -162,12 +182,31 @@ function Subagents(props: { api: TuiPluginApi; session_id: string }) {
   )
 }
 
+const warned = new Set<string>()
+
 function Budget(props: { api: TuiPluginApi; session_id: string }) {
   const theme = () => props.api.theme.current
   const summary = useSummary(props.api, () => props.session_id)
   const limit = ForkBudget.limit()
   const window = ForkBudget.windowLimit()
   const level = createMemo(() => ForkSummary.budgetLevel(summary().cost, limit))
+  // The colour alone is easy to miss: say it once when the budget nears its end and once when it is spent.
+  createEffect(
+    on(level, (value) => {
+      if (!limit || (value !== "warning" && value !== "exceeded")) return
+      const key = `${props.session_id}:${value}`
+      if (warned.has(key)) return
+      warned.add(key)
+      props.api.ui.toast({
+        variant: value === "exceeded" ? "error" : "warning",
+        title: value === "exceeded" ? "Budget spent" : "Budget at 80%",
+        message:
+          value === "exceeded"
+            ? `${money(summary().cost)} of ${money(limit)}: the session wraps up without tools, then stops at 120%.`
+            : `${money(summary().cost)} of ${money(limit)} spent in this session tree.`,
+      })
+    }),
+  )
   return (
     <Show
       when={summary().quota}
