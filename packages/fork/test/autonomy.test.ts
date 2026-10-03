@@ -56,3 +56,43 @@ test("budgets are USD by default and 5-hour window points with %", () => {
   expect(ForkAutonomy.parseBudget(" 20% ")).toEqual({ unit: "window", amount: 20 })
   expect(() => ForkAutonomy.parseBudget("lots")).toThrow()
 })
+
+const judging = { check: undefined, sessionID: "s", command: undefined, iteration: 1, maxIterations: 5, spent: 0, budget: undefined }
+
+test("without a command, a confident verified done verdict finishes, blocked stops, anything else continues", () => {
+  const verdict = (status: "done" | "partial" | "blocked", confidence: number, verified: number) =>
+    ForkAutonomy.decide({ ...judging, judged: { status, confidence, verified } })
+  expect(verdict("done", 0.9, 0.6)).toEqual({ action: "done", reason: "judged-complete" })
+  expect(verdict("done", 0.7, 0.9).action).toBe("continue")
+  expect(verdict("done", 0.9, 0.2).action).toBe("continue")
+  expect(verdict("partial", 0.99, 0.9).action).toBe("continue")
+  expect(verdict("blocked", 0.8, 0)).toEqual({ action: "stop", reason: "blocked" })
+  expect(verdict("blocked", 0.5, 0).action).toBe("continue")
+  expect(ForkAutonomy.decide({ ...judging, judged: "unavailable" })).toEqual({ action: "stop", reason: "judge-unavailable" })
+  expect(ForkAutonomy.decide({ ...judging, judged: { status: "partial", confidence: 1, verified: 1 }, iteration: 5 })).toEqual({
+    action: "stop",
+    reason: "iterations",
+  })
+})
+
+test("a failing check command always wins over a judgement", () => {
+  const decision = ForkAutonomy.decide({
+    ...judging,
+    command: "bun test",
+    check: { code: 1, output: "fail" },
+    judged: { status: "done", confidence: 1, verified: 1 },
+  })
+  expect(decision.action).toBe("continue")
+})
+
+test("the judgement reads the status choice and the verified probability", () => {
+  expect(ForkAutonomy.judgement({ status: { choice: "done", confidence: 0.9 }, verified: { noul: 0.7 } })).toEqual({
+    status: "done",
+    confidence: 0.9,
+    verified: 0.7,
+  })
+  expect(ForkAutonomy.judgement({ status: { choice: "maybe" }, verified: { noul: 0.7 } })).toBeUndefined()
+  expect(ForkAutonomy.judgement({ status: { choice: "done" } })).toBeUndefined()
+  expect(ForkAutonomy.judgement(undefined)).toBeUndefined()
+  expect(ForkAutonomy.judgeRequest({ task: "t", reply: "r" }).questions.status.type).toBe("choice")
+})
