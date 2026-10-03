@@ -59,10 +59,10 @@ test("notifies once when a background job message lands", async () => {
   const part = (id: string, text: string, synthetic = true) => ({
     properties: { part: { id, type: "text", synthetic, sessionID: "ses_1", text } },
   })
-  handlers[0]!(part("p1", '<shell id="j" state="completed" exit="0">\nout'))
-  handlers[0]!(part("p1", '<shell id="j" state="completed" exit="0">\nout'))
-  handlers[0]!(part("p2", '<task id="s" state="error">\nboom'))
-  handlers[0]!(part("p3", '<task id="s" state="completed">', false))
+  emit(handlers, part("p1", '<shell id="j" state="completed" exit="0">\nout'))
+  emit(handlers, part("p1", '<shell id="j" state="completed" exit="0">\nout'))
+  emit(handlers, part("p2", '<task id="s" state="error">\nboom'))
+  emit(handlers, part("p3", '<task id="s" state="completed">', false))
   expect(notified.map((item) => item.title)).toEqual(["Background command done (exit 0)", "Subagent failed"])
   expect(notified[0]?.message).toBe("Parent")
 })
@@ -71,7 +71,7 @@ test("uses the Session done attention rules, without an OS notification for suba
   const run = async (parentID?: string) => {
     const { api, handlers, notified } = setup(undefined, parentID)
     await plugin.tui(api, undefined, { id: plugin.id } as never)
-    handlers[0]!({
+    emit(handlers, {
       properties: { part: { id: "p1", type: "text", synthetic: true, sessionID: "ses_1", text: '<shell id="j" state="completed" exit="0">\nout' } },
     })
     return notified[0]
@@ -79,3 +79,8 @@ test("uses the Session done attention rules, without an OS notification for suba
   expect(await run()).toMatchObject({ notification: { when: "blurred" }, sound: { name: "subagent_done", when: "always" } })
   expect(await run("ses_parent")).toMatchObject({ notification: false, sound: { name: "subagent_done", when: "always" } })
 })
+
+// Several fork features listen to message.part.updated (messaging, background notifications): feed them all.
+function emit(handlers: ((event: never) => void)[], event: unknown) {
+  handlers.forEach((handler) => handler(event as never))
+}
