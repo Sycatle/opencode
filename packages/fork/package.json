@@ -33,7 +33,8 @@
     "./hooks": "./src/hooks.ts",
     "./claude-plugins": "./src/claude-plugins.ts",
     "./claude-tools": "./src/claude-tools.ts",
-    "./sandbox": "./src/sandbox.ts"
+    "./sandbox": "./src/sandbox.ts",
+    "./classifier": "./src/classifier.ts"
   },
   "dependencies": {
     "@opencode-ai/core": "workspace:*",

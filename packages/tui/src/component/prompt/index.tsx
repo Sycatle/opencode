@@ -8,6 +8,8 @@ import {
   type KeyEvent,
   type Renderable,
 } from "@opentui/core"
+import { ForkClassifier } from "@opencode-fork/core/classifier"
+import { ForkPermissionMode } from "../../feature-plugins/fork/permission-mode"
 import type { CommandContext } from "@opentui/keymap"
 import { createEffect, createMemo, onMount, createSignal, onCleanup, on, Show, Switch, Match } from "solid-js"
 import { registerOpencodeSpinner } from "../register-spinner"
@@ -160,6 +162,13 @@ export function Prompt(props: PromptProps) {
   const tuiConfig = useTuiConfig()
   const dialog = useDialog()
   const toast = useToast()
+  const permissionMode = createMemo(() =>
+    ForkPermissionMode.current(
+      props.sessionID ? (sync.session.get(props.sessionID)?.permission ?? []) : undefined,
+      local.agent.current()?.name,
+      local.permission.draft,
+    ),
+  )
   const status = createMemo(() => sync.data.session_status?.[props.sessionID ?? ""] ?? { type: "idle" })
   const history = usePromptHistory()
   const stash = usePromptStash()
@@ -1001,6 +1010,8 @@ export function Prompt(props: PromptProps) {
         directory,
         workspace: workspaceID,
         agent: agent.name,
+        // FORK-SEAM: permission-mode (a new session starts in the mode picked on the home screen)
+        permission: local.permission.draft === "normal" ? undefined : ForkClassifier.withMode([], local.permission.draft),
         model: {
           providerID: selectedModel.providerID,
           id: selectedModel.modelID,
@@ -1449,8 +1460,21 @@ export function Prompt(props: PromptProps) {
                       <text fg={fadeColor(highlight(), agentMetaAlpha())}>
                         {store.mode === "shell" ? "Shell" : Locale.titlecase(agent().name)}
                       </text>
-                      <Show when={store.mode === "normal" && local.permission.mode === "auto"}>
-                        <text fg={fadeColor(theme.textMuted, agentMetaAlpha())}>auto</text>
+                      {/* FORK-SEAM: permission-mode (current mode under the prompt) */}
+                      <Show
+                        when={
+                          store.mode === "normal" &&
+                          (local.permission.yolo || (permissionMode() !== "normal" && permissionMode() !== "plan"))
+                        }
+                      >
+                        <text
+                          fg={fadeColor(
+                            permissionMode() === "auto" ? theme.warning : permissionMode() === "acceptEdits" ? theme.success : theme.textMuted,
+                            agentMetaAlpha(),
+                          )}
+                        >
+                          {local.permission.yolo ? "yolo" : ForkClassifier.label(permissionMode())}
+                        </text>
                       </Show>
                       <Show when={store.mode === "normal"}>
                         <box flexDirection="row" gap={1}>

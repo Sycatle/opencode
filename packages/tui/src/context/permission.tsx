@@ -1,25 +1,29 @@
 import { createStore } from "solid-js/store"
+import { ForkClassifier } from "@opencode-fork/core/classifier"
 import { useArgs } from "./args"
 import { createSimpleContext } from "./helper"
 
-export type PermissionMode = "auto" | "normal"
-
+// FORK-SEAM: permission-mode
+// `yolo` approves every request client-side (the old upstream "auto"). The fork's modes (build, accept edits,
+// plan, auto) live in each session's permission ruleset (ForkClassifier marker), so they are kept per session
+// and judged on the server; `draft` is the stored mode a session created from the home screen starts with.
 export const { use: usePermission, provider: PermissionProvider } = createSimpleContext({
   name: "Permission",
   init: () => {
     const args = useArgs()
-    const [store, setStore] = createStore<{ mode: PermissionMode }>({
-      mode: args.auto ? "auto" : "normal",
+    const [store, setStore] = createStore<{ yolo: boolean; draft: ForkClassifier.StoredMode }>({
+      yolo: !!args.yolo,
+      draft: args.auto ? "auto" : "normal",
     })
     return {
-      get mode() {
-        return store.mode
+      get yolo() {
+        return store.yolo
       },
-      set(mode: PermissionMode) {
-        setStore("mode", mode)
+      get draft() {
+        return store.draft
       },
-      toggle() {
-        setStore("mode", (mode) => (mode === "auto" ? "normal" : "auto"))
+      setDraft(mode: ForkClassifier.StoredMode) {
+        setStore("draft", mode)
       },
     }
   },

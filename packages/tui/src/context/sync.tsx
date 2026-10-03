@@ -32,6 +32,7 @@ import { batch, onMount } from "solid-js"
 import path from "path"
 import { useKV } from "./kv"
 import { usePermission } from "./permission"
+import { ForkClassifier } from "@opencode-fork/core/classifier"
 
 const emptyConsoleState: ConsoleState = {
   consoleManagedProviders: [],
@@ -195,7 +196,15 @@ export const {
 
         case "permission.asked": {
           const request = event.properties
-          if (permission.mode === "auto") {
+          // FORK-SEAM: permission-mode (auto mode is judged by the server classifier; the client only approves for --yolo or with the classifier off)
+          const owner = search(store.session, request.sessionID, (s) => s.id)
+          if (
+            !ForkClassifier.neverAuto(request.permission) &&
+            (permission.yolo ||
+              (!ForkClassifier.enabled() &&
+                owner.found &&
+                ForkClassifier.storedMode(store.session[owner.index].permission) === "auto"))
+          ) {
             void sdk.client.permission.reply({
               requestID: request.id,
               reply: "once",

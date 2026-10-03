@@ -1,5 +1,6 @@
 import type { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { ForkAgents } from "@opencode-fork/core/agents"
+import { ForkClassifier } from "@opencode-fork/core/classifier"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 // CLI entry point for `opencode run` and `opencode --mini`.
 //
@@ -242,7 +243,7 @@ export const RunCommand = effectCmd({
       })
       .option("auto", {
         type: "boolean",
-        describe: "auto-approve permissions that are not explicitly denied (dangerous!)",
+        describe: "let a classifier approve safe permission requests; the rest are rejected (use --yolo to approve everything)",
         default: false,
       })
       .option("yolo", {
@@ -272,7 +273,9 @@ export const RunCommand = effectCmd({
     yield* Effect.promise(async () => {
       const rawMessage = [...args.message, ...(args["--"] || [])].join(" ")
       const interactive = args.mini
-      const auto = args.auto || args.yolo || args["dangerously-skip-permissions"]
+      // FORK-SEAM: auto-mode (--auto is judged by the classifier on the server; --yolo, or --auto with the classifier off, approves everything here)
+      const yolo = args.yolo || args["dangerously-skip-permissions"] || (args.auto && !ForkClassifier.enabled())
+      const auto = args.auto && !yolo
       const thinking = interactive ? (args.thinking ?? true) : (args.thinking ?? false)
       const die = (message: string): never => {
         UI.error(message)
@@ -428,7 +431,8 @@ export const RunCommand = effectCmd({
         process.exit(1)
       }
 
-      const rules: PermissionV1.Ruleset = interactive
+      // FORK-SEAM: auto-mode (the session starts in auto mode)
+      const rules: PermissionV1.Ruleset = ForkClassifier.withMode(interactive
         ? []
         : [
             {
@@ -446,7 +450,7 @@ export const RunCommand = effectCmd({
               action: "deny",
               pattern: "*",
             },
-          ]
+          ], auto ? "auto" : "normal")
 
       function title() {
         if (args.title === undefined) return
@@ -675,6 +679,15 @@ export const RunCommand = effectCmd({
           process.exit(1)
         }
         const sessionID = sess.id
+        // FORK-SEAM: auto-mode (a resumed or forked session switches to auto mode too)
+        if (auto) {
+          const current = await sdk.session.get({ sessionID })
+          if (current.data && ForkClassifier.storedMode(current.data.permission) !== "auto")
+            await sdk.session.update({
+              sessionID,
+              permission: ForkClassifier.withMode(current.data.permission, "auto"),
+            })
+        }
 
         function emit(type: string, data: Record<string, unknown>) {
           if (args.format === "json") {
@@ -809,7 +822,7 @@ export const RunCommand = effectCmd({
               const permission = event.properties
               if (!sessions.has(permission.sessionID)) continue
 
-              if (auto) {
+              if (yolo && !ForkClassifier.neverAuto(permission.permission)) {
                 await client.permission.reply({
                   requestID: permission.id,
                   reply: "once",
@@ -818,7 +831,10 @@ export const RunCommand = effectCmd({
                 UI.println(
                   UI.Style.TEXT_WARNING_BOLD + "!",
                   UI.Style.TEXT_NORMAL +
-                    `permission requested: ${permission.permission} (${permission.patterns.join(", ")}); auto-rejecting`,
+                    `permission requested: ${permission.permission} (${permission.patterns.join(", ")}); auto-rejecting` +
+                    (typeof permission.metadata?.[ForkClassifier.REASON_KEY] === "string"
+                      ? ` (classifier: ${permission.metadata[ForkClassifier.REASON_KEY]})`
+                      : ""),
                 )
                 await client.permission.reply({
                   requestID: permission.id,

@@ -128,7 +128,9 @@ export const Definitions = {
   console_org_switch: keybind("none", "Switch console organization"),
   agent_list: keybind("<leader>a", "List agents"),
   agent_cycle: keybind("tab", "Next agent"),
-  agent_cycle_reverse: keybind("shift+tab", "Previous agent"),
+  // FORK-SEAM: permission-mode (shift+tab cycles build, accept edits, plan, auto; reverse agent cycling is unbound)
+  agent_cycle_reverse: keybind("none", "Previous agent"),
+  permission_mode_cycle: keybind("shift+tab", "Cycle permission mode"),
   variant_cycle: keybind("ctrl+t", "Cycle model variants"),
   variant_list: keybind("none", "List model variants"),
 
@@ -335,6 +337,7 @@ export const CommandMap = {
   agent_list: "agent.list",
   agent_cycle: "agent.cycle",
   agent_cycle_reverse: "agent.cycle.reverse",
+  permission_mode_cycle: "permission.mode.cycle",
   variant_cycle: "variant.cycle",
   variant_list: "variant.list",
   messages_page_up: "session.page.up",

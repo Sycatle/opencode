@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { PluginInput } from "@opencode-ai/plugin"
+import { ForkClassifier } from "@opencode-fork/core/classifier"
 import { ForkHooks } from "@opencode-fork/core/hooks"
 import fs from "fs/promises"
 import os from "os"
@@ -153,6 +154,34 @@ describe("fork hooks plugin", () => {
         expect(asked._tag).toBe("None")
       }),
     ),
+  )
+
+  it.instance("accept-edits mode approves edits and leaves other permissions to the user", () =>
+    Effect.gen(function* () {
+      const plugin = yield* Plugin.Service
+      const permission = yield* Permission.Service
+      const request = (name: string, ruleset: PermissionV1.Ruleset) =>
+        askWithPlugins(plugin, permission, {
+          sessionID: "s" as never,
+          permission: name,
+          patterns: ["*"],
+          metadata: {},
+          always: [],
+          ruleset,
+        })
+      const mode = ForkClassifier.withMode([], "acceptEdits")
+
+      yield* request("edit", mode)
+      expect((yield* request("bash", mode).pipe(Effect.timeoutOption("200 millis")))._tag).toBe("None")
+      expect((yield* request("edit", []).pipe(Effect.timeoutOption("200 millis")))._tag).toBe("None")
+      const auto = ForkClassifier.withMode([], "auto")
+      expect((yield* request("sandbox_escape", auto).pipe(Effect.timeoutOption("200 millis")))._tag).toBe("None")
+      expect((yield* request("sandbox_escape", mode).pipe(Effect.timeoutOption("200 millis")))._tag).toBe("None")
+      const denied = yield* request("edit", [...mode, { permission: "edit", pattern: "*", action: "deny" }]).pipe(
+        Effect.flip,
+      )
+      expect(denied).toBeInstanceOf(PermissionV1.DeniedError)
+    }),
   )
 
   it.instance("a hook allow never overrides a deny from the ruleset", () =>

@@ -108,7 +108,7 @@ export const TuiThreadCommand = cmd({
       })
       .option("auto", {
         type: "boolean",
-        describe: "auto-approve permissions that are not explicitly denied (dangerous!)",
+        describe: "start in auto mode: a classifier approves safe permission requests (use --yolo to approve everything)",
         default: false,
       })
       .option("yolo", {
@@ -294,7 +294,9 @@ export const TuiThreadCommand = cmd({
               model: args.model,
               prompt,
               fork: args.fork,
-              auto: args.auto || args.yolo || args["dangerously-skip-permissions"],
+              // FORK-SEAM: auto-mode (--yolo keeps the approve-everything behavior)
+              auto: args.auto,
+              yolo: args.yolo || args["dangerously-skip-permissions"],
             },
           }),
         )

@@ -1,4 +1,5 @@
 import { createStore } from "solid-js/store"
+import { ForkClassifier } from "@opencode-fork/core/classifier"
 import { dirname } from "node:path"
 import { createMemo, For, Match, Show, Switch } from "solid-js"
 import { Portal, useRenderer, useTerminalDimensions, type JSX } from "@opentui/solid"
@@ -394,6 +395,13 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
                 </text>
                 <text fg={theme.text}>{current.title}</text>
               </box>
+              {/* FORK-SEAM: permission-mode (why the auto mode classifier did not approve this) */}
+              <Show when={typeof props.request.metadata?.[ForkClassifier.REASON_KEY] === "string"}>
+                <box flexDirection="row" gap={1} paddingLeft={2} flexShrink={0}>
+                  <text fg={theme.warning}>{"Auto mode:"}</text>
+                  <text fg={theme.textMuted}>{String(props.request.metadata?.[ForkClassifier.REASON_KEY])}</text>
+                </box>
+              </Show>
             </box>
           )
 

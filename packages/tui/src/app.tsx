@@ -39,6 +39,8 @@ import { DataProvider } from "./context/data"
 import { LocationProvider } from "./context/location"
 import { LocalProvider, useLocal } from "./context/local"
 import { PermissionProvider } from "./context/permission"
+import { ForkClassifier } from "@opencode-fork/core/classifier"
+import { ForkPermissionMode } from "./feature-plugins/fork/permission-mode"
 import { DialogModel } from "./component/dialog-model"
 import { useConnected } from "./component/use-connected"
 import { DialogMcp } from "./component/dialog-mcp"
@@ -114,6 +116,7 @@ const appBindingCommands = [
   "mcp.list",
   "agent.cycle",
   "agent.cycle.reverse",
+  "permission.mode.cycle",
   "variant.cycle",
   "variant.list",
   "provider.connect",
@@ -946,12 +949,22 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
         },
       },
       {
-        name: "permission.mode",
-        title:
-          local.permission.mode === "auto" ? "Disable auto-approve permissions" : "Enable auto-approve permissions",
-        category: "System",
+        // FORK-SEAM: permission-mode
+        name: "permission.mode.cycle",
+        title: "Cycle permission mode (build, accept edits, plan, auto)",
+        category: "Agent",
         run: () => {
-          local.permission.toggle()
+          const sessionID = route.data.type === "session" ? route.data.sessionID : undefined
+          const mode = ForkPermissionMode.cycle({
+            sessionID,
+            rules: sessionID ? (sync.session.get(sessionID)?.permission ?? []) : undefined,
+            agent: local.agent.current()?.name,
+            draft: local.permission.draft,
+            setAgent: local.agent.set,
+            setDraft: local.permission.setDraft,
+            save: (permission) => sdk.client.session.update({ sessionID: sessionID!, permission }),
+          })
+          toast.show({ message: `Mode: ${ForkClassifier.label(mode)}`, variant: "info", duration: 1500 })
           dialog.clear()
         },
       },
