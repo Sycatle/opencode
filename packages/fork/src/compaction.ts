@@ -19,8 +19,11 @@ type Remembered<T> = { messageID: string; input: T; time: number }
 
 const last = new Map<string, Remembered<unknown>>()
 
-export function remember<T>(sessionID: string, messageID: string, input: T) {
-  last.set(sessionID, { messageID, input, time: Date.now() })
+// The entry holds a whole provider request (history, images): once past WARM_MS recall ignores it,
+// so drop it instead of keeping every session ever run in memory.
+export function remember<T>(sessionID: string, messageID: string, input: T, now = Date.now()) {
+  for (const [id, entry] of last) if (now - entry.time > WARM_MS) last.delete(id)
+  last.set(sessionID, { messageID, input, time: now })
 }
 
 export function recall<T>(sessionID: string, now = Date.now()) {

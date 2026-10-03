@@ -17,71 +17,76 @@ type Deps = {
 }
 
 type Info = { sessionID: SessionID; cwd: string; agent: string; title: string; parentID?: string }
-
-// Registers the sessions of this process in fork_agents and delivers their mailbox. Each session gets a
-// watcher that heartbeats and, every poll, turns pending messages into a synthetic user message through the
-// same `prompt` path as background job notifications: a busy session picks it up at its next turn, an idle
+// Registers the sessions of this process in fork_agents and delivers their mailbox. One watcher per process
+// heartbeats every known session and, every poll, turns pending messages into a synthetic user message through
+// the same `prompt` path as background job notifications: a busy session picks it up at its next turn, an idle
 // one is woken. The session keeps its own agent, so plan mode and permissions are unchanged. The same watcher
 // delivers the session's scheduled wakeup (see ForkWakeup) once it is due and the session is idle.
 export function make(deps: Deps) {
   const latest = new Map<string, Info>()
+  // Last registration per session: the heartbeat in the watcher, the activity in `touch`.
+  const beats = new Map<string, number>()
+  const active = new Map<string, number>()
+  let watching = false
 
-  const watch = Effect.fn("ForkMessaging.watch")(function* (sessionID: SessionID) {
-    let beat = 0
-    let titled = ""
-    yield* Effect.forever(
-      Effect.gen(function* () {
-        yield* Effect.sleep(`${ForkMessaging.pollMs()} millis`)
-        const info = latest.get(sessionID)
-        if (!info) return
-        const session = yield* deps.title(sessionID)
-        if (ForkMessaging.enabled() && (Date.now() - beat >= ForkMessaging.BEAT_MS || session.title !== titled)) {
-          beat = Date.now()
-          titled = session.title
-          ForkMessaging.register({
-            sessionID,
-            cwd: info.cwd,
-            agent: info.agent,
-            title: session.title,
-            kind: ForkMessaging.kindFromArgv(process.argv, session.parentID),
-          })
-        }
-        const texts = (ForkMessaging.enabled() ? ForkMessaging.claim(sessionID) : []).map((item) =>
-          ForkMessaging.render({
-            from: item.from_name,
-            sessionID: item.from_session,
-            summary: item.summary,
-            message: item.message,
-          }),
-        )
-        // A wakeup waits for the end of the current turn; a message does not, it joins the next step.
-        const wakeup = ForkWakeup.enabled() && !(yield* deps.busy(sessionID)) ? ForkWakeup.claimDue(sessionID) : undefined
-        if (wakeup) texts.push(ForkWakeup.render(wakeup))
-        if (!texts.length) return
-        yield* deps
-          .prompt({
-            sessionID,
-            agent: info.agent,
-            parts: texts.map((text) => ({ type: "text" as const, synthetic: true as const, text })),
-          })
-          .pipe(Effect.ignore, Effect.forkIn(deps.scope, { startImmediately: true }))
-      }).pipe(Effect.catchCause(() => Effect.void)),
-    ).pipe(
-      Effect.ensuring(
-        Effect.sync(() => {
-          latest.delete(sessionID)
-          if (ForkMessaging.enabled()) ForkMessaging.leave(sessionID)
-        }),
-      ),
+  const deliver = Effect.fn("ForkMessaging.deliver")(function* (info: Info) {
+    if (ForkMessaging.enabled() && Date.now() - (beats.get(info.sessionID) ?? 0) >= ForkMessaging.BEAT_MS) {
+      // A deleted session stops being watched instead of failing at every poll.
+      const session = yield* deps.title(info.sessionID).pipe(Effect.option)
+      if (session._tag === "None") return yield* Effect.sync(() => drop(info.sessionID))
+      beats.set(info.sessionID, Date.now())
+      ForkMessaging.register({
+        sessionID: info.sessionID,
+        cwd: info.cwd,
+        agent: info.agent,
+        title: session.value.title,
+        kind: ForkMessaging.kindFromArgv(process.argv, session.value.parentID),
+      })
+    }
+    const texts = (ForkMessaging.enabled() ? ForkMessaging.claim(info.sessionID) : []).map((item) =>
+      ForkMessaging.render({
+        from: item.from_name,
+        sessionID: item.from_session,
+        summary: item.summary,
+        message: item.message,
+      }),
     )
+    // A wakeup waits for the end of the current turn; a message does not, it joins the next step.
+    const wakeup =
+      ForkWakeup.enabled() && !(yield* deps.busy(info.sessionID)) ? ForkWakeup.claimDue(info.sessionID) : undefined
+    if (wakeup) texts.push(ForkWakeup.render(wakeup))
+    if (!texts.length) return
+    yield* deps
+      .prompt({
+        sessionID: info.sessionID,
+        agent: info.agent,
+        parts: texts.map((text) => ({ type: "text" as const, synthetic: true as const, text })),
+      })
+      .pipe(Effect.ignore, Effect.forkIn(deps.scope, { startImmediately: true }))
   })
 
-  // Called at every step of a session loop.
+  const drop = (sessionID: string) => {
+    latest.delete(sessionID)
+    beats.delete(sessionID)
+    active.delete(sessionID)
+    if (ForkMessaging.enabled()) ForkMessaging.leave(sessionID)
+  }
+
+  const watch = Effect.forever(
+    Effect.gen(function* () {
+      yield* Effect.sleep(`${ForkMessaging.pollMs()} millis`)
+      for (const info of [...latest.values()]) yield* deliver(info).pipe(Effect.catchCause(() => Effect.void))
+    }),
+  ).pipe(Effect.ensuring(Effect.sync(() => [...latest.keys()].forEach(drop))))
+
+  // Called at every step of a session loop. The registration refreshes the activity at most once per heartbeat:
+  // it scans fork_agents, so running it at every step would cost a write transaction per step.
   const touch = Effect.fn("ForkMessaging.touch")(function* (info: Info) {
     if (!ForkMessaging.enabled() && !ForkWakeup.enabled()) return
-    const first = !latest.has(info.sessionID)
     latest.set(info.sessionID, info)
-    if (ForkMessaging.enabled())
+    const now = Date.now()
+    if (ForkMessaging.enabled() && now - (active.get(info.sessionID) ?? 0) >= ForkMessaging.BEAT_MS) {
+      active.set(info.sessionID, now)
       yield* Effect.sync(() =>
         ForkMessaging.register({
           sessionID: info.sessionID,
@@ -92,7 +97,10 @@ export function make(deps: Deps) {
           active: true,
         }),
       ).pipe(Effect.catchCause(() => Effect.void))
-    if (first) yield* watch(info.sessionID).pipe(Effect.forkIn(deps.scope))
+    }
+    if (watching) return
+    watching = true
+    yield* watch.pipe(Effect.forkIn(deps.scope))
   })
 
   return { touch }
