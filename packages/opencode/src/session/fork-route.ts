@@ -6,7 +6,7 @@ import { LLMEvent } from "@opencode-ai/llm"
 import { ForkQuota } from "@opencode-fork/core/quota"
 import { ForkRoute } from "@opencode-fork/core/route"
 import { ForkRouteLog } from "@opencode-fork/core/route-log"
-import { Effect, Stream } from "effect"
+import { Cause, Effect, Stream } from "effect"
 import { Provider } from "@/provider/provider"
 import { ForkRouteProvider } from "@/provider/fork-route"
 import { LLM } from "./llm"
@@ -244,9 +244,13 @@ const classify = Effect.fn("ForkRouteTurn.classify")(function* (input: {
   }
   const text = yield* ask(input.provider, base, ForkRoute.signalsPrompt(input.prompt, summary)).pipe(
     Effect.timeout(SIGNALS_TIMEOUT),
-    Effect.catchCause(() => Effect.succeed(undefined)),
+    Effect.catchCause((cause) =>
+      Effect.logWarning("router signals failed", { cause: Cause.pretty(cause).slice(0, 500) }).pipe(Effect.as(undefined)),
+    ),
   )
-  return text === undefined ? undefined : ForkRoute.parseSignals(text, ForkRoute.contextSize(input.tokens))
+  const signals = text === undefined ? undefined : ForkRoute.parseSignals(text, ForkRoute.contextSize(input.tokens))
+  if (text !== undefined && !signals) yield* Effect.logWarning("router signals unreadable", { text: text.slice(0, 300) })
+  return signals
 })
 
 // One-shot completion on the small model of the provider (same call path as the prompt hooks of
@@ -254,7 +258,10 @@ const classify = Effect.fn("ForkRouteTurn.classify")(function* (input: {
 const ask = Effect.fn("ForkRouteTurn.ask")(function* (provider: Provider.Interface, base: Provider.Model, prompt: string) {
   const llm = yield* LLM.Service
   const model = (yield* provider.getSmallModel(base.providerID)) ?? base
-  const agent = { name: "fork-route", mode: "primary" as const, permission: [], options: {}, native: true, prompt: "" }
+  // A plain completion: the small model's default thinking would slow the routing of every prompt.
+  const options: Record<string, unknown> =
+    model.api.npm === "@ai-sdk/anthropic" ? { thinking: { type: "disabled" } } : {}
+  const agent = { name: "fork-route", mode: "primary" as const, permission: [], options, native: true, prompt: "" }
   return yield* llm
     .stream({
       agent,
@@ -273,6 +280,7 @@ const ask = Effect.fn("ForkRouteTurn.ask")(function* (provider: Provider.Interfa
       sessionID: SessionID.descending(),
       retries: 1,
       messages: [{ role: "user", content: prompt }],
+      maxOutputTokens: 200,
     })
     .pipe(
       Stream.filter(LLMEvent.is.textDelta),

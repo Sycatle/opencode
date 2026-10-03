@@ -352,6 +352,42 @@ test("tiers are derived from price and capability, and never left empty", () => 
   expect(tiers.frontier).toEqual(["anthropic/opus"])
 })
 
+test("only the newest model of each family is routed to (Anthropic catalog of October 2026)", () => {
+  const r = (released: string) => ({ released, reasoning: true })
+  const tiers = ForkRoute.deriveTiers([
+    known("anthropic", "claude-haiku-4-5", 5, { released: "2025-10-15" }),
+    known("anthropic", "claude-haiku-4-5-20251001", 5, { released: "2025-10-15" }),
+    known("anthropic", "claude-sonnet-4-5", 15, r("2025-09-29")),
+    known("anthropic", "claude-sonnet-5-5", 10, r("2026-09-28")),
+    known("anthropic", "claude-opus-4-5", 25, r("2025-11-24")),
+    known("anthropic", "claude-opus-5-5", 20, r("2026-09-22")),
+    known("anthropic", "claude-fable-5-1", 50, r("2026-09-01")),
+  ])
+  expect(tiers).toEqual({
+    fast: ["anthropic/claude-haiku-4-5"],
+    standard: ["anthropic/claude-sonnet-5-5"],
+    reasoning: ["anthropic/claude-opus-5-5"],
+    frontier: ["anthropic/claude-opus-5-5"],
+  })
+  expect(ForkRoute.family("gpt-6.1-sol")).toBe(ForkRoute.family("gpt-5.6-sol"))
+})
+
+test("Fable is never routed to: frontier tops out at Opus", () => {
+  const tiers = ForkRoute.deriveTiers([
+    known("anthropic", "claude-haiku", 5),
+    known("anthropic", "claude-opus", 25, { reasoning: true }),
+    known("anthropic", "claude-fable", 75, { reasoning: true }),
+  ])
+  expect(tiers.frontier).toEqual(["anthropic/claude-opus"])
+  expect(Object.values(tiers).flat()).not.toContain("anthropic/claude-fable")
+})
+
+test("a greeting is framed as a request to classify, not to answer", () => {
+  const text = ForkRoute.signalsPrompt("bonjour", { messages: 1, tokens: 12000 })
+  expect(text).toContain("<request>\nbonjour\n</request>")
+  expect(text).toContain("Do not answer")
+})
+
 test("subscription-backed providers come first inside a tier", () => {
   const tiers = ForkRoute.deriveTiers([known("openai", "mini", 2), known("anthropic", "haiku", 5, { subscription: true })])
   expect(tiers.fast).toEqual(["anthropic/haiku", "openai/mini"])
@@ -379,7 +415,7 @@ test("the small model's JSON answer becomes signals", () => {
   expect(ForkRoute.parseSignals("no json", "small")).toBeUndefined()
   expect(ForkRoute.parseSignals('{"task_type":"feature"}', "small")).toBeUndefined()
   expect(ForkRoute.signalsPrompt("fix the typo", { messages: 3, tokens: 900, tools: ["read"], first: "hello" })).toContain(
-    "Latest user message:\nfix the typo",
+    "<request>\nfix the typo\n</request>",
   )
 })
 

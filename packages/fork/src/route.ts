@@ -463,27 +463,66 @@ export type Known = Model & {
 const MONTH_MS = 30 * 24 * 3_600_000
 
 // Tiers from what is connected, by output price and capability: <= $6 per million output tokens
-// is FAST, <= $20 STANDARD, above that REASONING (reasoning models only) and, past $40, FRONTIER.
-// Only tool-capable models released within 15 months of their provider's newest are considered.
-// A tier left empty borrows the nearest populated one (lower first), so routing never dead-ends.
-// Within a tier: subscription-backed providers first, then cheaper.
-export function deriveTiers(models: readonly Known[]): Record<Tier, string[]> {
+// is FAST, <= $12 STANDARD, above that REASONING (reasoning models only) and, past $30, FRONTIER.
+// Only the newest tool-capable model of each family, released within 18 months of its provider's
+// newest, is considered.
+// A tier left empty borrows the nearest populated one (lower first), so routing never dead-ends: with
+// Fable excluded, FRONTIER falls back to the reasoning tier (Opus).
+// Within a tier: subscription-backed providers first, then newest, then cheaper.
+// Models never routed to, matched by substring of their ID: Fable is overkill and Opus is the ceiling;
+// "-fast" and "-pro" variants cost several times the same model; realtime, image and speech models
+// are not coding models.
+export function excluded(env: Record<string, string | undefined> = process.env) {
+  return (env.OPENCODE_FORK_ROUTE_EXCLUDE ?? "fable,-fast,-pro,realtime,image,tts")
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean)
+}
+
+// "claude-opus-5-5" and "claude-opus-4-5-20251101" are both "claude-opus"; "gpt-6.1-sol" is "gpt-sol".
+export function family(id: string) {
+  return id
+    .toLowerCase()
+    .replace(/[0-9]+([.-][0-9]+)*/g, "")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+}
+
+export function deriveTiers(models: readonly Known[], exclude: readonly string[] = excluded()): Record<Tier, string[]> {
   const newest = models.reduce<Record<string, number>>((all, m) => {
     const time = Date.parse(m.released) || 0
     return { ...all, [m.provider]: Math.max(all[m.provider] ?? 0, time) }
   }, {})
-  const pool = models.filter(
-    (m) => m.tools && m.price.output > 0 && (Date.parse(m.released) || 0) >= (newest[m.provider] ?? 0) - 15 * MONTH_MS,
+  const usable = models.filter(
+    (m) =>
+      m.tools &&
+      m.price.output > 0 &&
+      (Date.parse(m.released) || 0) >= (newest[m.provider] ?? 0) - 18 * MONTH_MS &&
+      !exclude.some((part) => m.id.toLowerCase().includes(part)),
   )
+  // Only the newest model of each family is current: Opus 4.5 is superseded by Opus 5.5, a dated
+  // snapshot by its alias.
+  const latest = usable.reduce<Record<string, Known>>((all, m) => {
+    const key = `${m.provider}/${family(m.id)}`
+    const held = all[key]
+    const newer = !held || (Date.parse(m.released) || 0) > (Date.parse(held.released) || 0)
+    const alias = held && m.released === held.released && m.id.length < held.id.length
+    return newer || alias ? { ...all, [key]: m } : all
+  }, {})
+  const pool = Object.values(latest)
   const tierOf = (m: Known): Tier => {
     const out = m.price.output
     if (out <= 6) return "fast"
-    if (out <= 20) return "standard"
-    if (out > 40) return "frontier"
+    if (out <= 12) return "standard"
+    if (out > 30) return "frontier"
     return m.reasoning ? "reasoning" : "standard"
   }
+  // Newest first: an older model of the same tier (Opus 4.5 next to Opus 5.5) is cheaper but weaker.
   const order = (a: Known, b: Known) =>
-    Number(b.subscription) - Number(a.subscription) || a.price.output - b.price.output || a.id.localeCompare(b.id)
+    Number(b.subscription) - Number(a.subscription) ||
+    (Date.parse(b.released) || 0) - (Date.parse(a.released) || 0) ||
+    a.price.output - b.price.output ||
+    a.id.localeCompare(b.id)
   const by = (tier: Tier) => pool.filter((m) => tierOf(m) === tier).toSorted(order).map((m) => m.id)
   const raw = Object.fromEntries(TIERS.map((tier) => [tier, by(tier)])) as Record<Tier, string[]>
   return Object.fromEntries(
@@ -514,7 +553,8 @@ export function truncate(text: string, max: number) {
 // The small model reads the user's prompt and a short context summary and answers with JSON.
 export function signalsPrompt(prompt: string, summary: Summary) {
   const lines = [
-    "You classify a coding-agent request so it can be routed to the cheapest sufficient LLM.",
+    "You are a request classifier, not an assistant. Do not answer, greet or help with the request below:",
+    "classify it so it can be routed to the cheapest sufficient LLM.",
     "Answer with one JSON object and nothing else. Never name a model.",
     "",
     "Fields:",
@@ -528,6 +568,7 @@ export function signalsPrompt(prompt: string, summary: Summary) {
     "- latency_sensitivity: 0 can wait, 0.33 normal, 0.66 wants it quick, 1 interactive",
     "- ambiguity: 0 clear .. 1 ambiguous, underspecified or open-ended",
     "- confidence: 0..1, how sure you are of all of the above",
+    "A greeting, thanks or small talk is task_type other with every level at 0 and confidence 1.",
     "",
     '{"task_type":"...","complexity":0,"reasoning":0,"tool_intensity":0,"latency_sensitivity":0,"ambiguity":0,"confidence":0}',
     "",
@@ -537,7 +578,15 @@ export function signalsPrompt(prompt: string, summary: Summary) {
   lines.push(`Messages so far: ${summary.messages}. Approx context tokens: ${summary.tokens}.`)
   if (summary.tools?.length) lines.push(`Tools available: ${summary.tools.slice(0, 20).join(", ")}.`)
   if (summary.lastAnswer) lines.push(`Last assistant answer: ${truncate(summary.lastAnswer, 300)}`)
-  lines.push("", "Latest user message:", truncate(prompt, 3000))
+  lines.push(
+    "",
+    "Latest user message to classify:",
+    "<request>",
+    truncate(prompt, 3000),
+    "</request>",
+    "",
+    "Reply with the JSON object only, starting with {. Even a greeting or a one-word message gets classified, not answered.",
+  )
   return lines.join("\n")
 }
 
