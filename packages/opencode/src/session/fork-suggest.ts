@@ -1,3 +1,4 @@
+import { ForkJev } from "@opencode-fork/core/jev"
 import { ForkPromptSuggestion } from "@opencode-fork/core/prompt-suggestion"
 import { Effect } from "effect"
 import type { SessionID } from "./schema"
@@ -39,21 +40,39 @@ export const suggest = Effect.fn("ForkSuggest.suggest")(function* (sessionID: Se
   })
   if (reason) return
 
-  const todos = messages
+  const todoPart = messages
     .flatMap((message) => message.parts)
     .findLast((part) => part.type === "tool" && part.tool === "todowrite" && part.state.status === "completed")
+  const todos =
+    todoPart?.type === "tool" && Array.isArray(todoPart.state.input.todos)
+      ? todoPart.state.input.todos.flatMap((todo: unknown) =>
+          typeof todo === "object" && todo && "content" in todo && "status" in todo
+            ? [{ content: String(todo.content), status: String(todo.status) }]
+            : [],
+        )
+      : []
+
+  // Jev first: a follow-up that cannot be guessed is not worth a small-model call. Any failure, and shadow
+  // mode, go on to the small model as before.
+  const jev = ForkJev.mode("PROMPT_SUGGESTION")
+  if (jev !== "off") {
+    const answer = yield* Effect.promise(() => ForkJev.ask(ForkPromptSuggestion.jevRequest({ turns, todos })))
+    const noul = answer.answers?.predictable?.noul
+    const skipped = noul !== undefined && noul < ForkPromptSuggestion.jevMin()
+    ForkJev.journal({
+      feature: "prompt_suggestion",
+      session_id: sessionID,
+      ms: answer.ms,
+      ok: noul !== undefined,
+      error: answer.error ?? (noul === undefined ? "Jev response unusable" : undefined),
+      decision: noul === undefined ? undefined : skipped ? "skip" : "ask",
+      other: jev === "shadow" ? "ask" : undefined,
+      answers: answer.answers,
+    })
+    if (skipped && jev === "on") return
+  }
   const exit = yield* smallModelRun({
-    prompt: ForkPromptSuggestion.prompt({
-      turns,
-      todos:
-        todos?.type === "tool" && Array.isArray(todos.state.input.todos)
-          ? todos.state.input.todos.flatMap((todo: unknown) =>
-              typeof todo === "object" && todo && "content" in todo && "status" in todo
-                ? [{ content: String(todo.content), status: String(todo.status) }]
-                : [],
-            )
-          : [],
-    }),
+    prompt: ForkPromptSuggestion.prompt({ turns, todos }),
     maxOutputTokens: ForkPromptSuggestion.MAX_OUTPUT_TOKENS,
     noThinking: true,
     current: { providerID: lastUser.info.model.providerID, modelID: lastUser.info.model.modelID },
