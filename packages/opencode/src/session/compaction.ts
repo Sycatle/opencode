@@ -2,6 +2,7 @@ import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { ForkContext } from "@opencode-fork/core/context"
 import { ForkCompactionRun } from "./fork-compaction"
+import { ForkPrune } from "./fork-prune"
 import { LLM } from "./llm"
 import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
 import { Session } from "./session"
@@ -311,7 +312,16 @@ const layer = Layer.effect(
 
       yield* Effect.logInfo("found", { pruned, total })
       if (pruned > PRUNE_MINIMUM) {
+        // FORK-SEAM: prune-keep (outputs Jev expects the agent to need again are spared by this batch)
+        const spared = yield* ForkPrune.keep({
+          session,
+          sessionID: input.sessionID,
+          messages: msgs,
+          batch: toPrune,
+          minimum: PRUNE_MINIMUM,
+        })
         for (const part of toPrune) {
+          if (spared.has(part.id)) continue
           if (part.state.status === "completed") {
             part.state.time.compacted = Date.now()
             yield* session.updatePart(part)
