@@ -18,6 +18,7 @@ const NATIVE_DEFERRABLE = [
   "plan_exit",
   "shell_output",
   "shell_kill",
+  "monitor",
 ]
 
 // Rarely used native tools, deferred like MCP ones. OPENCODE_FORK_DEFER_NATIVE:

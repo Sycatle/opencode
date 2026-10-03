@@ -23,6 +23,7 @@ import { RuntimeFlags } from "@/effect/runtime-flags"
 import { InstanceStore } from "@/project/instance-store"
 import { BackgroundJob } from "@/background/job"
 import { ShellKillTool, ShellOutputTool } from "../../src/tool/shell-background"
+import { MonitorTool } from "../../src/tool/monitor"
 import type { SessionPrompt } from "../../src/session/prompt"
 import type { TaskPromptOps } from "../../src/tool/task"
 
@@ -1209,6 +1210,7 @@ describe.skipIf(process.platform === "win32")("tool.shell background", () => {
       shell: yield* initShell(),
       output: yield* (yield* ShellOutputTool).init(),
       kill: yield* (yield* ShellKillTool).init(),
+      monitor: yield* (yield* MonitorTool).init(),
     }
   })
 
@@ -1272,6 +1274,115 @@ describe.skipIf(process.platform === "win32")("tool.shell background", () => {
         expect((yield* jobs.get(job.id))?.status).toBe("cancelled")
         expect((yield* output.execute({ id: job.id }, next)).output).toContain("status: cancelled")
         yield* Effect.sleep("200 millis")
+        expect(yield* Deferred.isDone(injected)).toBe(false)
+      }),
+    ),
+  )
+
+  it.live("monitor matches a pattern in new job output", () =>
+    runIn(
+      projectRoot,
+      Effect.gen(function* () {
+        const jobs = yield* BackgroundJob.Service
+        const { shell, monitor } = yield* tools
+        yield* shell.execute({ command: "echo old; sleep 2; echo ready; echo after; sleep 30", background: true }, ctx)
+        const job = (yield* jobs.list())[0]
+        if (!job) throw new Error("job not started")
+        const outputFile = Bun.file(String(job.metadata?.outputPath))
+        while (!(yield* Effect.promise(() => outputFile.text())).includes("old")) yield* Effect.sleep("50 millis")
+        const result = yield* monitor.execute({ id: job.id, pattern: "ready|old", timeout_ms: 20000 }, ctx)
+        expect(result.output).toContain("> ready")
+        expect(result.output).not.toContain("> old")
+        yield* jobs.cancel(job.id)
+      }),
+    ),
+  )
+
+  it.live("monitor reports the exit of a job", () =>
+    runIn(
+      projectRoot,
+      Effect.gen(function* () {
+        const jobs = yield* BackgroundJob.Service
+        const { shell, monitor } = yield* tools
+        yield* shell.execute({ command: "sleep 1; echo bye; exit 3", background: true }, ctx)
+        const job = (yield* jobs.list())[0]
+        if (!job) throw new Error("job not started")
+        const result = yield* monitor.execute({ id: job.id, pattern: "never", timeout_ms: 20000 }, ctx)
+        expect(result.output).toContain("exited with code 3")
+        expect(result.output).toContain("bye")
+      }),
+    ),
+  )
+
+  it.live("monitor reruns a command until it succeeds", () =>
+    runIn(
+      projectRoot,
+      Effect.gen(function* () {
+        const jobs = yield* BackgroundJob.Service
+        const { shell, monitor } = yield* tools
+        const tmp = yield* tmpdirScoped()
+        const flag = path.join(tmp, "flag")
+        yield* shell.execute({ command: `sleep 1; touch ${flag}`, background: true }, ctx)
+        const requests: Array<Omit<PermissionV1.Request, "id" | "sessionID" | "tool">> = []
+        const result = yield* monitor.execute(
+          { command: `test -f ${flag} && echo found`, interval_ms: 500, timeout_ms: 20000 },
+          capture(requests),
+        )
+        expect(result.output).toContain("Command succeeded")
+        expect(result.output).toContain("found")
+        expect(requests[0]).toMatchObject({ permission: "bash" })
+        yield* Effect.forEach(yield* jobs.list(), (job) => jobs.cancel(job.id))
+      }),
+    ),
+  )
+
+  it.live("monitor times out", () =>
+    runIn(
+      projectRoot,
+      Effect.gen(function* () {
+        const { monitor } = yield* tools
+        const result = yield* monitor.execute({ command: "false", interval_ms: 500, timeout_ms: 1200 }, ctx)
+        expect(result.output).toContain("Timed out")
+        expect(result.output).toContain("Last command exit: 1")
+      }),
+    ),
+  )
+
+  it.live("background monitor notifies when the pattern appears", () =>
+    runIn(
+      projectRoot,
+      Effect.gen(function* () {
+        const jobs = yield* BackgroundJob.Service
+        const { shell, monitor } = yield* tools
+        const injected = yield* Deferred.make<SessionPrompt.PromptInput>()
+        const next = withOps(injected)
+        yield* shell.execute({ command: "sleep 1; echo ready; sleep 30", background: true }, next)
+        const job = (yield* jobs.list())[0]
+        if (!job) throw new Error("job not started")
+        const started = yield* monitor.execute({ id: job.id, pattern: "ready", background: true }, next)
+        expect(started.output).toContain("started in the background")
+        const part = (yield* Deferred.await(injected)).parts[0]
+        expect(part && "text" in part ? part.text : "").toContain(`<monitor`)
+        expect(part && "text" in part ? part.text : "").toContain("> ready")
+        yield* Effect.forEach(yield* jobs.list(), (item) => jobs.cancel(item.id))
+      }),
+    ),
+  )
+
+  it.live("cancelled background monitor stays silent", () =>
+    runIn(
+      projectRoot,
+      Effect.gen(function* () {
+        const jobs = yield* BackgroundJob.Service
+        const { monitor } = yield* tools
+        const injected = yield* Deferred.make<SessionPrompt.PromptInput>()
+        const next = withOps(injected)
+        yield* monitor.execute({ command: "false", background: true }, next)
+        const job = (yield* jobs.list())[0]
+        if (!job) throw new Error("job not started")
+        expect(job.type).toBe("monitor")
+        yield* jobs.cancel(job.id)
+        yield* Effect.sleep("300 millis")
         expect(yield* Deferred.isDone(injected)).toBe(false)
       }),
     ),

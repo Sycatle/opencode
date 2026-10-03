@@ -7,6 +7,7 @@ import { Session } from "@/session/session"
 import { QuestionTool } from "./question"
 import { ShellTool } from "./shell"
 import { ShellKillTool, ShellOutputTool } from "./shell-background"
+import { MonitorTool } from "./monitor"
 import { ForkShell } from "@opencode-fork/core/shell"
 import { EditTool } from "./edit"
 import { GlobTool } from "./glob"
@@ -113,6 +114,7 @@ const layer = Layer.effect(
     const shell = yield* ShellTool
     const shellOutput = yield* ShellOutputTool
     const shellKill = yield* ShellKillTool
+    const monitor = yield* MonitorTool
     const globtool = yield* GlobTool
     const writetool = yield* WriteTool
     const edit = yield* EditTool
@@ -216,6 +218,7 @@ const layer = Layer.effect(
           shell: Tool.init(shell),
           shellOutput: Tool.init(shellOutput),
           shellKill: Tool.init(shellKill),
+          monitor: Tool.init(monitor),
           read: Tool.init(read),
           glob: Tool.init(globtool),
           grep: Tool.init(greptool),
@@ -241,6 +244,8 @@ const layer = Layer.effect(
             tool.shell,
             // FORK-SEAM: background-shell
             ...(ForkShell.enabled() ? [tool.shellOutput, tool.shellKill] : []),
+            // FORK-SEAM: monitor
+            ...(ForkShell.enabled() ? [tool.monitor] : []),
             tool.read,
             tool.glob,
             tool.grep,

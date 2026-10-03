@@ -14,7 +14,7 @@ const KillParameters = Schema.Struct({
   id: Schema.String.annotate({ description: "Job id returned by a background bash command" }),
 })
 
-const find = Effect.fn("ShellBackground.find")(function* (
+export const find = Effect.fn("ShellBackground.find")(function* (
   background: BackgroundJob.Interface,
   id: string,
   ctx: Tool.Context,

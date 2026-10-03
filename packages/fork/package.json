@@ -27,7 +27,9 @@
     "./memory": "./src/memory.ts",
     "./statusline": "./src/statusline.ts",
     "./schedule": "./src/schedule.ts",
-    "./workflow": "./src/workflow.ts"
+    "./workflow": "./src/workflow.ts",
+    "./monitor": "./src/monitor.ts",
+    "./memory": "./src/memory.ts"
   },
   "dependencies": {
     "@opencode-ai/core": "workspace:*",
