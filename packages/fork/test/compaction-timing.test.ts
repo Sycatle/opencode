@@ -144,3 +144,21 @@ test("the journal keeps every decision of a session in order", () => {
   ])
   expect(rows[0].context).toBe(120_000)
 })
+
+test("an unlikely task boundary delays the compaction until the window is nearly full, and never a cold cache", () => {
+  const delayed = decide({ boundary: 0.2 })
+  expect(delayed.compact).toBe(false)
+  expect(delayed.code).toBe("not-boundary")
+  expect(decide({ boundary: 0.8 }).code).toBe("boundary")
+  expect(decide({ boundary: 0.2, context: 150_000 }).code).toBe("boundary")
+  expect(decide({ boundary: 0.2, idleMs: ForkCompactionTiming.WARM_TTL_MS + 1 }).code).toBe("cold-cache")
+  expect(decide({ boundary: undefined }).code).toBe("boundary")
+})
+
+test("the Jev request carries the last exchange and the open todos", () => {
+  const request = ForkCompactionTiming.jevRequest({ user: "ship it", reply: "Done.", todos: 2 })
+  expect(request.state).toContain("User's last message:\nship it")
+  expect(request.state).toContain("End of the agent's reply:\nDone.")
+  expect(request.state).toContain("Open todos: 2.")
+  expect(request.questions.boundary.type).toBe("noul")
+})

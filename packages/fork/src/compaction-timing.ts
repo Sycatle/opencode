@@ -1,3 +1,4 @@
+import type { ForkJev } from "./jev"
 import { writeCost, type Price } from "./route"
 
 // When to compact. Upstream compacts at overflow, usually in the middle of a tool loop. This policy
@@ -14,6 +15,11 @@ export const SUMMARY_TOKENS = 2_000
 // Anthropic cache TTL without the 1h option, minus a margin (see compaction.ts WARM_MS).
 export const WARM_TTL_MS = 4.5 * 60 * 1000
 export const LONG_TTL_MS = 55 * 60 * 1000
+
+// Jev's probability that the exchange closes a task. Below the first value, and while the window is under the
+// second, the compaction waits for a better moment; the overflow compaction stays the safety net.
+export const BOUNDARY_MIN = 0.35
+export const BOUNDARY_OVERRIDE = 0.7
 
 export function enabled() {
   return process.env.OPENCODE_FORK_SMART_COMPACTION !== "0"
@@ -70,6 +76,8 @@ export type Input = {
   turnsSince: number
   // Provider calls expected before the session ends.
   remaining: number
+  // Probability (Jev) that the exchange that just ended closes a task; undefined when not asked.
+  boundary?: number
 }
 
 export type Code =
@@ -84,6 +92,7 @@ export type Code =
   | "no-price"
   | "not-worth"
   | "boundary"
+  | "not-boundary"
   | "cold-cache"
 
 export type Decision = {
@@ -129,12 +138,35 @@ export function decide(input: Input, cfg: Settings = settings()): Decision {
   const figures = { cost: money.cost, benefit: money.benefit }
   if (money.free) return skip("no-price", "the model has no known price", figures)
   if (!money.pays) return skip("not-worth", `${detail}: not worth it`, figures)
+  if (!cold && input.boundary !== undefined && input.boundary < BOUNDARY_MIN && used < BOUNDARY_OVERRIDE)
+    return skip("not-boundary", `${detail}: the task is not over (boundary ${input.boundary.toFixed(2)})`, figures)
   return {
     ...base,
     ...figures,
     compact: true,
     code: cold ? "cold-cache" : "boundary",
     reason: cold ? `cold cache, the next turn rewrites the context anyway: ${detail}` : `task boundary: ${detail}`,
+  }
+}
+
+const JEV_USER = 500
+const JEV_REPLY = 1_500
+
+// What Jev reads to say whether the exchange that just ended closes a task.
+export function jevRequest(input: { user: string; reply: string; todos: number }) {
+  return {
+    state: [
+      "Coding-agent turn that just ended; deciding whether this is a good moment to summarise the conversation.",
+      `User's last message:\n${input.user.trim().slice(0, JEV_USER)}`,
+      `End of the agent's reply:\n${input.reply.trim().slice(-JEV_REPLY)}`,
+      `Open todos: ${input.todos}.`,
+    ].join("\n"),
+    questions: {
+      boundary: {
+        type: "noul",
+        instructions: "The exchange closes a task; the next user message will likely start new work",
+      },
+    } satisfies Record<string, ForkJev.Question>,
   }
 }
 
