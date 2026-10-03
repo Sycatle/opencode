@@ -490,10 +490,10 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
     tools[key] = item
   }
 
-  // FORK-SEAM: deferred-tools
+  // FORK-SEAM: deferred-tools (MCP tools, MCP resource tools and rarely used native tools)
   return ForkTools.defer(
     tools,
-    [...Object.keys(yield* mcp.tools()), ...Object.values(MCP_RESOURCE_TOOLS)],
+    [...Object.keys(yield* mcp.tools()), ...Object.values(MCP_RESOURCE_TOOLS), ...ForkTools.nativeDeferrable()],
     input.messages,
   )
 })

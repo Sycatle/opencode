@@ -8,6 +8,29 @@ import { jsonSchema, tool, type Tool } from "ai"
 
 export const SEARCH = "tool_search"
 const MAX_MATCHES = 5
+const NATIVE_DEFERRABLE = [
+  "lsp",
+  "webfetch",
+  "websearch",
+  "codesearch",
+  "question",
+  "plan_enter",
+  "plan_exit",
+  "shell_output",
+  "shell_kill",
+]
+
+// Rarely used native tools, deferred like MCP ones. OPENCODE_FORK_DEFER_NATIVE:
+// "0" disables, a comma-separated list overrides the default.
+export function nativeDeferrable() {
+  const value = process.env.OPENCODE_FORK_DEFER_NATIVE?.trim()
+  if (value === "0") return []
+  if (!value) return NATIVE_DEFERRABLE
+  return value
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean)
+}
 
 type HistoryPart = {
   type: string

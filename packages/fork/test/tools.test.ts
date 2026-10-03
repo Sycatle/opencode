@@ -68,3 +68,36 @@ test("is a no-op without deferrable tools or when disabled", () => {
   expect(Object.keys(ForkTools.defer(toolset(), deferrable, []))).toHaveLength(4)
   delete process.env.OPENCODE_FORK_DEFER_TOOLS
 })
+
+const withNative = (value: string | undefined, run: () => void) => {
+  const previous = process.env.OPENCODE_FORK_DEFER_NATIVE
+  if (value === undefined) delete process.env.OPENCODE_FORK_DEFER_NATIVE
+  else process.env.OPENCODE_FORK_DEFER_NATIVE = value
+  try {
+    run()
+  } finally {
+    if (previous === undefined) delete process.env.OPENCODE_FORK_DEFER_NATIVE
+    else process.env.OPENCODE_FORK_DEFER_NATIVE = previous
+  }
+}
+
+test("nativeDeferrable parses the env: default, disabled, CSV override", () => {
+  withNative(undefined, () => expect(ForkTools.nativeDeferrable()).toContain("webfetch"))
+  withNative("0", () => expect(ForkTools.nativeDeferrable()).toEqual([]))
+  withNative(" lsp, question ,,", () => expect(ForkTools.nativeDeferrable()).toEqual(["lsp", "question"]))
+})
+
+test("native tools are deferred, listed sorted, and stay loaded once used in history", () => {
+  const native = () => ({ ...toolset(), webfetch: make("Fetch a URL"), lsp: make("Language server") })
+  const names = ["webfetch", "lsp"]
+  const tools = ForkTools.defer(native(), names, [])
+  expect("webfetch" in tools || "lsp" in tools).toBe(false)
+  const description = tools[ForkTools.SEARCH].description ?? ""
+  expect(description.indexOf("lsp")).toBeLessThan(description.indexOf("webfetch"))
+  const used = ForkTools.defer(native(), names, [
+    { parts: [{ type: "tool", tool: "webfetch", state: { status: "completed" } }] },
+  ])
+  expect("webfetch" in used).toBe(true)
+  expect("lsp" in used).toBe(false)
+  expect(used[ForkTools.SEARCH].description).toBe(description)
+})
