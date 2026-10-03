@@ -194,21 +194,20 @@ export async function createForkHooksPlugin(input: PluginInput, deps: ForkHooks.
         })
         return
       }
-      const start = starts.get(info.sessionID)
+      const start = await starts.get(info.sessionID)
       starts.delete(info.sessionID)
-      const context = [(await start)?.additionalContext, outcome.additionalContext].filter(
-        (text): text is string => !!text,
-      )
-      context.forEach((text) =>
-        output.parts.push({
-          id: PartID.ascending(),
-          sessionID: output.message.sessionID,
-          messageID: output.message.id,
-          type: "text",
-          text,
-          synthetic: true,
-        }),
-      )
+      const part = (text: string) => ({
+        id: PartID.ascending(),
+        sessionID: output.message.sessionID,
+        messageID: output.message.id,
+        type: "text" as const,
+        text: `<system-reminder>\n${text}\n</system-reminder>`,
+        synthetic: true,
+      })
+      // SessionStart context precedes the prompt, as in Claude Code: placed after it, the model answers the context
+      // instead of the request.
+      if (start?.additionalContext) output.parts.unshift(part(start.additionalContext))
+      if (outcome.additionalContext) output.parts.push(part(outcome.additionalContext))
     },
 
     "experimental.session.compacting": async (info, output) => {

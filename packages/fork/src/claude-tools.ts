@@ -689,8 +689,12 @@ const PROMPT_NAMES: [string, string][] = [
   ["Task tool", "Agent tool"],
 ]
 
+// Under a Claude subscription, opencode-claude-auth already states the Claude Code identity: a competing
+// "You are OpenCode" line makes the model disown the tools and instructions that follow.
+const IDENTITY = "You are OpenCode, the best coding agent on the planet.\n\n"
+
 export function prompt(text: string) {
-  return PROMPT_NAMES.reduce((result, [from, to]) => result.replaceAll(from, to), text)
+  return PROMPT_NAMES.reduce((result, [from, to]) => result.replaceAll(from, to), text.replace(IDENTITY, ""))
 }
 
 export * as ForkClaudeTools from "./claude-tools"

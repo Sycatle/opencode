@@ -229,6 +229,11 @@ test("prompt text names the Claude tools", () => {
   expect(text).toBe("call ExitPlanMode; use the AskUserQuestion tool; the Agent tool; the Edit tool")
 })
 
+test("prompt does not claim a second identity next to the Claude Code one", () => {
+  const text = ForkClaudeTools.prompt("You are OpenCode, the best coding agent on the planet.\n\nRest.")
+  expect(text).toBe("Rest.")
+})
+
 test("Bash dangerouslyDisableSandbox maps to sandbox: false", () => {
   expect(ForkClaudeTools.fromModel("Bash", { command: "ls", dangerouslyDisableSandbox: true }).input).toEqual({
     command: "ls",
