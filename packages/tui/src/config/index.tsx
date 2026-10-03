@@ -58,7 +58,16 @@ export const Prompt = Schema.Struct({
   }),
 }).annotate({ description: "Prompt size settings" })
 
+// FORK-SEAM: statusline-config
+export const Statusline = Schema.Struct({
+  command: Schema.String.annotate({ description: "Shell command whose first stdout line is shown as the status line" }),
+  interval: Schema.optional(Schema.Number).annotate({
+    description: "Refresh interval in milliseconds (default 5000, minimum 1000)",
+  }),
+}).annotate({ description: "Fork: configurable status line fed with session JSON on stdin" })
+
 export const Info = Schema.Struct({
+  statusline: Schema.optional(Statusline),
   $schema: Schema.optional(Schema.String),
   theme: Schema.optional(Schema.String),
   keybinds: Schema.optional(TuiKeybind.KeybindOverrides),

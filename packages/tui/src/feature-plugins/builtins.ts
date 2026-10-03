@@ -14,6 +14,7 @@ import WhichKey from "./system/which-key"
 // FORK-SEAM: tui-widgets
 import ForkUsage from "./fork/usage"
 import ForkCompaction from "./fork/compaction"
+import ForkStatusline from "./fork/statusline"
 
 export type BuiltinTuiPlugin = Omit<TuiPluginModule, "id"> & {
   id: string
@@ -37,5 +38,6 @@ export function createBuiltinPlugins(options: { experimentalEventSystem: boolean
     DiffViewer,
     ForkUsage,
     ForkCompaction,
+    ForkStatusline,
   ]
 }
