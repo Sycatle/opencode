@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "@opencode-fork/core",
+  "version": "0.0.0",
+  "type": "module",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "test": "bun test --timeout 30000 ./test/",
+    "bench": "bun run bench/run.ts",
+    "typecheck": "tsgo --noEmit"
+  },
+  "exports": {
+    "./telemetry": "./src/telemetry.ts"
+  },
+  "dependencies": {
+    "@opencode-ai/core": "workspace:*",
+    "ai": "catalog:"
+  },
+  "devDependencies": {
+    "@tsconfig/bun": "catalog:",
+    "@types/bun": "catalog:",
+    "@typescript/native-preview": "catalog:"
+  }
+}

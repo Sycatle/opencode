@@ -25,6 +25,7 @@ import { isRecord } from "@/util/record"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { Database } from "@opencode-ai/core/database/database"
 import { Usage, type LLMEvent } from "@opencode-ai/llm"
+import { ForkTelemetry } from "@opencode-fork/core/telemetry"
 
 const DOOM_LOOP_THRESHOLD = 3
 export type Result = "compact" | "stop" | "continue"
@@ -453,6 +454,15 @@ const layer = Layer.effect(
               model: ctx.model,
               usage: value.usage ?? new Usage({}),
               metadata: value.providerMetadata,
+            })
+            // FORK-SEAM: telemetry-record
+            void ForkTelemetry.record({
+              sessionID: ctx.sessionID,
+              messageID: ctx.assistantMessage.id,
+              providerID: ctx.model.providerID,
+              modelID: ctx.model.id,
+              tokens: usage.tokens,
+              cost: usage.cost,
             })
             ctx.assistantMessage.finish = value.reason
             ctx.assistantMessage.cost += usage.cost

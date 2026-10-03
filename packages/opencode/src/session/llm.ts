@@ -16,6 +16,7 @@ import { Config } from "@/config/config"
 import type { Agent } from "@/agent/agent"
 import type { MessageV2 } from "./message-v2"
 import { Plugin } from "@/plugin"
+import { ForkTelemetry } from "@opencode-fork/core/telemetry"
 import { Permission } from "@/permission"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { EventV2 } from "@opencode-ai/core/event"
@@ -111,6 +112,13 @@ const live: Layer.Layer<
         flags,
         isWorkflow,
       })
+      // FORK-SEAM: telemetry-measure
+      if (!input.small)
+        ForkTelemetry.measure(input.sessionID, {
+          ...prepared,
+          agent: input.agent.name,
+          parentSessionID: input.parentSessionID,
+        })
 
       // Wire up toolExecutor for DWS workflow models so that tool calls
       // from the workflow service are executed via opencode's tool system
