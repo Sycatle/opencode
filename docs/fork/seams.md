@@ -45,6 +45,13 @@ Le code du fork vit dans `packages/fork`. Les seuls points de contact avec le co
 | `cc-plugins-config` | `packages/opencode/src/config/config.ts` | Fusionne sous la config utilisateur les commandes, agents (subagents) et serveurs MCP des plugins Claude Code activés (`ForkClaudePlugins.config`) |
 | `cc-plugins-hooks` | `packages/opencode/src/plugin/fork-hooks.ts` | Ajoute après les hooks de l'utilisateur ceux des plugins Claude Code activés ; le contexte d'un `SessionStart` est injecté dans le premier message d'une session racine |
 | `cc-plugins-command` | `packages/opencode/src/index.ts` | Commande `opencode plugin-cc` (`add`, `list`, `rm`, `marketplace add`), qui écrit dans `~/.claude/plugins/*` et `~/.claude/settings.json` comme Claude Code |
+| `claude-tools` | `packages/opencode/src/session/tools.ts`, `session/system.ts`, `session/reminders.ts` | Profil d'outils Claude Code pour les modèles Anthropic (`Read`, `Edit`, `Bash`, `Agent`, `TodoWrite`…, noms et schémas identiques) : map d'outils renommée (`ForkClaudeTools.wrap`), prompt système et rappel de plan mode qui les nomment (`OPENCODE_FORK_CC_TOOLS=0` pour couper) |
+| `claude-tools-inbound` | `packages/opencode/src/session/processor.ts` | Reconvertit l'appel du modèle (nom et args Claude Code) au format opencode avant la persistance |
+| `claude-tools-history` | `packages/opencode/src/session/message-v2.ts` | Rejoue l'historique stocké sous les noms et args Claude Code, de façon déterministe |
+| `claude-tools-permission` | `packages/opencode/src/session/llm/request.ts` | Permissions et réglages d'outils évalués sur les noms opencode |
+| `claude-tools-repair` | `packages/opencode/src/session/llm.ts` | Retrouve l'outil pour un nom mal casé (`opencode-claude-auth` met la première lettre en minuscule) |
+| `grep-options` | `packages/opencode/src/tool/grep.ts` | Options Claude Code de grep (`output_mode`, `-i`, contexte, `type`, `head_limit`, `multiline`), masquées du schéma des autres modèles |
+| `ripgrep-search` | `packages/core/src/ripgrep.ts` | `Ripgrep.search` : sortie texte de ripgrep avec les flags de l'appelant |
 | `usage-command` | `packages/opencode/src/index.ts` | Enregistre les commandes `opencode usage`, `auto`, `schedule` et `workflow` (un run dont le process est mort passe en `interrupted` ; son coût est lu dans `fork_usage` par session d'étape) |
 
 Fichiers ajoutés par le fork (sans conflit possible) :
