@@ -2,6 +2,7 @@ import { SessionID, MessageID } from "./schema"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { ForkContext } from "@opencode-fork/core/context"
 import { ForkClaudeTools } from "@opencode-fork/core/claude-tools"
+import { ForkTools } from "@opencode-fork/core/tools"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import {
   APIError,
@@ -170,6 +171,8 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
     if (typeof output === "string") {
       return { type: "text", value: output }
     }
+    // FORK-SEAM: native-tool-search (a server search result is a JSON array of tool references)
+    if (Array.isArray(output)) return { type: "json", value: output as never }
 
     if (typeof output === "object") {
       const outputObject = output as {
@@ -316,8 +319,10 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
             }
             const finalAttachments = attachments.filter((a) => !isMedia(a.mime) || supportsMediaInToolResult(a))
 
-            const output =
-              finalAttachments.length > 0
+            // FORK-SEAM: native-tool-search (a server search result goes back as the JSON the API expects)
+            const output = part.metadata?.providerExecuted && part.tool === ForkTools.NATIVE_SEARCH
+              ? ForkTools.nativeSearchOutput(part.state.output)
+              : finalAttachments.length > 0
                 ? {
                     text: outputText,
                     attachments: finalAttachments,

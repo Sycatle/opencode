@@ -233,6 +233,18 @@ function Budget(props: { api: TuiPluginApi; session_id: string }) {
 }
 
 const tui: TuiPlugin = async (api) => {
+  // Attached to a server on another machine: this machine's fork.db knows nothing of its sessions.
+  if (process.env.OPENCODE_FORK_REMOTE === "1") {
+    api.slots.register({
+      order: 150,
+      slots: {
+        sidebar_content() {
+          return <text fg={api.theme.current.textMuted}>Fork usage: not available on a remote server</text>
+        },
+      },
+    })
+    return
+  }
   api.slots.register({
     order: 145,
     slots: {

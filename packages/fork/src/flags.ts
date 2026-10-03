@@ -17,6 +17,11 @@ type Def = {
 export const FLAGS = {
   // ---- context and cost
   DEFER_TOOLS: { kind: "switch", default: "on", description: "Withhold MCP and rare native tools behind tool_search" },
+  NATIVE_TOOL_SEARCH: {
+    kind: "switch",
+    default: "on",
+    description: "Anthropic models search deferred tools server-side (defer_loading): the prompt cache survives a load",
+  },
   DEFER_NATIVE: {
     kind: "text",
     default: "built-in list",
@@ -89,6 +94,7 @@ export const FLAGS = {
   AUTO_JEV: { kind: "jev", default: "on", description: "`opencode auto` judges completion without --until" },
   // ---- internal
   INTERACTIVE: { kind: "text", default: "set by the TUI", description: "Marks an interactive session" },
+  REMOTE: { kind: "text", default: "set by attach", description: "The TUI is attached to a server on another machine" },
   DB: { kind: "text", default: "<data>/fork.db", description: "Fork database path" },
 } satisfies Record<string, Def>
 
@@ -99,6 +105,17 @@ export const key = (name: Name) => `OPENCODE_FORK_${name}`
 
 export function on(name: SwitchName, env: Env = process.env) {
   return env[key(name)] !== "0"
+}
+
+// The `fork` block of opencode.json: each value fills its variable unless the environment already set it.
+// Returns the names that are not fork flags, for the caller to report.
+export function apply(values: Record<string, boolean | number | string> | undefined, env: Env = process.env) {
+  return Object.entries(values ?? {}).flatMap(([given, value]) => {
+    const name = given.toUpperCase().replace(/^OPENCODE_FORK_/, "")
+    if (!(name in FLAGS)) return [given]
+    env[`OPENCODE_FORK_${name}`] ??= value === true ? "1" : value === false ? "0" : String(value)
+    return []
+  })
 }
 
 export function raw(name: Name, env: Env = process.env) {

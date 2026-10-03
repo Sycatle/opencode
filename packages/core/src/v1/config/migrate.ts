@@ -52,6 +52,8 @@ export function migrate(info: typeof ConfigV1.Info.Type) {
     hooks: info.hooks,
     // FORK-SEAM: sandbox-config
     sandbox: info.sandbox,
+    // FORK-SEAM: fork-config
+    fork: info.fork,
     attachments: info.attachment,
     tool_output: info.tool_output,
     mcp: mcp(info),

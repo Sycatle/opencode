@@ -509,20 +509,31 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
   }
   // FORK-SEAM: deferred-tools (MCP tools, MCP resource tools and rarely used native tools)
   const deferrable = [...Object.keys(yield* mcp.tools()), ...Object.values(MCP_RESOURCE_TOOLS), ...ForkTools.nativeDeferrable()]
-  if (input.preload) {
+  // FORK-SEAM: native-tool-search (Anthropic searches the deferred tools itself; nothing to preload)
+  const native = ForkTools.native(input.model.api.npm)
+  if (input.preload && !native) {
     const loaded = ForkTools.loadedTools(input.messages)
     yield* input.preload(
       Object.fromEntries(deferrable.filter((name) => name in tools && !loaded.has(name)).map((name) => [name, tools[name]])),
     )
   }
-  const deferred = ForkTools.defer(
-    tools,
-    deferrable,
-    input.messages,
-    claude ? { name: ForkClaudeTools.toModelName, description: ForkClaudeTools.describeTool } : undefined,
-  )
+  const deferred = native
+    ? ForkTools.deferNative(tools, deferrable, input.messages, yield* nativeSearchTool())
+    : ForkTools.defer(
+        tools,
+        deferrable,
+        input.messages,
+        claude ? { name: ForkClaudeTools.toModelName, description: ForkClaudeTools.describeTool } : undefined,
+      )
   // FORK-SEAM: claude-tools (Claude Code names and shapes for Anthropic models)
   return claude ? ForkClaudeTools.wrap(deferred) : deferred
+})
+
+const nativeSearchTool = Effect.fn("SessionTools.nativeSearchTool")(function* () {
+  const { anthropic } = yield* Effect.promise(() => import("@ai-sdk/anthropic"))
+  // @ai-sdk/anthropic pins its own @ai-sdk/provider-utils, whose schema type is nominally distinct from the one
+  // `ai` re-exports: the object is the provider tool `ai` expects.
+  return anthropic.tools.toolSearchBm25_20251119() as unknown as AITool
 })
 
 function toRecord(value: unknown) {

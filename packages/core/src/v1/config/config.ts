@@ -8,6 +8,8 @@ import { ConfigHooks } from "../../config/hooks"
 import { ConfigReference } from "../../config/reference"
 // FORK-SEAM: sandbox-config
 import { ConfigSandbox } from "../../config/sandbox"
+// FORK-SEAM: fork-config
+import { ConfigFork } from "../../config/fork"
 import { ConfigAgentV1 } from "./agent"
 import { ConfigAttachmentV1 } from "./attachment"
 import { ConfigCommandV1 } from "./command"
@@ -132,6 +134,10 @@ export const Info = Schema.Struct({
   // FORK-SEAM: sandbox-config
   sandbox: Schema.optional(ConfigSandbox.Info).annotate({
     description: "OS sandbox (bubblewrap) for the bash tool: writes limited to the project and /tmp, network off unless allowed",
+  }),
+  // FORK-SEAM: fork-config
+  fork: Schema.optional(ConfigFork.Info).annotate({
+    description: "Fork features by OPENCODE_FORK_* name without the prefix, e.g. { \"MESSAGING\": false, \"BUDGET_USD\": 5 }; environment variables win",
   }),
   instructions: Schema.optional(Schema.mutable(Schema.Array(Schema.String))).annotate({
     description: "Additional instruction files or patterns to include",

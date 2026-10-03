@@ -100,6 +100,17 @@ export function confidence(all: Record<string, Answer>) {
 const BREAKER_FAILURES = 3
 const BREAKER_MS = 5 * 60_000
 const breakers = new WeakMap<typeof fetch, { failures: number; until: number }>()
+const BREAKER = "breaker"
+
+// When the breaker of a process opened less than BREAKER_MS ago and no call succeeded since: the end of the pause.
+export function pausedUntil(now = Date.now()) {
+  const opened = table()
+    .query<{ id: number; time: number }, [string]>("SELECT id, time FROM fork_jev WHERE feature = ? ORDER BY id DESC LIMIT 1")
+    .get(BREAKER)
+  if (!opened || opened.time + BREAKER_MS <= now) return undefined
+  const since = table().query<{ id: number }, [number]>("SELECT id FROM fork_jev WHERE ok = 1 AND id > ? LIMIT 1").get(opened.id)
+  return since ? undefined : opened.time + BREAKER_MS
+}
 
 // POST to Jev with a bearer token. The error text says why the caller must keep its old path. `signal`
 // cancels the request when the caller is interrupted (the turn is aborted).
@@ -117,7 +128,11 @@ export async function ask(
   // A call the caller cancelled says nothing about Jev's health.
   if (result.error !== undefined && !input.signal?.aborted) {
     breaker.failures++
-    if (breaker.failures >= BREAKER_FAILURES) breaker.until = Date.now() + BREAKER_MS
+    if (breaker.failures >= BREAKER_FAILURES) {
+      breaker.until = Date.now() + BREAKER_MS
+      // Journaled for the real transport only, so the TUI can say that every Jev feature is on its fallback.
+      if (fetcher === fetch) journal({ feature: BREAKER, ms: 0, ok: false, error: result.error })
+    }
   }
   if (result.error === undefined) breaker.failures = 0
   return result

@@ -8,6 +8,8 @@ import { mergeDeep } from "remeda"
 import { Global } from "@opencode-ai/core/global"
 // FORK-SEAM: cc-plugins-config
 import { ForkClaudePlugins } from "@opencode-fork/core/claude-plugins"
+// FORK-SEAM: fork-config
+import { ForkFlags } from "@opencode-fork/core/flags"
 import fsNode from "fs/promises"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { Auth } from "../auth"
@@ -536,6 +538,9 @@ const layer = Layer.effect(
         result.command = mergeDeep(plugged.command, result.command ?? {})
         result.agent = mergeDeep(plugged.agent, result.agent ?? {})
         result.mcp = mergeDeep(plugged.mcp, result.mcp ?? {})
+        // FORK-SEAM: fork-config (the `fork` block fills OPENCODE_FORK_* variables the environment left unset)
+        const unknown = ForkFlags.apply(result.fork)
+        if (unknown.length) yield* Effect.logWarning("unknown fork config keys", { keys: unknown.join(", ") })
         const managedDir = ConfigManaged.managedConfigDir()
         if (existsSync(managedDir)) {
           for (const file of ["opencode.json", "opencode.jsonc"]) {

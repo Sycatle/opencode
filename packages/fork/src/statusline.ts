@@ -61,6 +61,12 @@ export function builtin(
   data: {
     route?: { model_id: string; tier: string; kind: string }
     wakeup?: { due: number; reason?: string; repeat: boolean }
+    // Auto-mode verdicts of the session (see ForkClassifier.decisions): approvals happen silently otherwise.
+    auto?: readonly { decision: string }[]
+    // The last smart compaction decision: shown only when a compaction was due by size but held back.
+    compaction?: { code: string }
+    // End of a Jev pause (see ForkJev.pausedUntil): every Jev feature runs on its fallback until then.
+    jevPausedUntil?: number
   },
   now = Date.now(),
 ) {
@@ -73,7 +79,17 @@ export function builtin(
       `${data.wakeup.repeat ? "loop" : "wakeup"} ${data.wakeup.due <= now ? "due" : `in ${duration(data.wakeup.due - now)}`}`,
       data.wakeup.reason ? `: ${data.wakeup.reason}` : "",
     ].join("")
-  return [route, wakeup].filter((part): part is string => !!part).join("  ·  ")
+  const approved = data.auto?.filter((row) => row.decision === "allow").length ?? 0
+  const asked = (data.auto?.length ?? 0) - approved
+  const auto = data.auto?.length ? `auto: ${approved} approved${asked ? `, ${asked} asked` : ""}` : undefined
+  const compaction = data.compaction && DEFERRED[data.compaction.code]
+  const jev = data.jevPausedUntil && `Jev failing, paused for ${duration(data.jevPausedUntil - now)}`
+  return [route, auto, compaction, jev, wakeup].filter((part): part is string => !!part).join("  ·  ")
+}
+
+const DEFERRED: Record<string, string> = {
+  "not-boundary": "compaction deferred: task not over",
+  "not-worth": "compaction deferred: not worth it yet",
 }
 
 function duration(ms: number) {
