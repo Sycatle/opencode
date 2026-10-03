@@ -59,8 +59,19 @@ export async function ForkHooksPlugin(input: PluginInput): Promise<Hooks> {
     "chat.message": async (info, output) => {
       const prompt = output.parts.flatMap((part) => (part.type === "text" && !part.synthetic ? [part.text] : [])).join("\n")
       const outcome = await fire("UserPromptSubmit", { sessionID: info.sessionID, prompt })
-      // Runs before the message is persisted, so throwing rejects the prompt without leaving a trace.
-      if (ForkHooks.blocked(outcome)) throw new Error(outcome.reason || "Prompt blocked by UserPromptSubmit hook")
+      if (ForkHooks.blocked(outcome)) {
+        // Signalled in-band: the prompt seam turns this part into a session error before anything is persisted.
+        output.parts.splice(0, output.parts.length, {
+          id: PartID.ascending(),
+          sessionID: output.message.sessionID,
+          messageID: output.message.id,
+          type: "text",
+          text: outcome.reason || "Prompt blocked by UserPromptSubmit hook",
+          synthetic: true,
+          metadata: { [ForkHooks.PROMPT_BLOCK_KEY]: true },
+        })
+        return
+      }
       if (!outcome.additionalContext) return
       output.parts.push({
         id: PartID.ascending(),

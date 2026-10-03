@@ -86,6 +86,22 @@ test("run reports exit 2 as a block and a timeout as a non-blocking error", asyn
   expect(Date.now() - started).toBeLessThan(2000)
 })
 
+test.skipIf(process.platform === "win32")("a timeout kills the whole process group", async () => {
+  const marker = `30.${process.pid}${Date.now() % 100000}`
+  const alive = async () => {
+    const out = await Bun.$`pgrep -f ${`sleep ${marker}`}`.nothrow().text()
+    return out.split("\n").filter(Boolean).map(Number)
+  }
+  const outcome = await ForkHooks.run(
+    { command: `sleep ${marker} & sleep ${marker}`, timeout: 500 },
+    { event: "Stop", cwd: process.cwd() },
+  )
+  const leftovers = await alive()
+  leftovers.forEach((pid) => process.kill(pid, "SIGKILL"))
+  expect(outcome).toEqual({ error: "hook timed out" })
+  expect(leftovers).toEqual([])
+})
+
 test("enabled honours OPENCODE_FORK_HOOKS=0", () => {
   expect(ForkHooks.enabled()).toBe(true)
   process.env.OPENCODE_FORK_HOOKS = "0"

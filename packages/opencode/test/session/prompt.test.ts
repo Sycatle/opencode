@@ -554,6 +554,35 @@ it.instance("loop calls LLM and returns assistant message", () =>
   }),
 )
 
+it.instance("a blocking UserPromptSubmit hook surfaces its reason as a session error without persisting the prompt", () =>
+  Effect.gen(function* () {
+    yield* useServerConfig((url) => ({
+      ...cfg,
+      hooks: { UserPromptSubmit: [{ command: "cat > /dev/null; echo 'no prompts today' >&2; exit 2" }] },
+      provider: { test: { ...cfg.provider.test, options: { ...cfg.provider.test.options, baseURL: url } } },
+    }))
+    const events = yield* EventV2Bridge.Service
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "Pinned" })
+    const errors: unknown[] = []
+    const off = yield* events.listen((event) => {
+      if (event.type !== Session.Event.Error.type) return Effect.void
+      const data = event.data as typeof Session.Event.Error.data.Type
+      if (data.sessionID === chat.id) errors.push(data.error)
+      return Effect.void
+    })
+
+    yield* prompt
+      .prompt({ sessionID: chat.id, agent: "build", noReply: true, parts: [{ type: "text", text: "hello" }] })
+      .pipe(Effect.exit)
+    yield* off
+
+    expect(errors).toEqual([{ name: "UnknownError", data: { message: "no prompts today" } }])
+    expect(yield* sessions.messages({ sessionID: chat.id })).toHaveLength(0)
+  }),
+)
+
 it.instance("loop injects the plan file reminder for the plan agent by default", () =>
   Effect.gen(function* () {
     const { llm } = yield* useServerConfig(providerCfg)

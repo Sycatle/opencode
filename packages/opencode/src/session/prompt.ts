@@ -18,6 +18,7 @@ import { Instruction } from "./instruction"
 import { Plugin } from "../plugin"
 import { MAX_STEPS_PROMPT } from "@opencode-ai/core/session/runner/max-steps"
 import { ForkBudget } from "@opencode-fork/core/budget"
+import { ForkHooks } from "@opencode-fork/core/hooks"
 import { ToolRegistry } from "@/tool/registry"
 import { MCP } from "../mcp"
 import { LSP } from "@/lsp/lsp"
@@ -1008,6 +1009,14 @@ const layer = Layer.effect(
         },
         { message: info, parts: resolvedParts },
       )
+
+      // FORK-SEAM: prompt-block-hook
+      const blockReason = ForkHooks.promptBlockReason(resolvedParts)
+      if (blockReason) {
+        const error = new NamedError.Unknown({ message: blockReason })
+        yield* events.publish(Session.Event.Error, { sessionID: input.sessionID, error: error.toObject() })
+        throw error
+      }
 
       const parts = yield* Effect.forEach(resolvedParts, (part) =>
         part.type === "file" && part.mime.startsWith("image/")
