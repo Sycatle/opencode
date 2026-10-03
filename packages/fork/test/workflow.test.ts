@@ -1,0 +1,137 @@
+import { expect, test } from "bun:test"
+import os from "os"
+import path from "path"
+
+// Always a fresh database: an inherited OPENCODE_FORK_DB may hold rows from earlier runs.
+process.env.OPENCODE_FORK_DB = path.join(os.tmpdir(), `fork-workflow-${process.pid}-${Date.now()}.db`)
+const { ForkWorkflow } = await import("../src/workflow")
+
+const schema = {
+  type: "object",
+  required: ["n", "tags"],
+  properties: { n: { type: "integer" }, tags: { type: "array", items: { type: "string" } } },
+}
+
+function runtime(runID: string, replies: string[], extra: Partial<Parameters<typeof ForkWorkflow.createRuntime>[0]> = {}) {
+  const calls: { prompt: string; sessionID?: string }[] = []
+  const rt = ForkWorkflow.createRuntime({
+    runID,
+    concurrency: 4,
+    cost: () => 0.5,
+    progress: () => {},
+    execute: async (prompt, _options, sessionID) => {
+      calls.push({ prompt, sessionID })
+      return { text: replies[calls.length - 1] ?? "ok", sessionID: sessionID ?? `ses_${calls.length}` }
+    },
+    ...extra,
+  })
+  return { rt, calls }
+}
+
+test("keys depend on prompt and options, with an occurrence index for repeats", () => {
+  const key = ForkWorkflow.keyer()
+  const a = key("p", {})
+  const b = key("p", {})
+  const c = key("p", { model: "x/y" })
+  expect(a.split(":")[0]).toBe(b.split(":")[0])
+  expect([a.split(":")[1], b.split(":")[1]]).toEqual(["0", "1"])
+  expect(c.split(":")[0]).not.toBe(a.split(":")[0])
+  expect(ForkWorkflow.keyer()("p", {})).toBe(a)
+})
+
+test("limiter never exceeds its limit and keeps starting queued work", async () => {
+  const run = ForkWorkflow.limiter(2)
+  const state = { active: 0, peak: 0 }
+  const results = await Promise.all(
+    [1, 2, 3, 4, 5].map((n) =>
+      run(async () => {
+        state.active++
+        state.peak = Math.max(state.peak, state.active)
+        await Bun.sleep(10)
+        state.active--
+        return n
+      }),
+    ),
+  )
+  expect(results).toEqual([1, 2, 3, 4, 5])
+  expect(state.peak).toBe(2)
+})
+
+test("pipeline lets items advance through stages independently", async () => {
+  const order: string[] = []
+  const errors: number[] = []
+  const out = await ForkWorkflow.pipeline(
+    [30, 1, 2],
+    [
+      async (ms) => {
+        await Bun.sleep(ms as number)
+        order.push(`a${ms}`)
+        return ms
+      },
+      async (ms) => {
+        order.push(`b${ms}`)
+        if (ms === 2) throw new Error("boom")
+        return `done${ms}`
+      },
+    ],
+    (_error, index) => errors.push(index),
+  )
+  expect(out).toEqual(["done30", "done1", null])
+  expect(errors).toEqual([2])
+  expect(order.indexOf("b1")).toBeLessThan(order.indexOf("a30"))
+})
+
+test("validate checks required keys and types", () => {
+  expect(ForkWorkflow.validate(schema, { n: 1, tags: ["a"] })).toEqual([])
+  expect(ForkWorkflow.validate(schema, { n: 1.5 })).toEqual(["$.tags: missing", "$.n: expected integer"])
+  expect(ForkWorkflow.validate(schema, { n: 1, tags: [1] })).toEqual(["$.tags[0]: expected string"])
+  expect(ForkWorkflow.parseAnswer('text\n```json\n{"n":1,"tags":[]}\n```', schema)).toEqual({
+    ok: true,
+    value: { n: 1, tags: [] },
+  })
+  expect(ForkWorkflow.parseAnswer("nope", schema).ok).toBe(false)
+})
+
+test("replyFrom keeps the text after the last tool call", () => {
+  const reply = ForkWorkflow.replyFrom([
+    "noise",
+    JSON.stringify({ type: "text", sessionID: "s1", part: { text: "thinking" } }),
+    JSON.stringify({ type: "tool_use", sessionID: "s1" }),
+    JSON.stringify({ type: "text", sessionID: "s1", part: { text: "final" } }),
+  ])
+  expect(reply).toMatchObject({ sessionID: "s1", text: "final" })
+})
+
+test("a resumed run returns cached results instead of re-running", async () => {
+  ForkWorkflow.startRun("r1", "s.js", "demo")
+  const first = runtime("r1", ["one", "two"])
+  expect(await first.rt.agent("same")).toBe("one")
+  expect(await first.rt.agent("same")).toBe("two")
+  const again = runtime("r1", [])
+  expect(await again.rt.agent("same")).toBe("one")
+  expect(await again.rt.agent("same")).toBe("two")
+  expect(again.calls).toHaveLength(0)
+  expect(await again.rt.agent("new")).toBe("ok")
+  ForkWorkflow.finishRun("r1", "done")
+  expect(ForkWorkflow.hasRun("r1")).toBe(true)
+  expect(ForkWorkflow.hasRun("nope")).toBe(false)
+})
+
+test("a schema answer is retried once in the same session, then fails", async () => {
+  const good = runtime("r2", ["bad", '```json\n{"n":2,"tags":[]}\n```'])
+  expect(await good.rt.agent("q", { schema })).toEqual({ n: 2, tags: [] })
+  expect(good.calls[1]?.sessionID).toBe("ses_1")
+
+  const bad = runtime("r3", ["bad", "still bad"])
+  await expect(bad.rt.agent("q", { schema })).rejects.toThrow("invalid structured answer")
+})
+
+test("the budget stops new launches and flags the run", async () => {
+  const { rt, calls } = runtime("r4", [], { budget: 0.5 })
+  await rt.agent("a")
+  expect(rt.halted).toBe(false)
+  const results = await rt.parallel([() => rt.agent("b"), () => rt.agent("c")])
+  expect(results).toEqual([null, null])
+  expect(rt.halted).toBe(true)
+  expect(calls).toHaveLength(1)
+})

@@ -14,10 +14,11 @@ import { FormatError } from "./cli/error"
 import { ServeCommand } from "./cli/cmd/serve"
 import { DebugCommand } from "./cli/cmd/debug"
 import { StatsCommand } from "./cli/cmd/stats"
-// FORK-SEAM: usage-command (also registers the schedule command)
+// FORK-SEAM: usage-command (usage, auto, schedule and workflow commands)
 import { UsageCommand } from "./cli/cmd/usage"
 import { ScheduleCommand } from "./cli/cmd/schedule"
 import { AutoCommand } from "./cli/cmd/auto"
+import { WorkflowCommand } from "./cli/cmd/workflow"
 import { McpCommand } from "./cli/cmd/mcp"
 import { GithubCommand } from "./cli/cmd/github"
 import { ExportCommand } from "./cli/cmd/export"
@@ -101,6 +102,7 @@ const cli = yargs(args)
   .command(UsageCommand)
   .command(AutoCommand)
   .command(ScheduleCommand)
+  .command(WorkflowCommand)
   .command(ExportCommand)
   .command(ImportCommand)
   .command(GithubCommand)
