@@ -8,6 +8,7 @@ export interface Args {
   sessionID?: string
   fork?: boolean
   auto?: boolean
+  // FORK-SEAM: permission-mode (--yolo approves every request client-side)
   yolo?: boolean
 }
 

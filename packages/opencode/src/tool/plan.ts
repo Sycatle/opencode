@@ -79,6 +79,7 @@ export const PlanExitTool = Tool.define(
   }),
 )
 
+// FORK-SEAM: plan-enter (registered next to plan_exit in tool/registry.ts)
 export const PlanEnterTool = Tool.define(
   "plan_enter",
   Effect.gen(function* () {

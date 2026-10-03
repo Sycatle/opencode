@@ -18,7 +18,6 @@ import { Instruction } from "./instruction"
 import { Plugin } from "../plugin"
 import { MAX_STEPS_PROMPT } from "@opencode-ai/core/session/runner/max-steps"
 import { ForkBudget } from "@opencode-fork/core/budget"
-import { ForkRoute } from "@opencode-fork/core/route"
 import { ForkPreload } from "./fork-preload"
 import { ForkSessionMessaging } from "./fork-messaging"
 import { ForkWakeup } from "@opencode-fork/core/wakeup"
@@ -1285,29 +1284,15 @@ const layer = Layer.effect(
           )
 
           // FORK-SEAM: route-plan (an ambiguous request to a root build agent gets one reminder that plan mode exists)
-          const nudged = msgs.findLast((m) => m.info.role === "user")
-          if (
-            nudged &&
-            step === 1 &&
-            !nudged.parts.some((part) => part.type === "text" && part.metadata?.forkPlanNudge) &&
-            ForkRoute.planNudge({
+          if (step === 1)
+            yield* ForkRouteTurn.planNudge({
+              sessions,
+              messages: msgs,
               signals: routed.signals,
               agent: agent.name,
               root: !session.parentID,
               available: flags.experimentalPlanMode && flags.client === "cli",
             })
-          )
-            nudged.parts.push(
-              yield* sessions.updatePart({
-                id: PartID.ascending(),
-                messageID: nudged.info.id,
-                sessionID,
-                type: "text",
-                text: ForkRoute.PLAN_NUDGE,
-                synthetic: true,
-                metadata: { forkPlanNudge: true },
-              }),
-            )
 
           const msg: SessionV1.Assistant = {
             id: MessageID.ascending(),

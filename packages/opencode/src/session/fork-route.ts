@@ -11,6 +11,7 @@ import { Cause, Effect, Option, Schema } from "effect"
 import { Provider } from "@/provider/provider"
 import { ForkRouteProvider } from "@/provider/fork-route"
 import { smallModelRun } from "./fork-small-model"
+import { PartID } from "./schema"
 import type { Session } from "./session"
 import { SessionRetry } from "./retry"
 
@@ -328,6 +329,32 @@ const classify = Effect.fn("ForkRouteTurn.classify")(function* (input: {
   if (text !== undefined && !signals) yield* Effect.logWarning("router signals unreadable", { text: text.slice(0, 300) })
   if (signals) yield* Effect.logInfo("router signals", { source: "small-model" })
   return signals && ({ ...signals, source: "small-model" } as const)
+})
+
+// Adds the plan-mode reminder to the latest user message once, when the Router's signals call for it.
+export const planNudge = Effect.fn("ForkRouteTurn.planNudge")(function* (input: {
+  sessions: Session.Interface
+  messages: SessionV1.WithParts[]
+  signals: ForkRoute.Signals | undefined
+  agent: string
+  root: boolean
+  available: boolean
+}) {
+  const user = input.messages.findLast((m) => m.info.role === "user")
+  if (!user || user.parts.some((part) => part.type === "text" && part.metadata?.forkPlanNudge)) return
+  if (!ForkRoute.planNudge({ signals: input.signals, agent: input.agent, root: input.root, available: input.available }))
+    return
+  user.parts.push(
+    yield* input.sessions.updatePart({
+      id: PartID.ascending(),
+      messageID: user.info.id,
+      sessionID: user.info.sessionID,
+      type: "text",
+      text: ForkRoute.PLAN_NUDGE,
+      synthetic: true,
+      metadata: { forkPlanNudge: true },
+    }),
+  )
 })
 
 // ---------------------------------------------------------------- fallback
