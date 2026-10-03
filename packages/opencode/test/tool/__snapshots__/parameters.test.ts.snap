@@ -20,6 +20,10 @@ exports[`tool parameters JSON Schema (wire shape) bash 1`] = `
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "background": {
+      "description": "Run the command in the background and return immediately with a job id. Use for dev servers, watchers and long test runs. Read output with shell_output, stop with shell_kill; you are notified when it exits.",
+      "type": "boolean",
+    },
     "command": {
       "description": "The command to execute",
       "type": "string",
@@ -311,6 +315,13 @@ exports[`tool parameters JSON Schema (wire shape) task 1`] = `
     },
     "description": {
       "description": "A short (3-5 words) description of the task",
+      "type": "string",
+    },
+    "isolation": {
+      "description": "Set to "worktree" to run the subagent in an isolated git worktree created from the last commit (uncommitted changes are not included). Its changes come back as a branch to review and merge. Use it for subagents that edit files in parallel.",
+      "enum": [
+        "worktree",
+      ],
       "type": "string",
     },
     "prompt": {

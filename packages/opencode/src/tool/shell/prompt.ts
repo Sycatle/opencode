@@ -3,6 +3,7 @@ import DESCRIPTION from "./shell.txt"
 import { PositiveInt } from "@opencode-ai/core/schema"
 import { Global } from "@opencode-ai/core/global"
 import { ShellID } from "./id"
+import { ForkShell } from "@opencode-fork/core/shell"
 
 const PS = new Set(["powershell", "pwsh"])
 const CMD = new Set(["cmd"])
@@ -13,13 +14,20 @@ export type Limits = {
 }
 
 export function parameterSchema() {
-  return Schema.Struct({
+  const fields = {
     command: Schema.String.annotate({ description: "The command to execute" }),
     timeout: Schema.optional(PositiveInt).annotate({ description: "Optional timeout in milliseconds" }),
     workdir: Schema.optional(Schema.String).annotate({
       description: `The working directory to run the command in. Defaults to the current directory. Use this instead of 'cd' commands.`,
     }),
+  }
+  // FORK-SEAM: background-shell
+  const withBackground = Schema.Struct({
+    ...fields,
+    background: Schema.optional(Schema.Boolean).annotate({ description: ForkShell.BACKGROUND_PARAM_DESCRIPTION }),
   })
+  // Typed as the full schema so `execute` can read `background`; it is simply absent when opted out.
+  return ForkShell.enabled() ? withBackground : (Schema.Struct(fields) as unknown as typeof withBackground)
 }
 
 export const Parameters = parameterSchema()

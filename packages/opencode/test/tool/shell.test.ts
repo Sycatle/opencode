@@ -1,7 +1,7 @@
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { describe, expect } from "bun:test"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { Cause, Effect, Exit, Layer } from "effect"
+import { Cause, Deferred, Effect, Exit, Layer } from "effect"
 import type * as Scope from "effect/Scope"
 import os from "os"
 import path from "path"
@@ -21,6 +21,10 @@ import { testEffect } from "../lib/effect"
 import { Tool } from "@/tool/tool"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { InstanceStore } from "@/project/instance-store"
+import { BackgroundJob } from "@/background/job"
+import { ShellKillTool, ShellOutputTool } from "../../src/tool/shell-background"
+import type { SessionPrompt } from "../../src/session/prompt"
+import type { TaskPromptOps } from "../../src/tool/task"
 
 const shellLayer = Layer.mergeAll(
   LayerNode.compile(
@@ -32,6 +36,7 @@ const shellLayer = Layer.mergeAll(
       Config.node,
       Agent.node,
       RuntimeFlags.node,
+      BackgroundJob.node,
     ]),
   ),
   testInstanceStoreLayer,
@@ -1193,6 +1198,98 @@ describe("tool.shell truncation", () => {
         expect(lines.length).toBe(lineCount)
         expect(lines[0]).toBe("1")
         expect(lines[lineCount - 1]).toBe(String(lineCount))
+      }),
+    ),
+  )
+})
+
+describe.skipIf(process.platform === "win32")("tool.shell background", () => {
+  const tools = Effect.gen(function* () {
+    return {
+      shell: yield* initShell(),
+      output: yield* (yield* ShellOutputTool).init(),
+      kill: yield* (yield* ShellKillTool).init(),
+    }
+  })
+
+  const withOps = (injected: Deferred.Deferred<SessionPrompt.PromptInput>) => {
+    const promptOps = {
+      cancel: () => Effect.void,
+      resolvePromptParts: () => Effect.succeed([]),
+      prompt: (input: SessionPrompt.PromptInput) => Deferred.succeed(injected, input).pipe(Effect.as({} as never)),
+    } satisfies TaskPromptOps
+    return { ...ctx, extra: { promptOps } }
+  }
+
+  it.live("starts a command in the background, reads it and notifies on exit", () =>
+    runIn(
+      projectRoot,
+      Effect.gen(function* () {
+        const jobs = yield* BackgroundJob.Service
+        const { shell, output } = yield* tools
+        const injected = yield* Deferred.make<SessionPrompt.PromptInput>()
+        const next = withOps(injected)
+
+        const started = yield* shell.execute({ command: "sleep 1; echo ok", background: true }, next)
+        const job = (yield* jobs.list())[0]
+        if (!job) throw new Error("job not started")
+        expect(started.output).toContain(job.id)
+        expect(job.type).toBe("shell")
+        expect(job.status).toBe("running")
+
+        const running = yield* output.execute({ id: job.id }, next)
+        expect(running.output).toContain("status: running")
+
+        const done = yield* jobs.wait({ id: job.id })
+        expect(done.info?.status).toBe("completed")
+        const finished = yield* output.execute({ id: job.id }, next)
+        expect(finished.output).toContain("status: completed")
+        expect(finished.output).toContain("exit: 0")
+        expect(finished.output).toContain("ok")
+
+        const part = (yield* Deferred.await(injected)).parts[0]
+        expect(part).toMatchObject({ type: "text", synthetic: true })
+        expect(part && "text" in part ? part.text : "").toContain(`state="completed" exit="0"`)
+      }),
+    ),
+  )
+
+  it.live("shell_kill stops the process without notifying", () =>
+    runIn(
+      projectRoot,
+      Effect.gen(function* () {
+        const jobs = yield* BackgroundJob.Service
+        const { shell, output, kill } = yield* tools
+        const injected = yield* Deferred.make<SessionPrompt.PromptInput>()
+        const next = withOps(injected)
+
+        yield* shell.execute({ command: "echo started; sleep 30", background: true }, next)
+        const job = (yield* jobs.list())[0]
+        if (!job) throw new Error("job not started")
+
+        const stopped = yield* kill.execute({ id: job.id }, next)
+        expect(stopped.output).toContain("stopped")
+        expect((yield* jobs.get(job.id))?.status).toBe("cancelled")
+        expect((yield* output.execute({ id: job.id }, next)).output).toContain("status: cancelled")
+        yield* Effect.sleep("200 millis")
+        expect(yield* Deferred.isDone(injected)).toBe(false)
+      }),
+    ),
+  )
+
+  it.live("refuses past the background cap", () =>
+    runIn(
+      projectRoot,
+      Effect.gen(function* () {
+        const jobs = yield* BackgroundJob.Service
+        const { shell } = yield* tools
+        process.env.OPENCODE_FORK_MAX_BACKGROUND = "1"
+        yield* Effect.addFinalizer(() => Effect.sync(() => delete process.env.OPENCODE_FORK_MAX_BACKGROUND))
+
+        yield* shell.execute({ command: "sleep 30", background: true }, ctx)
+        const error = yield* Effect.exit(shell.execute({ command: "sleep 30", background: true }, ctx))
+        expect(Exit.isFailure(error)).toBe(true)
+        yield* Effect.forEach(yield* jobs.list(), (job) => jobs.cancel(job.id))
       }),
     ),
   )
