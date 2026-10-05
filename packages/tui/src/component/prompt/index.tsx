@@ -13,6 +13,10 @@ import { ForkPermissionMode } from "../../feature-plugins/fork/permission-mode"
 // FORK-SEAM: prompt-suggestion
 import { ForkPromptSuggest } from "../../feature-plugins/fork/prompt-suggestion"
 import { ForkPromptSuggestion } from "@opencode-fork/core/prompt-suggestion"
+import { contextGlyph } from "../../util/context-usage"
+import { DialogRunningTasks, RunningTasksBar, useRunningTasks } from "../running-tasks"
+import { WorkingLine } from "../working-line"
+import { ForkQuota } from "@opencode-fork/core/quota"
 import type { CommandContext } from "@opentui/keymap"
 import { createEffect, createMemo, onMount, createSignal, onCleanup, on, Show, Switch, Match } from "solid-js"
 import { registerOpencodeSpinner } from "../register-spinner"
@@ -46,10 +50,8 @@ import type { AssistantMessage, FilePart, UserMessage } from "@opencode-ai/sdk/v
 import { Locale } from "../../util/locale"
 import { errorMessage } from "../../util/error"
 import { formatDuration } from "../../util/format"
-import { createColors, createFrames } from "../../ui/spinner"
 import { useDialog } from "../../ui/dialog"
 import { DialogProvider as DialogProviderConnect } from "../dialog-provider"
-import { DialogAlert } from "../../ui/dialog-alert"
 import { useToast } from "../../ui/toast"
 import { useKV } from "../../context/kv"
 import { createFadeIn } from "../../util/signal"
@@ -61,7 +63,6 @@ import { useTuiConfig } from "../../config"
 import { usePromptWorkspace } from "./workspace"
 import { usePromptMove } from "./move"
 import { readLocalAttachment } from "./local-attachment"
-import { useLocation } from "../../context/location"
 
 registerOpencodeSpinner()
 
@@ -154,7 +155,6 @@ export function Prompt(props: PromptProps) {
   const local = useLocal()
   const args = useArgs()
   const paths = useTuiPaths()
-  const location = useLocation()
   const terminalEnvironment = useTuiTerminalEnvironment()
   const clipboard = useClipboard()
   const sdk = useSDK()
@@ -167,11 +167,23 @@ export function Prompt(props: PromptProps) {
   const toast = useToast()
   const permissionMode = createMemo(() =>
     ForkPermissionMode.current(
+      props.sessionID,
       props.sessionID ? (sync.session.get(props.sessionID)?.permission ?? []) : undefined,
       local.agent.current()?.name,
       local.permission.draft,
     ),
   )
+  // Plan never keeps accepted edits or auto approval: drop the stored mode when the plan agent becomes active.
+  createEffect(() => {
+    if (local.agent.current()?.name !== "plan") return
+    if (!props.sessionID) return local.permission.draft === "normal" ? undefined : local.permission.setDraft("normal")
+    const rules = sync.session.get(props.sessionID)?.permission
+    if (!rules || (ForkClassifier.storedMode(rules) ?? "normal") === "normal") return
+    void sdk.client.session.update({
+      sessionID: props.sessionID,
+      permission: ForkClassifier.withMode(rules, "normal"),
+    })
+  })
   const status = createMemo(() => sync.data.session_status?.[props.sessionID ?? ""] ?? { type: "idle" })
   const history = usePromptHistory()
   const stash = usePromptStash()
@@ -285,12 +297,40 @@ export function Prompt(props: PromptProps) {
     if (tokens <= 0) return
 
     const model = sync.data.provider.find((item) => item.id === last.providerID)?.models[last.modelID]
-    const pct = model?.limit.context ? `${Math.round((tokens / model.limit.context) * 100)}%` : undefined
-    const cost = session?.cost ?? 0
+    const percent = model?.limit.context ? Math.round((tokens / model.limit.context) * 100) : undefined
+    // Dollars only mean something on API billing; subscription responses carry quota headers.
+    const cost = ForkQuota.fresh(last.providerID) ? 0 : (session?.cost ?? 0)
     return {
-      context: pct ? `${Locale.number(tokens)} (${pct})` : Locale.number(tokens),
+      percent,
+      tokens: Locale.number(tokens).replace(".0", ""),
+      limit: model?.limit.context ? Locale.number(model.limit.context).replace(".0", "") : undefined,
       cost: cost > 0 ? money.format(cost) : undefined,
     }
+  })
+
+  // The model that actually answered last: with the Router or a fallback it differs from the one selected.
+  const activeModel = createMemo(() => {
+    if (!props.sessionID) return
+    const last = (sync.data.message[props.sessionID] ?? []).findLast(
+      (item): item is AssistantMessage => item.role === "assistant",
+    )
+    if (!last) return
+    const selected = local.model.current()
+    if (selected?.providerID === last.providerID && selected.modelID === last.modelID) return
+    return sync.data.provider.find((item) => item.id === last.providerID)?.models[last.modelID]?.name ?? last.modelID
+  })
+  const sessionTitle = createMemo(() => {
+    const title = props.sessionID ? sync.session.get(props.sessionID)?.title : undefined
+    // Placeholder titles ("New session - <timestamp>") say nothing; wait for the generated one.
+    if (!title || /^(New session|Child session) - \d{4}-\d{2}-\d{2}T/.test(title)) return undefined
+    return Locale.truncate(title, 40)
+  })
+  const changedFiles = createMemo(() => (props.sessionID ? (sync.data.session_diff[props.sessionID]?.length ?? 0) : 0))
+  // Diagnostics only surface here when something is wrong; healthy LSP/MCP stay out of sight.
+  const failures = createMemo(() => {
+    const mcp = Object.values(sync.data.mcp).filter((x) => x.status === "failed").length
+    const lsp = sync.data.lsp.filter((x) => x.status !== "connected").length
+    return [mcp ? `${mcp} MCP` : "", lsp ? `${lsp} LSP` : ""].filter(Boolean).join(" · ")
   })
 
   const [store, setStore] = createStore<{
@@ -421,9 +461,19 @@ export function Prompt(props: PromptProps) {
             })
             return
           }
-          if (content?.mime === "text/plain") {
+          if (content?.mime === "text/plain" && content.data.length > 0) {
             await pasteInputText(content.data)
+            return
           }
+          // Nothing readable: an image may be waiting in a clipboard this system cannot read.
+          const tool = await clipboard.missingImageTool?.()
+          if (tool)
+            toast.show({
+              title: "Cannot read images from the clipboard",
+              message: `Install ${tool} (sudo apt install ${tool}) to paste images.`,
+              variant: "warning",
+              duration: 8000,
+            })
         },
       },
       {
@@ -595,6 +645,18 @@ export function Prompt(props: PromptProps) {
       ...entry,
     })),
   )
+
+  const runningTasks = useRunningTasks(() => props.sessionID)
+  const openTasks = () => dialog.replace(() => <DialogRunningTasks sessionID={props.sessionID} />)
+  useBindings(() => ({
+    mode: OPENCODE_BASE_MODE,
+    enabled:
+      inputTarget() !== undefined &&
+      store.mode === "normal" &&
+      store.prompt.input === "" &&
+      runningTasks().shells.length + runningTasks().agents.length > 0,
+    bindings: [{ key: "down", desc: "Show running shells and agents", group: "Prompt", cmd: openTasks }],
+  }))
 
   useBindings(() => ({
     commands: promptCommands(),
@@ -1063,7 +1125,8 @@ export function Prompt(props: PromptProps) {
         workspace: workspaceID,
         agent: agent.name,
         // FORK-SEAM: permission-mode (a new session starts in the mode picked on the home screen)
-        permission: local.permission.draft === "normal" ? undefined : ForkClassifier.withMode([], local.permission.draft),
+        permission:
+          local.permission.draft === "normal" ? undefined : ForkClassifier.withMode([], local.permission.draft),
         model: {
           providerID: selectedModel.providerID,
           id: selectedModel.modelID,
@@ -1384,209 +1447,195 @@ export function Prompt(props: PromptProps) {
     return `Ask anything… "${list()[store.placeholder % list().length]}"`
   })
 
-  const spinnerDef = createMemo(() => {
-    const agent =
-      status().type !== "idle"
-        ? (local.agent.list().find((a) => a.name === lastUserMessage()?.agent) ?? local.agent.current())
-        : local.agent.current()
-    const color = agent ? local.agent.color(agent.name) : theme.border
-    return {
-      frames: createFrames({
-        color,
-        style: "blocks",
-        inactiveFactor: 0.6,
-        // enableFading: false,
-        minAlpha: 0.3,
-      }),
-      color: createColors({
-        color,
-        style: "blocks",
-        inactiveFactor: 0.6,
-        // enableFading: false,
-        minAlpha: 0.3,
-      }),
-    }
-  })
   const maxHeight = createMemo(() => tuiConfig.prompt?.max_height ?? Math.max(6, Math.floor(dimensions().height / 3)))
   const moveLabelWidth = createMemo(() => Math.max(12, Math.min(44, dimensions().width - 48)))
+
+  const metaRow = () => (
+    <box marginLeft={1} flexShrink={0}>
+      <box flexDirection="row" gap={1}>
+        <Show when={local.agent.current()} fallback={<box height={1} />}>
+          {(agent) => (
+            <>
+              <text wrapMode="none" fg={fadeColor(highlight(), agentMetaAlpha())}>
+                {store.mode === "shell" ? "Shell" : Locale.titlecase(agent().name)}
+              </text>
+              {/* FORK-SEAM: permission-mode (current mode under the prompt) */}
+              <Show
+                when={
+                  store.mode === "normal" &&
+                  local.agent.current()?.name !== "plan" &&
+                  (local.permission.yolo || (permissionMode() !== "normal" && permissionMode() !== "plan"))
+                }
+              >
+                <text
+                  wrapMode="none"
+                  fg={fadeColor(
+                    permissionMode() === "auto"
+                      ? theme.warning
+                      : permissionMode() === "acceptEdits"
+                        ? theme.success
+                        : theme.textMuted,
+                    agentMetaAlpha(),
+                  )}
+                >
+                  {local.permission.yolo ? "yolo" : ForkClassifier.label(permissionMode())}
+                </text>
+              </Show>
+              <Show when={store.mode === "normal"}>
+                <box flexDirection="row" gap={1}>
+                  <text wrapMode="none" fg={fadeColor(theme.textMuted, modelMetaAlpha())}>
+                    ·
+                  </text>
+                  <text
+                    wrapMode="none"
+                    flexShrink={0}
+                    fg={fadeColor(leader() ? theme.textMuted : theme.text, modelMetaAlpha())}
+                  >
+                    {local.model.parsed().model}
+                  </text>
+                  <text wrapMode="none" fg={fadeColor(theme.textMuted, modelMetaAlpha())}>
+                    {currentProviderLabel()}
+                  </text>
+                  <Show when={activeModel()}>
+                    {(name) => (
+                      <text wrapMode="none" fg={fadeColor(theme.text, modelMetaAlpha())}>
+                        → {name()}
+                      </text>
+                    )}
+                  </Show>
+                  <Show when={showVariant()}>
+                    <text wrapMode="none" fg={fadeColor(theme.textMuted, variantMetaAlpha())}>
+                      ·
+                    </text>
+                    <text>
+                      <span style={{ fg: fadeColor(theme.warning, variantMetaAlpha()), bold: true }}>
+                        {local.model.variant.current()}
+                      </span>
+                    </text>
+                  </Show>
+                </box>
+              </Show>
+            </>
+          )}
+        </Show>
+      </box>
+    </box>
+  )
 
   return (
     <>
       <box ref={(r: BoxRenderable) => (anchor = r)} visible={props.visible !== false} width="100%">
+        <Show when={props.sessionID}>
+          {(id) => (
+            <WorkingLine
+              sessionID={id()}
+              interrupt={store.interrupt}
+              color={highlight()}
+              agent={local.agent.current()?.name}
+            />
+          )}
+        </Show>
         <box
           width="100%"
-          border={["left"]}
+          border={["top", "bottom"]}
           borderColor={borderHighlight()}
-          customBorderChars={{
-            ...SplitBorder.customBorderChars,
-            bottomLeft: "╹",
-          }}
+          title={sessionTitle() ? ` ${sessionTitle()} ` : undefined}
+          titleAlignment="right"
         >
-          <box
-            paddingLeft={2}
-            paddingRight={2}
-            paddingTop={1}
-            flexShrink={0}
-            backgroundColor={theme.backgroundElement}
-            flexGrow={1}
-            width="100%"
-          >
-            <textarea
-              width="100%"
-              placeholder={placeholderText()}
-              placeholderColor={theme.textMuted}
-              textColor={leader() ? theme.textMuted : theme.text}
-              focusedTextColor={leader() ? theme.textMuted : theme.text}
-              minHeight={1}
-              maxHeight={maxHeight()}
-              onContentChange={() => {
-                const value = input.plainText
-                setStore("prompt", "input", value)
-                auto()?.onInput(value)
-                syncExtmarksWithPromptParts()
-                setCursorVersion((value) => value + 1)
-              }}
-              onCursorChange={() => setCursorVersion((value) => value + 1)}
-              onKeyDown={(e: { preventDefault(): void }) => {
-                if (props.disabled) {
-                  e.preventDefault()
-                  return
-                }
-              }}
-              onSubmit={() => {
-                // IME: double-defer so the last composed character (e.g. Korean
-                // hangul) is flushed to plainText before we read it for submission.
-                setTimeout(() => setTimeout(() => submit(), 0), 0)
-              }}
-              onPaste={async (event: PasteEvent) => {
-                if (props.disabled) {
+          <box flexDirection="row" flexShrink={0} width="100%" paddingLeft={1} paddingRight={1}>
+            <text fg={highlight()} flexShrink={0}>
+              {store.mode === "shell" ? "!" : "❯"}{" "}
+            </text>
+            <box flexGrow={1}>
+              <textarea
+                width="100%"
+                placeholder={placeholderText()}
+                placeholderColor={theme.textMuted}
+                textColor={leader() ? theme.textMuted : theme.text}
+                focusedTextColor={leader() ? theme.textMuted : theme.text}
+                minHeight={1}
+                maxHeight={maxHeight()}
+                onContentChange={() => {
+                  const value = input.plainText
+                  setStore("prompt", "input", value)
+                  auto()?.onInput(value)
+                  syncExtmarksWithPromptParts()
+                  setCursorVersion((value) => value + 1)
+                }}
+                onCursorChange={() => setCursorVersion((value) => value + 1)}
+                onKeyDown={(e: { preventDefault(): void }) => {
+                  if (props.disabled) {
+                    e.preventDefault()
+                    return
+                  }
+                }}
+                onSubmit={() => {
+                  // IME: double-defer so the last composed character (e.g. Korean
+                  // hangul) is flushed to plainText before we read it for submission.
+                  setTimeout(() => setTimeout(() => submit(), 0), 0)
+                }}
+                onPaste={async (event: PasteEvent) => {
+                  if (props.disabled) {
+                    event.preventDefault()
+                    return
+                  }
+
+                  // Normalize line endings at the boundary
+                  // Windows ConPTY/Terminal often sends CR-only newlines in bracketed paste
+                  // Replace CRLF first, then any remaining CR
+                  const normalizedText = decodePasteBytes(event.bytes).replace(/\r\n/g, "\n").replace(/\r/g, "\n")
+                  const pastedContent = normalizedText.trim()
+
+                  // Windows Terminal <1.25 can surface image-only clipboard as an
+                  // empty bracketed paste. Windows Terminal 1.25+ does not.
+                  if (!pastedContent) {
+                    keymap.dispatchCommand("prompt.paste")
+                    return
+                  }
+
+                  // Once we cross an async boundary below, the terminal may perform its
+                  // default paste unless we suppress it first and handle insertion ourselves.
                   event.preventDefault()
-                  return
-                }
 
-                // Normalize line endings at the boundary
-                // Windows ConPTY/Terminal often sends CR-only newlines in bracketed paste
-                // Replace CRLF first, then any remaining CR
-                const normalizedText = decodePasteBytes(event.bytes).replace(/\r\n/g, "\n").replace(/\r/g, "\n")
-                const pastedContent = normalizedText.trim()
-
-                // Windows Terminal <1.25 can surface image-only clipboard as an
-                // empty bracketed paste. Windows Terminal 1.25+ does not.
-                if (!pastedContent) {
-                  keymap.dispatchCommand("prompt.paste")
-                  return
-                }
-
-                // Once we cross an async boundary below, the terminal may perform its
-                // default paste unless we suppress it first and handle insertion ourselves.
-                event.preventDefault()
-
-                await pasteInputText(normalizedText)
-              }}
-              ref={(r: TextareaRenderable) => {
-                input = r
-                Object.assign(r, {
-                  getClipboardText: (text: string) => expandPastedTextPlaceholders(text, store.prompt.parts),
-                })
-                setInputTarget(r)
-                if (promptPartTypeId === 0) {
-                  promptPartTypeId = input.extmarks.registerType("prompt-part")
-                }
-                props.ref?.(ref)
-                setTimeout(() => {
-                  // setTimeout is a workaround and needs to be addressed properly
-                  if (!input || input.isDestroyed) return
-                  input.cursorColor = theme.text
-                  if (tuiConfig.cursor) input.cursorStyle = tuiConfig.cursor
-                }, 0)
-              }}
-              onMouseDown={(r: MouseEvent) => r.target?.focus()}
-              focusedBackgroundColor={theme.backgroundElement}
-              cursorColor={props.disabled ? theme.backgroundElement : theme.text}
-              cursorStyle={tuiConfig.cursor}
-              syntaxStyle={syntax()}
-            />
-            <box flexDirection="row" flexShrink={0} paddingTop={1} gap={1} justifyContent="space-between">
-              <box flexDirection="row" gap={1}>
-                <Show when={local.agent.current()} fallback={<box height={1} />}>
-                  {(agent) => (
-                    <>
-                      <text fg={fadeColor(highlight(), agentMetaAlpha())}>
-                        {store.mode === "shell" ? "Shell" : Locale.titlecase(agent().name)}
-                      </text>
-                      {/* FORK-SEAM: permission-mode (current mode under the prompt) */}
-                      <Show
-                        when={
-                          store.mode === "normal" &&
-                          (local.permission.yolo || (permissionMode() !== "normal" && permissionMode() !== "plan"))
-                        }
-                      >
-                        <text
-                          fg={fadeColor(
-                            permissionMode() === "auto" ? theme.warning : permissionMode() === "acceptEdits" ? theme.success : theme.textMuted,
-                            agentMetaAlpha(),
-                          )}
-                        >
-                          {local.permission.yolo ? "yolo" : ForkClassifier.label(permissionMode())}
-                        </text>
-                      </Show>
-                      <Show when={store.mode === "normal"}>
-                        <box flexDirection="row" gap={1}>
-                          <text fg={fadeColor(theme.textMuted, modelMetaAlpha())}>·</text>
-                          <text
-                            flexShrink={0}
-                            fg={fadeColor(leader() ? theme.textMuted : theme.text, modelMetaAlpha())}
-                          >
-                            {local.model.parsed().model}
-                          </text>
-                          <text fg={fadeColor(theme.textMuted, modelMetaAlpha())}>{currentProviderLabel()}</text>
-                          <Show when={showVariant()}>
-                            <text fg={fadeColor(theme.textMuted, variantMetaAlpha())}>·</text>
-                            <text>
-                              <span style={{ fg: fadeColor(theme.warning, variantMetaAlpha()), bold: true }}>
-                                {local.model.variant.current()}
-                              </span>
-                            </text>
-                          </Show>
-                        </box>
-                      </Show>
-                    </>
-                  )}
-                </Show>
-              </box>
-              <Show when={hasRightContent()}>
-                <box flexDirection="row" gap={1} alignItems="center">
-                  {props.right}
-                </box>
-              </Show>
+                  await pasteInputText(normalizedText)
+                }}
+                ref={(r: TextareaRenderable) => {
+                  input = r
+                  Object.assign(r, {
+                    getClipboardText: (text: string) => expandPastedTextPlaceholders(text, store.prompt.parts),
+                  })
+                  setInputTarget(r)
+                  if (promptPartTypeId === 0) {
+                    promptPartTypeId = input.extmarks.registerType("prompt-part")
+                  }
+                  props.ref?.(ref)
+                  setTimeout(() => {
+                    // setTimeout is a workaround and needs to be addressed properly
+                    if (!input || input.isDestroyed) return
+                    input.cursorColor = theme.text
+                    if (tuiConfig.cursor) input.cursorStyle = tuiConfig.cursor
+                  }, 0)
+                }}
+                onMouseDown={(r: MouseEvent) => r.target?.focus()}
+                focusedBackgroundColor={theme.background}
+                cursorColor={props.disabled ? theme.background : theme.text}
+                cursorStyle={tuiConfig.cursor}
+                syntaxStyle={syntax()}
+              />
             </box>
+            <Show when={usage()?.percent}>
+              {(percent) => (
+                <text
+                  flexShrink={0}
+                  paddingLeft={1}
+                  fg={percent() >= 95 ? theme.error : percent() >= 80 ? theme.warning : theme.textMuted}
+                  wrapMode="none"
+                >
+                  {contextGlyph(percent())} {percent()}% · {usage()?.tokens}/{usage()?.limit}
+                </text>
+              )}
+            </Show>
           </box>
-        </box>
-        <box
-          height={1}
-          border={["left"]}
-          borderColor={borderHighlight()}
-          customBorderChars={{
-            ...EmptyBorder,
-            vertical: theme.backgroundElement.a !== 0 ? "╹" : " ",
-          }}
-        >
-          <box
-            height={1}
-            border={["bottom"]}
-            borderColor={theme.backgroundElement}
-            customBorderChars={
-              theme.backgroundElement.a !== 0
-                ? {
-                    ...EmptyBorder,
-                    horizontal: "▀",
-                  }
-                : {
-                    ...EmptyBorder,
-                    horizontal: " ",
-                  }
-            }
-          />
         </box>
         <box width="100%" flexDirection="row" justifyContent="space-between">
           <Switch>
@@ -1597,31 +1646,14 @@ export function Prompt(props: PromptProps) {
                 flexGrow={1}
                 justifyContent={status().type === "retry" ? "space-between" : "flex-start"}
               >
+                {metaRow()}
                 <box flexShrink={0} flexDirection="row" gap={1}>
-                  <box marginLeft={1}>
-                    <Show when={kv.get("animations_enabled", true)} fallback={<text fg={theme.textMuted}>[⋯]</text>}>
-                      <spinner color={spinnerDef().color} frames={spinnerDef().frames} interval={40} />
-                    </Show>
-                  </box>
-                  <box flexDirection="row" gap={1} flexShrink={0}>
+                  <box flexDirection="row" gap={1} flexShrink={0} marginLeft={1}>
                     {(() => {
                       const retry = createMemo(() => {
                         const s = status()
                         if (s.type !== "retry") return
                         return s
-                      })
-                      const message = createMemo(() => {
-                        const r = retry()
-                        if (!r) return
-                        if (r.message.includes("exceeded your current quota") && r.message.includes("gemini"))
-                          return "gemini is way too hot right now"
-                        if (r.message.length > 80) return r.message.slice(0, 80) + "…"
-                        return r.message
-                      })
-                      const isTruncated = createMemo(() => {
-                        const r = retry()
-                        if (!r) return false
-                        return r.message.length > 120
                       })
                       const [seconds, setSeconds] = createSignal(0)
                       onMount(() => {
@@ -1634,27 +1666,17 @@ export function Prompt(props: PromptProps) {
                           clearInterval(timer)
                         })
                       })
-                      const handleMessageClick = () => {
-                        const r = retry()
-                        if (!r) return
-                        if (isTruncated()) {
-                          void DialogAlert.show(dialog, "Retry Error", r.message)
-                        }
-                      }
 
                       const retryText = () => {
                         const r = retry()
                         if (!r) return ""
-                        const baseMessage = message()
-                        const truncatedHint = isTruncated() ? " (click to expand)" : ""
                         const duration = formatDuration(seconds())
-                        const retryInfo = ` [retrying ${duration ? `in ${duration} ` : ""}attempt #${r.attempt}]`
-                        return baseMessage + truncatedHint + retryInfo
+                        return `${r.message} [retrying ${duration ? `in ${duration} ` : ""}attempt #${r.attempt}]`
                       }
 
                       return (
                         <Show when={retry()}>
-                          <box onMouseUp={handleMessageClick}>
+                          <box maxHeight={2} overflow="hidden">
                             <text fg={theme.error}>{retryText()}</text>
                           </box>
                         </Show>
@@ -1662,12 +1684,6 @@ export function Prompt(props: PromptProps) {
                     })()}
                   </box>
                 </box>
-                <text fg={store.interrupt > 0 ? theme.primary : theme.text}>
-                  esc{" "}
-                  <span style={{ fg: store.interrupt > 0 ? theme.primary : theme.textMuted }}>
-                    {store.interrupt > 0 ? "again to interrupt" : "interrupt"}
-                  </span>
-                </text>
               </box>
             </Match>
             <Match when={workspace.notice()}>
@@ -1720,18 +1736,15 @@ export function Prompt(props: PromptProps) {
                 <text fg={theme.accent}>(new working copy)</text>
               </box>
             </Match>
-            <Match when={true}>
-              {props.hint ?? (
-                <Show when={props.sessionID} fallback={<text />}>
-                  <box marginLeft={1}>
-                    <text fg={theme.textMuted}>{location()?.directory ?? paths.cwd}</text>
-                  </box>
-                </Show>
-              )}
-            </Match>
+            <Match when={true}>{props.hint ?? metaRow()}</Match>
           </Switch>
           <Show when={status().type !== "retry"}>
-            <box gap={2} flexDirection="row">
+            <box gap={2} flexDirection="row" flexShrink={0}>
+              <Show when={hasRightContent()}>
+                <box flexDirection="row" gap={1} alignItems="center">
+                  {props.right}
+                </box>
+              </Show>
               <Show when={editorContextLabelState() !== "none" ? editorFileLabelDisplay() : undefined}>
                 {(file) => (
                   <text fg={editorContextLabelState() === "pending" ? theme.secondary : theme.textMuted}>{file()}</text>
@@ -1739,23 +1752,35 @@ export function Prompt(props: PromptProps) {
               </Show>
               <Switch>
                 <Match when={store.mode === "normal"}>
+                  <Show when={failures()}>
+                    <text fg={theme.error} wrapMode="none">
+                      ⊙ {failures()}
+                    </text>
+                  </Show>
+                  <Show when={changedFiles()}>
+                    <text fg={theme.textMuted} wrapMode="none">
+                      {changedFiles()} file{changedFiles() > 1 ? "s" : ""}
+                    </text>
+                  </Show>
                   <Switch>
-                    <Match when={usage()}>
-                      {(item) => (
+                    <Match when={usage()?.cost}>
+                      {(cost) => (
                         <text fg={theme.textMuted} wrapMode="none">
-                          {[item().context, item().cost].filter(Boolean).join(" · ")}
+                          {cost()}
                         </text>
                       )}
                     </Match>
-                    <Match when={true}>
-                      <text fg={theme.text}>
+                    <Match when={dimensions().width >= 135}>
+                      <text fg={theme.text} wrapMode="none">
                         {agentShortcut()} <span style={{ fg: theme.textMuted }}>agents</span>
                       </text>
                     </Match>
                   </Switch>
-                  <text fg={theme.text}>
-                    {paletteShortcut()} <span style={{ fg: theme.textMuted }}>commands</span>
-                  </text>
+                  <Show when={dimensions().width >= 125}>
+                    <text fg={theme.text} wrapMode="none">
+                      {paletteShortcut()} <span style={{ fg: theme.textMuted }}>commands</span>
+                    </text>
+                  </Show>
                 </Match>
                 <Match when={store.mode === "shell"}>
                   <text fg={theme.text}>
@@ -1767,6 +1792,7 @@ export function Prompt(props: PromptProps) {
           </Show>
         </box>
       </box>
+      <RunningTasksBar sessionID={props.sessionID} shortcut="↓" onOpen={openTasks} />
       <Autocomplete
         sessionID={props.sessionID}
         ref={(r) => {

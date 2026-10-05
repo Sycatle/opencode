@@ -18,7 +18,13 @@ const CHILD = `child-${run}`
 
 type Slots = Record<string, (ctx: unknown, props: { session_id: string }) => unknown>
 
-async function turn(sessionID: string, agent: string, cost: number, parentSessionID?: string) {
+async function turn(
+  sessionID: string,
+  agent: string,
+  cost: number,
+  parentSessionID?: string,
+  providerID = "openrouter",
+) {
   ForkTelemetry.measure(sessionID, {
     agent,
     parentSessionID,
@@ -32,7 +38,7 @@ async function turn(sessionID: string, agent: string, cost: number, parentSessio
   await ForkTelemetry.record({
     sessionID,
     messageID: `${sessionID}-${cost}`,
-    providerID: "anthropic",
+    providerID,
     modelID: agent === "explore" ? "claude-haiku-4-5" : "claude-sonnet-5-5",
     tokens: { input: 200, output: 50, reasoning: 0, cache: { read: 1800, write: 0 } },
     cost,
@@ -46,8 +52,8 @@ test("sidebar shows the last turn breakdown, subagents and the budget", async ()
 
   const registered: Slots[] = []
   const navigated: unknown[] = []
-  const toasts: { title?: string }[] = []
-  const base = createTuiPluginApi({
+  const api = {
+    ...createTuiPluginApi({
       state: {
         session: {
           messages: () => [],
@@ -55,10 +61,7 @@ test("sidebar shows the last turn breakdown, subagents and the budget", async ()
           get: (id: string) => (id === CHILD ? { title: "Find discount code (@explore subagent)" } : undefined),
         } as unknown as Partial<TuiPluginApi["state"]["session"]>,
       },
-    })
-  const api = {
-    ...base,
-    ui: { ...base.ui, toast: (input: { title?: string }) => toasts.push(input) },
+    }),
     slots: { register: (input: { slots: Slots }) => registered.push(input.slots) },
     route: { navigate: (name: string, params?: unknown) => navigated.push({ name, params }) },
   } as unknown as TuiPluginApi
@@ -73,29 +76,39 @@ test("sidebar shows the last turn breakdown, subagents and the budget", async ()
         })}
       </box>
     ),
-    { width: 70, height: 16 },
+    { width: 70, height: 30 },
+  )
+  await app.renderOnce()
+  // "Last turn" starts collapsed: only its summary shows until the header is clicked.
+  expect(app.captureCharFrame()).toContain("2.0k in · cache 90%")
+  expect(app.captureCharFrame()).not.toContain("sys 86%")
+  await app.mockMouse.click(
+    2,
+    app
+      .captureCharFrame()
+      .split("\n")
+      .findIndex((line) => line.includes("Last turn")),
   )
   await app.renderOnce()
   const frame = app.captureCharFrame()
 
-  expect(frame).toContain("Usage")
-  expect(frame).toContain("2.0k in · cache 90% · $0.0040")
+  expect(frame).toContain("Last turn")
   expect(frame).toContain("sys 86% tools 0% hist 14% out 0%")
   expect(frame).toContain("2 turns · cache 90%")
-  expect(frame).toContain("$0.0460 incl. subagents")
+  expect(frame).toContain("$0.0040 this turn · $0.0460 incl. subagents")
   expect(frame).toContain("budget $0.0460 / $0.0500")
   expect(frame).toContain("Subagents")
-  expect(frame).toMatch(/• Find discount code\s*\n/)
+  expect(frame).toMatch(/✓ Find discount code\s*\n/)
   expect(frame).not.toContain("@explore subagent")
   expect(frame).toContain("  explore · haiku-4-5 · 1t · $0.0120")
   expect(frame).toContain("$0.0460/$0.0500")
-  expect(toasts.map((toast) => toast.title)).toEqual(["Budget at 80%"])
   app.renderer.destroy()
 })
 
 test("on a subscription, quotas replace dollars as the primary figure", async () => {
+  process.env.OPENCODE_FORK_LOCALE = "en-GB"
   const session = `sub-${run}`
-  await turn(session, "build", 0.02)
+  await turn(session, "build", 0.02, undefined, "anthropic")
   const { ForkQuota } = await import("@opencode-fork/core/quota")
   const reset = String(Math.floor(Date.now() / 1000) + 3600)
   ForkQuota.observe(
@@ -138,11 +151,13 @@ test("on a subscription, quotas replace dollars as the primary figure", async ()
   await app.renderOnce()
   const frame = app.captureCharFrame()
 
-  expect(frame).toContain("Quota subscription")
-  expect(frame).toMatch(/5h\s+11% · reset /)
-  expect(frame).toMatch(/week 25% · reset /)
-  expect(frame).toContain("session +0% of the 5h window")
-  expect(frame).toContain("≈ $0.0200 at API prices")
-  expect(frame).toContain("5h 11% · 7d 25%")
+  expect(frame).toContain("Limits")
+  expect(frame).toContain("subscription")
+  expect(frame).toMatch(/5h\s+\S+ 11%/)
+  expect(frame).toMatch(/reset \d{2}:\d{2} \(in \S+\)/)
+  expect(frame).toMatch(/7d\s+\S+ 25%/)
+  expect(frame).toContain("session +0 pts")
+  expect(frame).not.toContain("$")
+  expect(frame).toMatch(/5h \S+ 11%\s+7d \S+ 25%/)
   app.renderer.destroy()
 })

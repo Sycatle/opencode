@@ -613,6 +613,22 @@ function Prompt<const T extends Record<string, string>>(props: {
           setStore("selected", next)
         },
       },
+      ...[
+        ["y", "once"],
+        ["a", "always"],
+        ["n", "reject"],
+      ].flatMap(([key, option]) =>
+        option in props.options
+          ? [
+              {
+                key,
+                desc: `Permission: ${props.options[option as keyof T]}`,
+                group: "Permission",
+                cmd: () => props.onSelect(option as keyof T),
+              },
+            ]
+          : [],
+      ),
       {
         key: "return",
         desc: "Select permission option",
@@ -706,6 +722,11 @@ function Prompt<const T extends Record<string, string>>(props: {
           <Show when={props.fullscreen}>
             <text fg={theme.text}>
               {fullscreenHint()} <span style={{ fg: theme.textMuted }}>{hint()}</span>
+            </text>
+          </Show>
+          <Show when={"once" in props.options}>
+            <text fg={theme.text}>
+              y/a/n <span style={{ fg: theme.textMuted }}>allow/always/reject</span>
             </text>
           </Show>
           <text fg={theme.text}>

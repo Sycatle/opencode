@@ -1,7 +1,7 @@
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { describe, expect } from "bun:test"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { Cause, Deferred, Effect, Exit, Layer } from "effect"
+import { Cause, Deferred, Effect, Exit, Fiber, Layer } from "effect"
 import type * as Scope from "effect/Scope"
 import os from "os"
 import path from "path"
@@ -23,6 +23,7 @@ import { RuntimeFlags } from "@/effect/runtime-flags"
 import { InstanceStore } from "@/project/instance-store"
 import { BackgroundJob } from "@/background/job"
 import { ShellKillTool, ShellOutputTool } from "../../src/tool/shell-background"
+import { ShellPromote } from "../../src/tool/shell-promote"
 import { MonitorTool } from "../../src/tool/monitor"
 import type { SessionPrompt } from "../../src/session/prompt"
 import type { TaskPromptOps } from "../../src/tool/task"
@@ -1252,6 +1253,57 @@ describe.skipIf(process.platform === "win32")("tool.shell background", () => {
         const part = (yield* Deferred.await(injected)).parts[0]
         expect(part).toMatchObject({ type: "text", synthetic: true })
         expect(part && "text" in part ? part.text : "").toContain(`state="completed" exit="0"`)
+      }),
+    ),
+  )
+
+  it.live("moves a running foreground command to the background and keeps it running", () =>
+    runIn(
+      projectRoot,
+      Effect.gen(function* () {
+        const jobs = yield* BackgroundJob.Service
+        const { shell, output } = yield* tools
+        const injected = yield* Deferred.make<SessionPrompt.PromptInput>()
+        const next = { ...withOps(injected), sessionID: SessionID.make("ses_promote") }
+
+        const call = yield* shell.execute({ command: "echo first; sleep 1; echo second" }, next).pipe(Effect.forkChild)
+        yield* Effect.sleep("400 millis")
+        expect(ShellPromote.request("ses_promote")).toBe(1)
+
+        const result = yield* Fiber.join(call)
+        expect(result.output).toContain("Started in the background as job")
+        const job = (yield* jobs.list())[0]
+        if (!job) throw new Error("job not started")
+        expect(job.type).toBe("shell")
+        expect(result.output).toContain(job.id)
+
+        const done = yield* jobs.wait({ id: job.id })
+        expect(done.info?.status).toBe("completed")
+        const finished = yield* output.execute({ id: job.id }, next)
+        expect(finished.output).toContain("exit: 0")
+        expect(finished.output).toContain("first")
+        expect(finished.output).toContain("second")
+
+        const part = (yield* Deferred.await(injected)).parts[0]
+        expect(part && "text" in part ? part.text : "").toContain(`state="completed" exit="0"`)
+        // A finished command is no longer waiting to be moved.
+        expect(ShellPromote.request("ses_promote")).toBe(0)
+      }),
+    ),
+  )
+
+  it.live("a foreground command that is not moved still returns its output", () =>
+    runIn(
+      projectRoot,
+      Effect.gen(function* () {
+        const { shell } = yield* tools
+        const result = yield* shell.execute(
+          { command: "echo plain" },
+          { ...ctx, sessionID: SessionID.make("ses_plain") },
+        )
+        expect(result.output).toContain("plain")
+        expect(result.output).not.toContain("background")
+        expect(ShellPromote.request("ses_plain")).toBe(0)
       }),
     ),
   )

@@ -1,6 +1,7 @@
 import type { TuiPlugin, TuiPluginApi } from "@opencode-ai/plugin/tui"
 import type { BuiltinTuiPlugin } from "../builtins"
-import { createMemo, For, Show, createSignal } from "solid-js"
+import { createMemo, For, Show } from "solid-js"
+import { SidebarSection } from "../../component/sidebar-section"
 import { Locale } from "../../util/locale"
 
 const id = "internal:sidebar-files"
@@ -12,48 +13,55 @@ function changeCountWidth(item: { additions: number; deletions: number }) {
 }
 
 function View(props: { api: TuiPluginApi; session_id: string }) {
-  const [open, setOpen] = createSignal(true)
   const theme = () => props.api.theme.current
   const list = createMemo(() => props.api.state.session.diff(props.session_id))
+  const added = createMemo(() => list().reduce((sum, item) => sum + item.additions, 0))
+  const removed = createMemo(() => list().reduce((sum, item) => sum + item.deletions, 0))
 
   return (
     <Show when={list().length > 0}>
-      <box>
-        <box flexDirection="row" gap={1} onMouseDown={() => list().length > 2 && setOpen((x) => !x)}>
-          <Show when={list().length > 2}>
-            <text fg={theme().text}>{open() ? "▼" : "▶"}</text>
-          </Show>
-          <text fg={theme().text}>
-            <b>Modified Files</b>
-          </text>
-        </box>
-        <Show when={list().length <= 2 || open()}>
-          <For each={list()}>
-            {(item) => (
-              <box flexDirection="row" gap={1} justifyContent="space-between">
-                <text fg={theme().textMuted} wrapMode="none">
-                  {Locale.truncateLeft(item.file, Math.max(2, 36 - changeCountWidth(item)))}
-                </text>
-                <box flexDirection="row" gap={1} flexShrink={0}>
-                  <Show when={item.additions}>
-                    <text fg={theme().diffAdded}>+{item.additions}</text>
-                  </Show>
-                  <Show when={item.deletions}>
-                    <text fg={theme().diffRemoved}>-{item.deletions}</text>
-                  </Show>
-                </box>
+      <SidebarSection
+        api={props.api}
+        title="Files"
+        collapsible
+        defaultOpen={list().length <= 8}
+        summary={
+          <>
+            {list().length}
+            <Show when={added()}>
+              <span style={{ fg: theme().diffAdded }}> +{added()}</span>
+            </Show>
+            <Show when={removed()}>
+              <span style={{ fg: theme().diffRemoved }}> -{removed()}</span>
+            </Show>
+          </>
+        }
+      >
+        <For each={list()}>
+          {(item) => (
+            <box flexDirection="row" gap={1} justifyContent="space-between">
+              <text fg={theme().textMuted} wrapMode="none">
+                {Locale.truncateLeft(item.file, Math.max(2, 33 - changeCountWidth(item)))}
+              </text>
+              <box flexDirection="row" gap={1} flexShrink={0}>
+                <Show when={item.additions}>
+                  <text fg={theme().diffAdded}>+{item.additions}</text>
+                </Show>
+                <Show when={item.deletions}>
+                  <text fg={theme().diffRemoved}>-{item.deletions}</text>
+                </Show>
               </box>
-            )}
-          </For>
-        </Show>
-      </box>
+            </box>
+          )}
+        </For>
+      </SidebarSection>
     </Show>
   )
 }
 
 const tui: TuiPlugin = async (api) => {
   api.slots.register({
-    order: 500,
+    order: 220,
     slots: {
       sidebar_content(_ctx, props) {
         return <View api={api} session_id={props.session_id} />

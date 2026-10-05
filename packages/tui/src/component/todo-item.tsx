@@ -13,7 +13,7 @@ export function TodoItem(props: TodoItemProps) {
       <text
         flexShrink={0}
         style={{
-          fg: props.status === "in_progress" ? theme.warning : theme.textMuted,
+          fg: props.status === "in_progress" ? theme.accent : theme.textMuted,
         }}
       >
         [{props.status === "completed" ? "✓" : props.status === "in_progress" ? "•" : " "}]{" "}
@@ -22,7 +22,7 @@ export function TodoItem(props: TodoItemProps) {
         flexGrow={1}
         wrapMode="word"
         style={{
-          fg: props.status === "in_progress" ? theme.warning : theme.textMuted,
+          fg: props.status === "in_progress" ? theme.accent : theme.textMuted,
         }}
       >
         {props.content}

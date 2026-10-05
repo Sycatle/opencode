@@ -17,7 +17,9 @@ test("modes cycle build, accept edits, plan, auto, build", () => {
   for (const _ of [1, 2, 3, 4]) seen.push(ForkClassifier.next(seen.at(-1)!))
   expect(seen).toEqual(["normal", "acceptEdits", "plan", "auto", "normal"])
   expect(ForkClassifier.current(undefined, "plan")).toBe("plan")
-  expect(ForkClassifier.current("auto", "plan")).toBe("auto")
+  expect(ForkClassifier.current("auto", "plan")).toBe("plan")
+  expect(ForkClassifier.current("acceptEdits", "plan")).toBe("plan")
+  expect(ForkClassifier.current("acceptEdits", "build")).toBe("acceptEdits")
   expect(ForkClassifier.current("normal", "build")).toBe("normal")
 })
 

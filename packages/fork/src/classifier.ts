@@ -35,9 +35,10 @@ export function withMode<T extends Rule>(ruleset: readonly T[] | undefined, mode
 }
 
 // Plan is an agent, not a stored mode: a stored mode wins, otherwise the plan agent means plan.
+// Plan is exclusive: it cannot be combined with accepted edits or auto approval, whatever was stored.
 export function current(stored: StoredMode | undefined, agent: string | undefined): Mode {
-  if (stored && stored !== "normal") return stored
-  return agent === "plan" ? "plan" : "normal"
+  if (agent === "plan") return "plan"
+  return stored ?? "normal"
 }
 
 // build -> build with edits accepted -> plan -> auto -> build

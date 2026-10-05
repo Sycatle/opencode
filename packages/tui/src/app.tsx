@@ -561,6 +561,22 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
     if (workspace?.type !== "worktree" || !workspace.directory) return
     return workspace
   })
+  // FORK-SEAM: permission-mode
+  const cycleMode = () => {
+    const sessionID = route.data.type === "session" ? route.data.sessionID : undefined
+    const mode = ForkPermissionMode.cycle({
+      sessionID,
+      rules: sessionID ? (sync.session.get(sessionID)?.permission ?? []) : undefined,
+      agent: local.agent.current()?.name,
+      draft: local.permission.draft,
+      setAgent: local.agent.set,
+      setDraft: local.permission.setDraft,
+      save: (permission) => sdk.client.session.update({ sessionID: sessionID!, permission }),
+      onError: () => toast.show({ message: "Could not change the mode, try again", variant: "error", duration: 3000 }),
+    })
+    toast.show({ message: `Mode: ${ForkClassifier.label(mode)}`, variant: "info", duration: 1500 })
+  }
+
   const appCommands = createMemo(() =>
     [
       {
@@ -703,6 +719,8 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
         category: "Agent",
         hidden: true,
         run: () => {
+          // With only build and plan there is one thing to cycle: the mode. Custom agents keep their own cycle.
+          if (local.agent.list().every((agent) => agent.name === "build" || agent.name === "plan")) return cycleMode()
           local.agent.move(1)
         },
       },
@@ -737,6 +755,7 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
         category: "Agent",
         hidden: true,
         run: () => {
+          if (local.agent.list().every((agent) => agent.name === "build" || agent.name === "plan")) return cycleMode()
           local.agent.move(-1)
         },
       },
@@ -954,17 +973,7 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
         title: "Cycle permission mode (build, accept edits, plan, auto)",
         category: "Agent",
         run: () => {
-          const sessionID = route.data.type === "session" ? route.data.sessionID : undefined
-          const mode = ForkPermissionMode.cycle({
-            sessionID,
-            rules: sessionID ? (sync.session.get(sessionID)?.permission ?? []) : undefined,
-            agent: local.agent.current()?.name,
-            draft: local.permission.draft,
-            setAgent: local.agent.set,
-            setDraft: local.permission.setDraft,
-            save: (permission) => sdk.client.session.update({ sessionID: sessionID!, permission }),
-          })
-          toast.show({ message: `Mode: ${ForkClassifier.label(mode)}`, variant: "info", duration: 1500 })
+          cycleMode()
           dialog.clear()
         },
       },

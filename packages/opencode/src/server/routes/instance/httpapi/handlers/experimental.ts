@@ -1,6 +1,8 @@
 import { Account } from "@/account/account"
 import { Agent } from "@/agent/agent"
 import { BackgroundJob } from "@/background/job"
+import { ForkShell } from "@opencode-fork/core/shell"
+import { ShellPromote } from "@/tool/shell-promote"
 import { Config } from "@/config/config"
 import { InstanceState } from "@/effect/instance-state"
 import { RuntimeFlags } from "@/effect/runtime-flags"
@@ -159,7 +161,9 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
     const sessionBackground = Effect.fn("ExperimentalHttpApi.sessionBackground")(function* (ctx: {
       params: { sessionID: SessionID }
     }) {
-      if (!flags.experimentalBackgroundSubagents) return false
+      // FORK-SEAM: background-shell (running foreground shell commands detach and keep running as jobs)
+      const shells = ForkShell.enabled() ? ShellPromote.request(ctx.params.sessionID) : 0
+      if (!flags.experimentalBackgroundSubagents) return shells > 0
       const jobs = (yield* background.list()).filter(
         (job) =>
           job.type === "task" &&
@@ -168,7 +172,7 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
           job.metadata.background !== true,
       )
       const promoted = yield* Effect.forEach(jobs, (job) => background.promote(job.id), { concurrency: "unbounded" })
-      return promoted.some((job) => job !== undefined)
+      return shells > 0 || promoted.some((job) => job !== undefined)
     })
 
     const resource = Effect.fn("ExperimentalHttpApi.resource")(function* () {

@@ -27,6 +27,38 @@ function writeOsc52(text: string) {
   process.stdout.write(process.env.TMUX ? sequence + passthrough : process.env.STY ? passthrough : sequence)
 }
 
+const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif", "image/bmp"]
+
+// The clipboard offers a list of formats for the same content: take the best image one.
+export function pickImageType(types: readonly string[]) {
+  const list = types.map((type) => type.trim()).filter(Boolean)
+  return IMAGE_TYPES.find((type) => list.includes(type)) ?? list.find((type) => type.startsWith("image/"))
+}
+
+async function linuxImage() {
+  const wayland = await command("wl-paste", ["--list-types"]).catch(() => Buffer.alloc(0))
+  const waylandType = pickImageType(wayland.toString().split("\n"))
+  if (waylandType) {
+    const data = await command("wl-paste", ["-t", waylandType]).catch(() => Buffer.alloc(0))
+    if (data.length) return { data: data.toString("base64"), mime: waylandType }
+  }
+  const x11 = await command("xclip", ["-selection", "clipboard", "-t", "TARGETS", "-o"]).catch(() => Buffer.alloc(0))
+  const x11Type = pickImageType(x11.toString().split("\n"))
+  if (x11Type) {
+    const data = await command("xclip", ["-selection", "clipboard", "-t", x11Type, "-o"]).catch(() => Buffer.alloc(0))
+    if (data.length) return { data: data.toString("base64"), mime: x11Type }
+  }
+}
+
+// Reading an image needs a tool the system may not have: name the one to install when it is missing.
+export async function missingImageTool() {
+  if (platform() !== "linux" || release().includes("WSL")) return
+  const { which } = await import("@opencode-ai/core/util/which")
+  const wayland = Boolean(process.env.WAYLAND_DISPLAY)
+  if (which(wayland ? "wl-paste" : "xclip")) return
+  return wayland ? "wl-clipboard" : "xclip"
+}
+
 export async function read() {
   if (platform() === "darwin") {
     const file = path.join(tmpdir(), "opencode-clipboard.png")
@@ -61,12 +93,8 @@ export async function read() {
   }
 
   if (platform() === "linux") {
-    const wayland = await command("wl-paste", ["-t", "image/png"]).catch(() => Buffer.alloc(0))
-    if (wayland.length) return { data: wayland.toString("base64"), mime: "image/png" }
-    const x11 = await command("xclip", ["-selection", "clipboard", "-t", "image/png", "-o"]).catch(() =>
-      Buffer.alloc(0),
-    )
-    if (x11.length) return { data: x11.toString("base64"), mime: "image/png" }
+    const image = await linuxImage()
+    if (image) return image
   }
 
   const { default: clipboardy } = await import("clipboardy")

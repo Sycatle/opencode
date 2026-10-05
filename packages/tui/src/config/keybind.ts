@@ -153,6 +153,8 @@ export const Definitions = {
   messages_redo: keybind("<leader>r", "Redo message"),
   messages_toggle_conceal: keybind("<leader>h", "Toggle code block concealment in messages"),
   tool_details: keybind("none", "Toggle tool details visibility"),
+  tool_expand: keybind("ctrl+o", "Expand or collapse truncated tool output"),
+  session_tasks: keybind("<leader>j", "Show running shells and agents"),
   display_thinking: keybind("none", "Toggle thinking blocks visibility"),
 
   prompt_submit: keybind("none", "Submit prompt"),
@@ -361,6 +363,8 @@ export const CommandMap = {
   messages_redo: "session.redo",
   messages_toggle_conceal: "session.toggle.conceal",
   tool_details: "session.toggle.actions",
+  tool_expand: "session.toggle.expand",
+  session_tasks: "session.tasks",
   display_thinking: "session.toggle.thinking",
   prompt_submit: "prompt.submit",
   prompt_editor_context_clear: "prompt.editor_context.clear",

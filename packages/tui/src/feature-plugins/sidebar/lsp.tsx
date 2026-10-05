@@ -1,54 +1,51 @@
 import type { TuiPlugin, TuiPluginApi } from "@opencode-ai/plugin/tui"
 import type { BuiltinTuiPlugin } from "../builtins"
-import { createMemo, For, Show, createSignal } from "solid-js"
+import { createMemo, For, Show } from "solid-js"
+import { SidebarSection } from "../../component/sidebar-section"
+import { Locale } from "../../util/locale"
 
 const id = "internal:sidebar-lsp"
 
+// Language servers start on demand, so the block only appears once there is one to show.
 function View(props: { api: TuiPluginApi }) {
-  const [open, setOpen] = createSignal(true)
   const theme = () => props.api.theme.current
   const list = createMemo(() => props.api.state.lsp())
-  const off = createMemo(() => !props.api.state.config.lsp)
+  const bad = createMemo(() => list().filter((item) => item.status !== "connected").length)
 
   return (
-    <box>
-      <box flexDirection="row" gap={1} onMouseDown={() => list().length > 2 && setOpen((x) => !x)}>
-        <Show when={list().length > 2}>
-          <text fg={theme().text}>{open() ? "▼" : "▶"}</text>
-        </Show>
-        <text fg={theme().text}>
-          <b>LSP</b>
-        </text>
-      </box>
-      <Show when={list().length <= 2 || open()}>
-        <Show when={list().length === 0}>
-          <text fg={theme().textMuted}>{off() ? "LSPs are disabled" : "LSPs will activate as files are read"}</text>
-        </Show>
+    <Show when={list().length > 0}>
+      <SidebarSection
+        api={props.api}
+        title="LSP"
+        collapsible
+        defaultOpen={bad() > 0 || list().length <= 3}
+        forceOpen={bad() > 0}
+        summary={
+          <span style={{ fg: bad() > 0 ? theme().error : theme().textMuted }}>
+            {bad() > 0 ? `${bad()} error${bad() > 1 ? "s" : ""}` : `${list().length} active`}
+          </span>
+        }
+      >
         <For each={list()}>
           {(item) => (
             <box flexDirection="row" gap={1}>
-              <text
-                flexShrink={0}
-                style={{
-                  fg: item.status === "connected" ? theme().success : theme().error,
-                }}
-              >
+              <text flexShrink={0} style={{ fg: item.status === "connected" ? theme().success : theme().error }}>
                 •
               </text>
-              <text fg={theme().textMuted}>
-                {item.id} {item.root}
+              <text fg={theme().textMuted} wrapMode="none">
+                {item.id} {Locale.truncateLeft(item.root, 24)}
               </text>
             </box>
           )}
         </For>
-      </Show>
-    </box>
+      </SidebarSection>
+    </Show>
   )
 }
 
 const tui: TuiPlugin = async (api) => {
   api.slots.register({
-    order: 300,
+    order: 410,
     slots: {
       sidebar_content() {
         return <View api={api} />

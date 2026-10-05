@@ -22,10 +22,15 @@ import { useSync } from "../../context/sync"
 import { useEvent } from "../../context/event"
 import { SplitBorder } from "../../ui/border"
 import { useTuiPaths, useTuiTerminalEnvironment } from "../../context/runtime"
+import { ForkRouteLog } from "@opencode-fork/core/route-log"
+import { ForkShell } from "@opencode-fork/core/shell"
+import { compactTokens, estimateTokens } from "../../util/context-usage"
+import { createStore } from "solid-js/store"
 import { Spinner } from "../../component/spinner"
 import { createSyntaxStyleMemo, generateSubtleSyntax, selectedForeground, useTheme } from "../../context/theme"
 import { BoxRenderable, ScrollBoxRenderable, addDefaultParsers, TextAttributes, RGBA } from "@opentui/core"
 import { Prompt, type PromptRef } from "../../component/prompt"
+import { DialogRunningTasks } from "../../component/running-tasks"
 import type {
   AssistantMessage,
   Part,
@@ -126,6 +131,8 @@ const sessionBindingCommands = [
   "session.toggle.timestamps",
   "session.toggle.thinking",
   "session.toggle.actions",
+  "session.toggle.expand",
+  "session.tasks",
   "session.toggle.scrollbar",
   "session.toggle.generic_tool_output",
   "session.first",
@@ -162,6 +169,7 @@ const context = createContext<{
   showTimestamps: () => boolean
   showDetails: () => boolean
   showGenericToolOutput: () => boolean
+  expandOutputs: () => boolean
   diffWrapMode: () => "word" | "none"
   providers: () => ReadonlyMap<string, Provider>
   sync: ReturnType<typeof useSync>
@@ -216,18 +224,19 @@ export function Session() {
     const index = messages().findIndex((message) => message.id === messageID)
     return index === -1 ? messages() : messages().slice(0, index)
   }
+  // Running calls that ctrl+b can move to the background: synchronous subagents and shell commands.
   const foregroundTasks = createMemo(() =>
-    sync.data.capabilities.experimentalBackgroundSubagents
-      ? messages().flatMap((message) =>
-          (sync.data.part[message.id] ?? []).filter(
-            (part): part is ToolPart =>
-              part.type === "tool" &&
-              part.tool === "task" &&
-              part.state.status === "running" &&
-              part.state.metadata?.background !== true,
-          ),
-        )
-      : [],
+    messages().flatMap((message) =>
+      (sync.data.part[message.id] ?? []).filter(
+        (part): part is ToolPart =>
+          part.type === "tool" &&
+          part.state.status === "running" &&
+          ((sync.data.capabilities.experimentalBackgroundSubagents &&
+            part.tool === "task" &&
+            part.state.metadata?.background !== true) ||
+            (ForkShell.enabled() && part.tool === "bash")),
+      ),
+    ),
   )
   const permissions = createMemo(() => {
     if (session()?.parentID) return []
@@ -253,7 +262,7 @@ export function Session() {
   })
 
   const dimensions = useTerminalDimensions()
-  const [sidebar, setSidebar] = kv.signal<"auto" | "hide">("sidebar", "auto")
+  const [sidebar, setSidebar] = kv.signal<"auto" | "hide">("sidebar", "hide")
   const [sidebarOpen, setSidebarOpen] = createSignal(false)
   const [conceal, setConceal] = createSignal(true)
   const thinking = useThinkingMode()
@@ -265,6 +274,7 @@ export function Session() {
   const [showScrollbar, setShowScrollbar] = kv.signal("scrollbar_visible", false)
   const [diffWrapMode] = kv.signal<"word" | "none">("diff_wrap_mode", "word")
   const [_animationsEnabled, _setAnimationsEnabled] = kv.signal("animations_enabled", true)
+  const [expandOutputs, setExpandOutputs] = createSignal(false)
   const [showGenericToolOutput, setShowGenericToolOutput] = kv.signal("generic_tool_output_visibility", false)
 
   const wide = createMemo(() => dimensions().width > 120)
@@ -731,6 +741,45 @@ export function Session() {
       },
     },
     {
+      title: expandOutputs() ? "Collapse tool output" : "Expand tool output",
+      value: "session.toggle.expand",
+      category: "Session",
+      run: () => {
+        setExpandOutputs((prev) => !prev)
+        dialog.clear()
+      },
+    },
+    ...(
+      [
+        ["minimal", "Hide the sidebar, timestamps, thinking and the details of completed tools"],
+        ["standard", "Show tool details; hide the sidebar, timestamps and thinking"],
+        ["detailed", "Show the sidebar, timestamps, thinking, tool details and generic tool output"],
+      ] as const
+    ).map(([name, description]) => ({
+      title: `View: ${name}`,
+      value: `session.view.${name}`,
+      description,
+      category: "Session",
+      run: () => {
+        batch(() => {
+          setSidebarOpen(false)
+          setSidebar(() => (name === "detailed" ? "auto" : "hide"))
+          setTimestamps(() => (name === "detailed" ? "show" : "hide"))
+          setShowDetails(() => name !== "minimal")
+          thinking.set(name === "detailed" ? "show" : "hide")
+          setShowGenericToolOutput(() => name === "detailed")
+        })
+        toast.show({ message: `View: ${name}`, variant: "info", duration: 1500 })
+        dialog.clear()
+      },
+    })),
+    {
+      title: "Running shells and agents",
+      value: "session.tasks",
+      category: "Session",
+      run: () => dialog.replace(() => <DialogRunningTasks sessionID={route.sessionID} />),
+    },
+    {
       title: "Toggle session scrollbar",
       value: "session.toggle.scrollbar",
       category: "Session",
@@ -1019,7 +1068,7 @@ export function Session() {
       },
     },
     {
-      title: "Background subagents",
+      title: "Run in background",
       value: "session.background",
       category: "Session",
       hidden: true,
@@ -1168,6 +1217,7 @@ export function Session() {
           showTimestamps,
           showDetails,
           showGenericToolOutput,
+          expandOutputs,
           diffWrapMode,
           providers,
           sync,
@@ -1397,9 +1447,6 @@ function UserMessage(props: {
         <box
           id={props.message.id}
           ref={(el: BoxRenderable) => alwaysSeparate.add(el)}
-          border={["left"]}
-          borderColor={color()}
-          customBorderChars={SplitBorder.customBorderChars}
           marginTop={props.index === 0 ? 0 : 1}
         >
           <box
@@ -1410,13 +1457,24 @@ function UserMessage(props: {
               setHover(false)
             }}
             onMouseUp={props.onMouseUp}
-            paddingTop={1}
-            paddingBottom={1}
-            paddingLeft={2}
+            paddingTop={ctx.tui.compact === false ? 1 : 0}
+            paddingBottom={ctx.tui.compact === false ? 1 : 0}
+            paddingLeft={1}
+            paddingRight={1}
             backgroundColor={hover() ? theme.backgroundElement : theme.backgroundPanel}
             flexShrink={0}
           >
-            <text fg={theme.text}>{text()}</text>
+            <box flexDirection="row">
+              <text fg={theme.textMuted} flexShrink={0}>
+                ❯{" "}
+              </text>
+              <text fg={theme.text} flexGrow={1}>
+                {text()}
+              </text>
+              <text fg={theme.textMuted} flexShrink={0} paddingLeft={1} wrapMode="none">
+                ↑ ~{compactTokens(estimateTokens(text()))} tokens
+              </text>
+            </box>
             <Show when={files().length}>
               <box flexDirection="row" paddingBottom={metadataVisible() ? 1 : 0} paddingTop={1} gap={1} flexWrap="wrap">
                 <For each={files()}>
@@ -1472,7 +1530,6 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
   const { theme } = useTheme()
   const sync = useSync()
   const messages = createMemo(() => sync.data.message[props.message.sessionID] ?? [])
-  const model = createMemo(() => Model.name(ctx.providers(), props.message.providerID, props.message.modelID))
 
   const final = createMemo(() => {
     return props.message.finish && !["tool-calls", "unknown"].includes(props.message.finish)
@@ -1488,20 +1545,127 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
 
   const childShortcut = useCommandShortcut("session.child.first")
   const backgroundShortcut = useCommandShortcut("session.background")
+  const expandShortcut = useCommandShortcut("session.toggle.expand")
+
+  // Runs of 2+ shell/read/search/web calls stack into one entry: "Running 3 commands" with only the call in
+  // progress under it, or "Ran 3 commands" once they are done. Click or the expand key opens the details.
+  // Edits stay visible: their diffs are the point of the turn.
+  const exploration = createMemo(() => {
+    const runs = new Map<number, ToolPart[]>()
+    const owner = new Map<number, number>()
+    let run: number[] = []
+    const flush = () => {
+      if (run.length >= 2) {
+        runs.set(
+          run[0],
+          run.map((i) => props.parts[i] as ToolPart),
+        )
+        run.forEach((i) => owner.set(i, run[0]))
+      }
+      run = []
+    }
+    props.parts.forEach((part, i) => {
+      const grouped =
+        part.type === "tool" &&
+        ["completed", "running", "pending"].includes(part.state.status) &&
+        ["bash", "read", "glob", "grep", "webfetch", "websearch"].includes(toolDisplay(part.tool))
+      if (grouped) return void run.push(i)
+      flush()
+    })
+    flush()
+    return { runs, owner }
+  })
+  const [openRuns, setOpenRuns] = createStore<Record<number, boolean>>({})
+
+  // A line in the chat when the model answering differs from the previous reply: the Router moved the
+  // turn to another tier, a fallback took over, or the user picked another model.
+  const switched = createMemo(() => {
+    const list = messages()
+    const previous = list
+      .slice(
+        0,
+        list.findIndex((x) => x.id === props.message.id),
+      )
+      .findLast((x): x is AssistantMessage => x.role === "assistant")
+    if (!previous) return
+    if (previous.providerID === props.message.providerID && previous.modelID === props.message.modelID) return
+    const route = ForkRouteLog.forMessage(props.message.sessionID, props.message.parentID)
+    const name = (message: AssistantMessage) => Model.name(ctx.providers(), message.providerID, message.modelID)
+    return {
+      from: name(previous),
+      to: name(props.message),
+      label: route ? "Router" : "Model",
+      note: route ? (route.kind === "fallback" ? "fallback" : `tier ${route.tier}`) : undefined,
+    }
+  })
+
+  // Tokens the model produced in this message, reasoning included.
+  const emitted = createMemo(() => props.message.tokens.output + props.message.tokens.reasoning)
+  // The "Cooked for 1m" line closes long turns and interrupted ones; it carries the tokens when it is shown.
+  const footer = createMemo(() => props.message.error?.name === "MessageAbortedError" || (final() && duration() > 5000))
+
+  const summary = createMemo(() => {
+    const tools = props.parts.filter((x): x is ToolPart => x.type === "tool" && x.state.status === "completed")
+    const edits = tools.filter((x) => ["edit", "write", "apply_patch"].includes(toolDisplay(x.tool))).length
+    const commands = tools.filter((x) => toolDisplay(x.tool) === "bash").length
+    return [
+      edits ? `${edits} edit${edits > 1 ? "s" : ""}` : "",
+      commands ? `${commands} command${commands > 1 ? "s" : ""}` : "",
+    ]
+      .filter(Boolean)
+      .join(" · ")
+  })
 
   return (
     <>
+      <Show when={switched()}>
+        {(item) => (
+          <box ref={(el: BoxRenderable) => alwaysSeparate.add(el)} marginTop={1}>
+            <text fg={theme.textMuted}>
+              ⇄ {item().label}: {item().from} →<span style={{ fg: theme.text }}> {item().to}</span>
+              <Show when={item().note}>
+                <span> ({item().note})</span>
+              </Show>
+            </text>
+          </box>
+        )}
+      </Show>
       <For each={props.parts}>
         {(part, index) => {
           const component = createMemo(() => PART_MAPPING[part.type as keyof typeof PART_MAPPING])
+          const start = () => exploration().owner.get(index())
+          const opened = () => {
+            const first = start()
+            return first !== undefined && (ctx.expandOutputs() || openRuns[first] === true)
+          }
+          const hiddenMember = () => start() !== undefined && start() !== index() && !opened()
+          const items = () => exploration().runs.get(index())
           return (
-            <Show when={component()}>
-              <Dynamic
-                last={index() === props.parts.length - 1}
-                component={component()}
-                part={part as any}
-                message={props.message}
-              />
+            <Show when={component() && !hiddenMember()}>
+              <Show when={items()}>
+                {(list) => (
+                  <ToolGroupHeader
+                    items={list()}
+                    open={opened()}
+                    shortcut={expandShortcut()}
+                    background={
+                      ForkShell.enabled() &&
+                      list().some((item) => item.tool === "bash" && item.state.status === "running")
+                        ? backgroundShortcut()
+                        : undefined
+                    }
+                    onToggle={() => setOpenRuns(index(), !openRuns[index()])}
+                  />
+                )}
+              </Show>
+              <Show when={!items() || opened()}>
+                <Dynamic
+                  last={index() === props.parts.length - 1}
+                  component={component()}
+                  part={part as any}
+                  message={props.message}
+                />
+              </Show>
             </Show>
           )
         }}
@@ -1546,26 +1710,32 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
         </box>
       </Show>
       <Switch>
-        <Match when={props.last || final() || props.message.error?.name === "MessageAbortedError"}>
-          <box ref={(el: BoxRenderable) => alwaysSeparate.add(el)} paddingLeft={3}>
-            <text marginTop={1}>
-              <span
-                style={{
-                  fg:
-                    props.message.error?.name === "MessageAbortedError"
-                      ? theme.textMuted
-                      : local.agent.color(props.message.agent),
-                }}
-              >
-                ▣{" "}
-              </span>{" "}
-              <span style={{ fg: theme.text }}>{Locale.titlecase(props.message.mode)}</span>
-              <span style={{ fg: theme.textMuted }}> · {model()}</span>
-              <Show when={duration()}>
-                <span style={{ fg: theme.textMuted }}> · {Locale.duration(duration())}</span>
+        <Match when={footer()}>
+          <box ref={(el: BoxRenderable) => alwaysSeparate.add(el)}>
+            <text marginTop={1} fg={theme.textMuted}>
+              ✻{" "}
+              {props.message.error?.name === "MessageAbortedError"
+                ? "Interrupted"
+                : `${FOOTER_VERBS[[...props.message.id].reduce((sum, char) => sum + char.charCodeAt(0), 0) % FOOTER_VERBS.length]} for ${Locale.duration(duration())}`}
+              <Show when={summary()}>
+                <span> · {summary()}</span>
               </Show>
-              <Show when={props.message.error?.name === "MessageAbortedError"}>
-                <span style={{ fg: theme.textMuted }}> · interrupted</span>
+              <Show when={emitted() > 0}>
+                <span> (↓ {compactTokens(emitted())} tokens</span>
+                <Show when={props.message.tokens.reasoning > 0}>
+                  <span> · {compactTokens(props.message.tokens.reasoning)} reasoning</span>
+                </Show>
+                <span>)</span>
+              </Show>
+            </text>
+          </box>
+        </Match>
+        <Match when={props.message.time.completed && emitted() > 0}>
+          <box paddingLeft={2}>
+            <text fg={theme.textMuted} wrapMode="none">
+              ↓ {compactTokens(emitted())} tokens
+              <Show when={props.message.tokens.reasoning > 0}>
+                <span> ({compactTokens(props.message.tokens.reasoning)} reasoning)</span>
               </Show>
             </text>
           </box>
@@ -1574,6 +1744,79 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
     </>
   )
 }
+
+// The header of a stacked run of calls. While one is running it shows only the call in progress.
+function ToolGroupHeader(props: {
+  items: ToolPart[]
+  open: boolean
+  shortcut: string
+  background?: string
+  onToggle: () => void
+}) {
+  const { theme } = useTheme()
+  const running = createMemo(() => props.items.filter((item) => item.state.status !== "completed"))
+  const describe = (item: ToolPart) => {
+    const input = item.state.input ?? {}
+    const text = [input.command, input.filePath, input.pattern, input.url, input.query].find(
+      (value): value is string => typeof value === "string",
+    )
+    return text ? `${toolDisplay(item.tool) === "bash" ? "" : `${Locale.titlecase(item.tool)} `}${text}` : item.tool
+  }
+  return (
+    <box ref={(el: BoxRenderable) => alwaysSeparate.add(el)} marginTop={1} paddingLeft={2} onMouseUp={props.onToggle}>
+      <Show
+        when={running().length > 0}
+        fallback={
+          <text fg={theme.textMuted} wrapMode="none">
+            {props.open ? "▾" : "✓"} {groupLabel(props.items)} ·{" "}
+            {props.open ? "click to collapse" : `${props.shortcut} expand`}
+          </text>
+        }
+      >
+        <Spinner color={theme.text}>{`Running ${props.items.length} commands`}</Spinner>
+        <Show when={!props.open}>
+          <For each={running()}>
+            {(item) => (
+              <box flexDirection="row" paddingLeft={2}>
+                <text fg={theme.textMuted} flexShrink={0} width={3}>
+                  ⎿
+                </text>
+                <text fg={theme.text} wrapMode="none">
+                  {Locale.truncate(describe(item), 90)}
+                </text>
+              </box>
+            )}
+          </For>
+          <box paddingLeft={5}>
+            <text fg={theme.textMuted}>
+              {props.shortcut} to expand
+              <Show when={props.background}> · {props.background} to run in the background</Show>
+            </text>
+          </box>
+        </Show>
+      </Show>
+    </box>
+  )
+}
+
+function groupLabel(items: ToolPart[]) {
+  const count = (names: string[]) => items.filter((x) => names.includes(toolDisplay(x.tool))).length
+  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
+  const commands = count(["bash"])
+  const reads = count(["read"])
+  const searches = count(["glob", "grep"])
+  const web = count(["webfetch", "websearch"])
+  return [
+    commands ? `Ran ${plural(commands, "shell command", "shell commands")}` : "",
+    reads ? `Read ${plural(reads, "file", "files")}` : "",
+    searches ? `Searched ${plural(searches, "time", "times")}` : "",
+    web ? `${plural(web, "web lookup", "web lookups")}` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ")
+}
+
+const FOOTER_VERBS = ["Worked", "Cooked", "Baked", "Brewed", "Crunched"]
 
 const PART_MAPPING = {
   text: TextPart,
@@ -1659,8 +1902,8 @@ function ReasoningHeader(props: {
   const { theme } = useTheme()
   const fg = () =>
     props.open
-      ? RGBA.fromValues(theme.warning.r, theme.warning.g, theme.warning.b, theme.thinkingOpacity)
-      : theme.warning
+      ? RGBA.fromValues(theme.textMuted.r, theme.textMuted.g, theme.textMuted.b, theme.thinkingOpacity)
+      : theme.textMuted
   const completed = () => {
     if (props.encrypted) return `Thought${props.duration ? ` · ${props.duration}` : ""}`
     const detail = [props.title, props.duration].filter(Boolean).join(" · ")
@@ -1685,20 +1928,34 @@ function ReasoningHeader(props: {
 
 function TextPart(props: { last: boolean; part: TextPart; message: AssistantMessage }) {
   const ctx = use()
+  const kv = useKV()
   const { theme, syntax } = useTheme()
+  // The bullet blinks while this message is still being produced.
+  const live = createMemo(() => props.last && !props.message.time.completed && kv.get("animations_enabled", true))
+  const [lit, setLit] = createSignal(true)
+  createEffect(() => {
+    if (!live()) return setLit(true)
+    const timer = setInterval(() => setLit((value) => !value), 500)
+    onCleanup(() => clearInterval(timer))
+  })
   return (
     <Show when={props.part.text.trim()}>
-      <box ref={(el: BoxRenderable) => alwaysSeparate.add(el)} paddingLeft={3} marginTop={1} flexShrink={0}>
-        <markdown
-          syntaxStyle={syntax()}
-          streaming={true}
-          internalBlockMode="top-level"
-          content={props.part.text.trim()}
-          tableOptions={{ style: "grid" }}
-          conceal={ctx.conceal()}
-          fg={theme.markdownText}
-          bg={theme.background}
-        />
+      <box ref={(el: BoxRenderable) => alwaysSeparate.add(el)} marginTop={1} flexShrink={0} flexDirection="row">
+        <text fg={lit() ? theme.text : theme.background} flexShrink={0} width={2}>
+          ●
+        </text>
+        <box flexGrow={1}>
+          <markdown
+            syntaxStyle={syntax()}
+            streaming={true}
+            internalBlockMode="top-level"
+            content={props.part.text.trim()}
+            tableOptions={{ style: "grid" }}
+            conceal={ctx.conceal()}
+            fg={theme.markdownText}
+            bg={theme.background}
+          />
+        </box>
       </box>
     </Show>
   )
@@ -1800,11 +2057,13 @@ function GenericTool(props: ToolProps) {
   const ctx = use()
   const output = createMemo(() => props.output?.trim() ?? "")
   const [expanded, setExpanded] = createSignal(false)
+  const open = createMemo(() => expanded() || ctx.expandOutputs())
+  const expandShortcut = useCommandShortcut("session.toggle.expand")
   const maxLines = 3
   const maxChars = createMemo(() => maxLines * Math.max(20, ctx.width - 6))
   const collapsed = createMemo(() => collapseToolOutput(output(), maxLines, maxChars()))
   const limited = createMemo(() => {
-    if (expanded() || !collapsed().overflow) return output()
+    if (open() || !collapsed().overflow) return output()
     return collapsed().output
   })
 
@@ -1817,18 +2076,23 @@ function GenericTool(props: ToolProps) {
         </InlineTool>
       }
     >
-      <BlockTool
-        title={`# ${props.tool} ${input(props.input)}`}
+      <ToolCall
+        name={props.tool}
+        detail={input(props.input)}
+        failed={props.part.state.status === "error"}
         part={props.part}
-        onClick={collapsed().overflow ? () => setExpanded((prev) => !prev) : undefined}
       >
-        <box gap={1}>
-          <text fg={theme.text}>{limited()}</text>
-          <Show when={collapsed().overflow}>
-            <text fg={theme.textMuted}>{expanded() ? "Click to collapse" : "Click to expand"}</text>
-          </Show>
-        </box>
-      </BlockTool>
+        <ToolResult
+          footer={
+            collapsed().overflow
+              ? `${open() ? "Click to collapse" : "Click to expand"} · ${expandShortcut()}`
+              : undefined
+          }
+          onClick={collapsed().overflow ? () => setExpanded((prev) => !prev) : undefined}
+        >
+          {limited()}
+        </ToolResult>
+      </ToolCall>
     </Show>
   )
 }
@@ -1889,7 +2153,7 @@ function InlineTool(props: {
       failed={failed()}
       denied={Boolean(denied())}
       error={error()}
-      errorExpanded={errorExpanded()}
+      errorExpanded={errorExpanded() || ctx.expandOutputs()}
       complete={props.complete}
       pending={props.pending}
       failure={props.failure}
@@ -1991,6 +2255,69 @@ export function InlineToolRow(props: {
   )
 }
 
+// A tool call as a header (what was asked) over an indented result (what came back).
+function ToolCall(props: {
+  name: string
+  detail?: string
+  note?: string
+  running?: boolean
+  failed?: boolean
+  part?: ToolPart
+  children?: JSX.Element
+}) {
+  const { theme } = useTheme()
+  return (
+    <box ref={(el: BoxRenderable) => alwaysSeparate.add(el)} marginTop={1} paddingLeft={2}>
+      <Show
+        when={props.running}
+        fallback={
+          <text wrapMode="none">
+            <span style={{ fg: props.failed ? theme.error : theme.success }}>● </span>
+            <span style={{ fg: theme.text }}>
+              <b>{props.name}</b>
+            </span>
+            <Show when={props.detail}>
+              <span style={{ fg: theme.text }}> {props.detail}</span>
+            </Show>
+            <Show when={props.note}>
+              <span style={{ fg: theme.textMuted }}> {props.note}</span>
+            </Show>
+          </text>
+        }
+      >
+        <Spinner color={theme.text}>{`${props.name} ${props.detail ?? ""}`}</Spinner>
+      </Show>
+      {props.children}
+    </box>
+  )
+}
+
+// The output of a tool call, set apart from the command with a ⎿ connector and muted text.
+function ToolResult(props: { failed?: boolean; footer?: string; onClick?: () => void; children: JSX.Element }) {
+  const { theme } = useTheme()
+  const renderer = useRenderer()
+  return (
+    <box
+      flexDirection="row"
+      paddingLeft={2}
+      onMouseUp={() => {
+        if (renderer.getSelection()?.getSelectedText()) return
+        props.onClick?.()
+      }}
+    >
+      <text fg={theme.textMuted} flexShrink={0} width={3}>
+        ⎿
+      </text>
+      <box flexGrow={1}>
+        <text fg={props.failed ? theme.error : theme.textMuted}>{props.children}</text>
+        <Show when={props.footer}>
+          <text fg={theme.textMuted}>{props.footer}</text>
+        </Show>
+      </box>
+    </box>
+  )
+}
+
 function BlockTool(props: {
   title?: string
   children: JSX.Element
@@ -1999,6 +2326,7 @@ function BlockTool(props: {
   spinner?: boolean
 }) {
   const { theme } = useTheme()
+  const ctx = use()
   const renderer = useRenderer()
   const [hover, setHover] = createSignal(false)
   const error = createMemo(() => (props.part?.state.status === "error" ? props.part.state.error : undefined))
@@ -2006,8 +2334,8 @@ function BlockTool(props: {
     <box
       ref={(el: BoxRenderable) => alwaysSeparate.add(el)}
       border={["left"]}
-      paddingTop={1}
-      paddingBottom={1}
+      paddingTop={ctx.tui.compact === false ? 1 : 0}
+      paddingBottom={ctx.tui.compact === false ? 1 : 0}
       paddingLeft={2}
       marginTop={1}
       gap={1}
@@ -2048,13 +2376,23 @@ function Shell(props: ToolProps) {
   const pathFormatter = usePathFormatter()
   const ctx = use()
   const isRunning = createMemo(() => props.part.state.status === "running")
-  const output = createMemo(() => stripAnsi(stringValue(props.metadata.output)?.trim() ?? ""))
+  const raw = createMemo(() => stripAnsi(stringValue(props.metadata.output)?.trim() ?? ""))
+  // The tool appends its own remarks (timeout, abort) in a <shell_metadata> block: show them as a note, not as output.
+  const note = createMemo(() => /<shell_metadata>\s*([\s\S]*?)\s*<\/shell_metadata>/.exec(raw())?.[1])
+  const output = createMemo(() =>
+    raw()
+      .replace(/\s*<shell_metadata>[\s\S]*?<\/shell_metadata>/, "")
+      .trim(),
+  )
   const [expanded, setExpanded] = createSignal(false)
+  const open = createMemo(() => expanded() || ctx.expandOutputs())
+  const expandShortcut = useCommandShortcut("session.toggle.expand")
+  const backgroundShortcut = useCommandShortcut("session.background")
   const maxLines = 10
   const maxChars = createMemo(() => maxLines * Math.max(20, ctx.width - 6))
   const collapsed = createMemo(() => collapseToolOutput(output(), maxLines, maxChars()))
   const limited = createMemo(() => {
-    if (expanded() || !collapsed().overflow) return output()
+    if (open() || !collapsed().overflow) return output()
     return collapsed().output
   })
 
@@ -2066,32 +2404,41 @@ function Shell(props: ToolProps) {
     return formatted
   })
 
-  const title = createMemo(() => {
-    const wd = workdirDisplay()
-    if (!wd) return
-    return `# Running in ${wd}`
+  const failed = createMemo(() => {
+    const exit = props.metadata.exit
+    return typeof exit === "number" && exit !== 0
   })
 
   return (
     <Switch>
       <Match when={stringValue(props.metadata.output) !== undefined}>
-        <BlockTool
-          title={title()}
+        <ToolCall
+          name="Bash"
+          detail={stringValue(props.input.command)}
+          note={workdirDisplay() ? `in ${workdirDisplay()}` : undefined}
+          running={isRunning()}
+          failed={failed() || props.part.state.status === "error"}
           part={props.part}
-          onClick={collapsed().overflow ? () => setExpanded((prev) => !prev) : undefined}
         >
-          <box gap={1}>
-            <Show when={isRunning()} fallback={<text fg={theme.text}>$ {stringValue(props.input.command)}</text>}>
-              <Spinner color={theme.text}>{stringValue(props.input.command)}</Spinner>
-            </Show>
-            <Show when={output()}>
-              <text fg={theme.text}>{limited()}</text>
-            </Show>
-            <Show when={collapsed().overflow}>
-              <text fg={theme.textMuted}>{expanded() ? "Click to collapse" : "Click to expand"}</text>
-            </Show>
-          </box>
-        </BlockTool>
+          <ToolResult
+            failed={failed()}
+            footer={
+              collapsed().overflow
+                ? `${open() ? "Click to collapse" : "Click to expand"} · ${expandShortcut()}`
+                : isRunning() && ForkShell.enabled()
+                  ? `${backgroundShortcut()} to run in the background`
+                  : undefined
+            }
+            onClick={collapsed().overflow ? () => setExpanded((prev) => !prev) : undefined}
+          >
+            {output() ? limited() : isRunning() ? "Running…" : note() ? "" : "(no output)"}
+          </ToolResult>
+          <Show when={note()}>
+            <box paddingLeft={5}>
+              <text fg={theme.warning}>{note()}</text>
+            </box>
+          </Show>
+        </ToolCall>
       </Match>
       <Match when={true}>
         <InlineTool icon="$" pending="Writing command…" complete={stringValue(props.input.command)} part={props.part}>
@@ -2517,9 +2864,22 @@ function ApplyPatch(props: ToolProps) {
 }
 
 function TodoWrite(props: ToolProps) {
+  const ctx = use()
   const todos = createMemo(() => parseTodos(props.input.todos))
+  // Only the latest list keeps its full block; earlier updates collapse to one line so they don't pile up.
+  const latest = createMemo(
+    () =>
+      ctx.sync.data.message[ctx.sessionID]
+        ?.flatMap((msg) => ctx.sync.data.part[msg.id] ?? [])
+        .findLast((part) => part.type === "tool" && part.tool === "todowrite")?.id === props.part.id,
+  )
   return (
     <Switch>
+      <Match when={parseTodos(props.metadata.todos).length && !latest()}>
+        <InlineTool icon="✓" pending="Updating todos…" complete={true} part={props.part}>
+          Todos updated ({todos().filter((todo) => todo.status === "completed").length}/{todos().length})
+        </InlineTool>
+      </Match>
       <Match when={parseTodos(props.metadata.todos).length}>
         <BlockTool title="# Todos" part={props.part}>
           <box>

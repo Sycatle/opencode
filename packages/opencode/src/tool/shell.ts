@@ -1,4 +1,4 @@
-import { Effect, Fiber, Scope, Stream } from "effect"
+import { Deferred, Effect, Exit, Fiber, Scope, Stream } from "effect"
 import os from "os"
 import { appendFileSync, createWriteStream } from "node:fs"
 import * as Tool from "./tool"
@@ -23,6 +23,7 @@ import { ShellPrompt, type Parameters } from "./shell/prompt"
 import { BashArity } from "@/permission/arity"
 import { BackgroundJob } from "@/background/job"
 import { ForkShell } from "@opencode-fork/core/shell"
+import { ShellPromote } from "./shell-promote"
 // FORK-SEAM: sandbox
 import { ForkSandbox } from "@opencode-fork/core/sandbox"
 import { ForkSandboxTool } from "./fork-sandbox"
@@ -460,6 +461,13 @@ export const ShellTool = Tool.define(
       let cut = false
       let expired = false
       let aborted = false
+      // FORK-SEAM: background-shell
+      // Set once the running command was handed over to a background job: the output then goes to that file.
+      let handoff: string | undefined
+      let promoted: { title: string; metadata: Record<string, unknown>; output: string } | undefined
+      const canPromote = ForkShell.enabled()
+      const promote = Deferred.makeUnsafe<void>()
+      const procScope = yield* Scope.make()
 
       const closeSink = Effect.fnUntraced(function* () {
         const stream = sink
@@ -495,54 +503,65 @@ export const ShellTool = Tool.define(
       const code: number | null = yield* Effect.scoped(
         Effect.gen(function* () {
           yield* Effect.addFinalizer(closeSink)
-          const handle = yield* spawner.spawn(cmd(input.shell, input.command, input.cwd, input.env, input.sandbox))
+          // The process lives in its own scope so that a command moved to the background is not killed
+          // when this call returns; otherwise the scope closes with the call, as it always did.
+          yield* Effect.addFinalizer(() => (handoff ? Effect.void : Scope.close(procScope, Exit.void)))
+          if (canPromote) {
+            const unregister = ShellPromote.register(ctx.sessionID, () => Deferred.doneUnsafe(promote, Effect.void))
+            yield* Effect.addFinalizer(() => Effect.sync(unregister))
+          }
+          const handle = yield* spawner
+            .spawn(cmd(input.shell, input.command, input.cwd, input.env, input.sandbox))
+            .pipe(Scope.provide(procScope))
 
-          yield* Effect.forkScoped(
-            Stream.runForEach(Stream.decodeText(handle.all), (chunk) => {
-              const size = Buffer.byteLength(chunk, "utf-8")
-              list.push({ text: chunk, size })
-              used += size
-              while (used > keep && list.length > 1) {
-                const item = list.shift()
-                if (!item) break
-                used -= item.size
-                cut = true
+          const pump = yield* Stream.runForEach(Stream.decodeText(handle.all), (chunk) => {
+            if (handoff) {
+              appendFileSync(handoff, chunk)
+              return Effect.void
+            }
+            const size = Buffer.byteLength(chunk, "utf-8")
+            list.push({ text: chunk, size })
+            used += size
+            while (used > keep && list.length > 1) {
+              const item = list.shift()
+              if (!item) break
+              used -= item.size
+              cut = true
+            }
+
+            last = preview(last + chunk)
+
+            if (file) {
+              sink?.write(chunk)
+            } else {
+              full += chunk
+              if (Buffer.byteLength(full, "utf-8") > limits.maxBytes) {
+                return trunc.write(full).pipe(
+                  Effect.andThen((next) =>
+                    Effect.sync(() => {
+                      file = next
+                      cut = true
+                      sink = createWriteStream(next, { flags: "a" })
+                      full = ""
+                    }),
+                  ),
+                  Effect.andThen(
+                    ctx.metadata({
+                      metadata: {
+                        output: last,
+                      },
+                    }),
+                  ),
+                )
               }
+            }
 
-              last = preview(last + chunk)
-
-              if (file) {
-                sink?.write(chunk)
-              } else {
-                full += chunk
-                if (Buffer.byteLength(full, "utf-8") > limits.maxBytes) {
-                  return trunc.write(full).pipe(
-                    Effect.andThen((next) =>
-                      Effect.sync(() => {
-                        file = next
-                        cut = true
-                        sink = createWriteStream(next, { flags: "a" })
-                        full = ""
-                      }),
-                    ),
-                    Effect.andThen(
-                      ctx.metadata({
-                        metadata: {
-                          output: last,
-                        },
-                      }),
-                    ),
-                  )
-                }
-              }
-
-              return ctx.metadata({
-                metadata: {
-                  output: last,
-                },
-              })
-            }),
-          )
+            return ctx.metadata({
+              metadata: {
+                output: last,
+              },
+            })
+          }).pipe(Effect.forkIn(procScope))
 
           const abort = Effect.callback<void>((resume) => {
             if (ctx.abort.aborted) return resume(Effect.void)
@@ -557,7 +576,39 @@ export const ShellTool = Tool.define(
             handle.exitCode.pipe(Effect.map((code) => ({ kind: "exit" as const, code }))),
             abort.pipe(Effect.map(() => ({ kind: "abort" as const, code: null }))),
             timeout.pipe(Effect.map(() => ({ kind: "timeout" as const, code: null }))),
+            ...(canPromote
+              ? [Deferred.await(promote).pipe(Effect.map(() => ({ kind: "promote" as const, code: null })))]
+              : []),
           ])
+
+          // FORK-SEAM: background-shell
+          // The user asked to run this command in the background: keep the process, give its output a file
+          // and let a job finish the wait, then answer the call as if it had been started in the background.
+          if (exit.kind === "promote") {
+            const jobFile = file || (yield* trunc.write(full))
+            handoff = jobFile
+            const job = yield* background.start({
+              type: ForkShell.JOB_TYPE,
+              title: input.command,
+              metadata: { sessionId: ctx.sessionID, outputPath: jobFile, command: input.command },
+              run: Effect.gen(function* () {
+                const code = yield* handle.exitCode
+                yield* Fiber.join(pump).pipe(Effect.timeoutOption("1 second"))
+                const text = yield* Effect.promise(() => Bun.file(jobFile).slice(-65536).text())
+                const hint = input.sandbox
+                  ? ForkSandbox.failureHint({ exit: code, output: text, networkOpen: input.sandbox.networkOpen })
+                  : undefined
+                return ForkShell.result(code, ForkShell.tail(hint ? `${text}\n${hint}` : text, ForkShell.TAIL_LINES))
+              }).pipe(Effect.ensuring(Scope.close(procScope, Exit.void)), Effect.orDie),
+            })
+            yield* watch(job, jobFile, ctx)
+            promoted = {
+              title: input.command,
+              metadata: { output: "", exit: null, truncated: false, outputPath: jobFile },
+              output: ForkShell.startedMessage({ id: job.id, outputPath: jobFile }),
+            }
+            return null
+          }
 
           if (exit.kind === "abort") {
             aborted = true
@@ -571,6 +622,8 @@ export const ShellTool = Tool.define(
           return exit.kind === "exit" ? exit.code : null
         }),
       ).pipe(Effect.orDie)
+
+      if (promoted) return promoted
 
       const meta: string[] = []
       if (expired) {
@@ -615,58 +668,12 @@ export const ShellTool = Tool.define(
     })
 
     // FORK-SEAM: background-shell
-    const runBackground = Effect.fn("ShellTool.runBackground")(function* (
-      input: {
-        shell: string
-        command: string
-        cwd: string
-        env: NodeJS.ProcessEnv
-        timeout?: number
-        sandbox?: ForkSandboxTool.Resolved
-      },
+    // Reports a background job back to the session when it ends: a synthetic message wakes the agent.
+    const watch = Effect.fn("ShellTool.watchBackground")(function* (
+      job: { id: string },
+      file: string,
       ctx: Tool.Context,
     ) {
-      const running = (yield* background.list()).filter(
-        (job) => job.type === ForkShell.JOB_TYPE && job.status === "running",
-      ).length
-      if (ForkShell.atCap(running)) throw new Error(ForkShell.capMessage(running))
-
-      const file = yield* trunc.write("")
-      const job = yield* background.start({
-        type: ForkShell.JOB_TYPE,
-        title: input.command,
-        // sessionId lets Session.remove cancel the job through cancelBackgroundJobs.
-        metadata: { sessionId: ctx.sessionID, outputPath: file, command: input.command },
-        run: Effect.scoped(
-          Effect.gen(function* () {
-            const handle = yield* spawner.spawn(cmd(input.shell, input.command, input.cwd, input.env, input.sandbox))
-            const pump = yield* Effect.forkScoped(
-              Stream.runForEach(Stream.decodeText(handle.all), (chunk) => Effect.sync(() => appendFileSync(file, chunk))),
-            )
-            const code =
-              input.timeout === undefined
-                ? yield* handle.exitCode
-                : yield* handle.exitCode.pipe(
-                    Effect.timeoutOption(`${input.timeout} millis`),
-                    Effect.flatMap((exit) =>
-                      exit._tag === "Some"
-                        ? Effect.succeed(exit.value)
-                        : handle.kill({ forceKillAfter: "3 seconds" }).pipe(
-                            Effect.andThen(Effect.fail(new Error(`Command exceeded timeout of ${input.timeout} ms`))),
-                          ),
-                    ),
-                  )
-            // A grandchild holding the pipe open must not keep the job running.
-            yield* Fiber.join(pump).pipe(Effect.timeoutOption("1 second"))
-            const text = yield* Effect.promise(() => Bun.file(file).slice(-65536).text())
-            const hint = input.sandbox
-              ? ForkSandbox.failureHint({ exit: code, output: text, networkOpen: input.sandbox.networkOpen })
-              : undefined
-            return ForkShell.result(code, ForkShell.tail(hint ? `${text}\n${hint}` : text, ForkShell.TAIL_LINES))
-          }),
-        ).pipe(Effect.orDie),
-      })
-
       const ops = ctx.extra?.promptOps as TaskPromptOps | undefined
       const inject = Effect.fn("ShellTool.injectBackgroundResult")(function* (
         state: "completed" | "error",
@@ -703,6 +710,66 @@ export const ShellTool = Tool.define(
         }),
         Effect.forkIn(scope, { startImmediately: true }),
       )
+    })
+
+    // FORK-SEAM: background-shell
+    const runBackground = Effect.fn("ShellTool.runBackground")(function* (
+      input: {
+        shell: string
+        command: string
+        cwd: string
+        env: NodeJS.ProcessEnv
+        timeout?: number
+        sandbox?: ForkSandboxTool.Resolved
+      },
+      ctx: Tool.Context,
+    ) {
+      const running = (yield* background.list()).filter(
+        (job) => job.type === ForkShell.JOB_TYPE && job.status === "running",
+      ).length
+      if (ForkShell.atCap(running)) throw new Error(ForkShell.capMessage(running))
+
+      const file = yield* trunc.write("")
+      const job = yield* background.start({
+        type: ForkShell.JOB_TYPE,
+        title: input.command,
+        // sessionId lets Session.remove cancel the job through cancelBackgroundJobs.
+        metadata: { sessionId: ctx.sessionID, outputPath: file, command: input.command },
+        run: Effect.scoped(
+          Effect.gen(function* () {
+            const handle = yield* spawner.spawn(cmd(input.shell, input.command, input.cwd, input.env, input.sandbox))
+            const pump = yield* Effect.forkScoped(
+              Stream.runForEach(Stream.decodeText(handle.all), (chunk) =>
+                Effect.sync(() => appendFileSync(file, chunk)),
+              ),
+            )
+            const code =
+              input.timeout === undefined
+                ? yield* handle.exitCode
+                : yield* handle.exitCode.pipe(
+                    Effect.timeoutOption(`${input.timeout} millis`),
+                    Effect.flatMap((exit) =>
+                      exit._tag === "Some"
+                        ? Effect.succeed(exit.value)
+                        : handle
+                            .kill({ forceKillAfter: "3 seconds" })
+                            .pipe(
+                              Effect.andThen(Effect.fail(new Error(`Command exceeded timeout of ${input.timeout} ms`))),
+                            ),
+                    ),
+                  )
+            // A grandchild holding the pipe open must not keep the job running.
+            yield* Fiber.join(pump).pipe(Effect.timeoutOption("1 second"))
+            const text = yield* Effect.promise(() => Bun.file(file).slice(-65536).text())
+            const hint = input.sandbox
+              ? ForkSandbox.failureHint({ exit: code, output: text, networkOpen: input.sandbox.networkOpen })
+              : undefined
+            return ForkShell.result(code, ForkShell.tail(hint ? `${text}\n${hint}` : text, ForkShell.TAIL_LINES))
+          }),
+        ).pipe(Effect.orDie),
+      })
+
+      yield* watch(job, file, ctx)
 
       return {
         title: input.command,
