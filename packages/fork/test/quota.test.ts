@@ -32,6 +32,37 @@ test("parses the subscription windows and ignores API-key responses", () => {
   expect(ForkQuota.parse(new Headers({ "anthropic-ratelimit-requests-limit": "50" }))).toBeUndefined()
 })
 
+test("parses Codex windows in percentages and records rejection from HTTP status", () => {
+  const codex = new Headers({
+    "x-codex-primary-window-minutes": "300",
+    "x-codex-primary-used-percent": "42.5",
+    "x-codex-primary-reset-at": "2026-10-07T12:00:00Z",
+    "x-codex-secondary-window-minutes": "10080",
+    "x-codex-secondary-used-percent": "73",
+    "x-codex-secondary-reset-at": "2026-10-12T12:00:00Z",
+  })
+  expect(ForkQuota.parse(codex, 200)).toMatchObject({
+    provider: "openai",
+    five_hour: { utilization: 0.425, reset: Date.parse("2026-10-07T12:00:00Z"), status: "allowed" },
+    seven_day: { utilization: 0.73, reset: Date.parse("2026-10-12T12:00:00Z"), status: "allowed" },
+    status: "allowed",
+  })
+  expect(ForkQuota.parse(codex, 429)?.status).toBe("rejected")
+  expect(ForkQuota.parse(new Headers({ "x-codex-primary-window-minutes": "60", "x-codex-primary-used-percent": "3", "x-codex-primary-reset-at": "2026-10-07T12:00:00Z" }))).toBeUndefined()
+  expect(ForkQuota.parse(new Headers({ "x-codex-primary-used-percent": "3" }))).toBeUndefined()
+})
+
+test("OpenAI quota snapshots are stored by provider", () => {
+  const codex = new Headers({
+    "x-codex-primary-window-minutes": "300",
+    "x-codex-primary-used-percent": "42",
+    "x-codex-primary-reset-at": "2026-10-07T12:00:00Z",
+  })
+  ForkQuota.observe(codex, undefined, 200)
+  expect(ForkQuota.latest("openai")?.five_hour?.utilization).toBe(0.42)
+  expect(ForkQuota.latest("anthropic")?.five_hour?.utilization).toBeUndefined()
+})
+
 test("window points are measured from the session's first request, across a reset", () => {
   ForkQuota.observe(headers("0.11"), { "x-opencode-session-id": "quota-root" })
   ForkQuota.observe(headers("0.18"), { "x-opencode-session-id": "quota-root" })

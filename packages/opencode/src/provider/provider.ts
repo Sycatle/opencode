@@ -131,7 +131,7 @@ function timeoutFetch(options: Record<string, any>) {
       timeout: false,
     }).finally(() => headerTimeoutCtl?.clear())
     // FORK-SEAM: quota-headers (subscription usage windows)
-    ForkQuota.observe(res.headers, opts.headers)
+    ForkQuota.observe(res.headers, opts.headers, res.status)
 
     if (!chunkAbortCtl) return res
     return wrapSSE(res, chunkTimeout, chunkAbortCtl)

@@ -18,7 +18,38 @@ export type Snapshot = {
 
 const SESSION_HEADER = "x-opencode-session-id"
 
-export function parse(headers: Headers): Snapshot | undefined {
+export function parse(headers: Headers, httpStatus?: number): Snapshot | undefined {
+  const codex = headers.has("x-codex-primary-window-requests") || headers.has("x-codex-primary-used-percent")
+  if (codex) {
+    const window = (prefix: "primary" | "secondary"): Window | undefined => {
+      const duration = Number(headers.get(`x-codex-${prefix}-window-minutes`))
+      const utilization = Number(headers.get(`x-codex-${prefix}-used-percent`))
+      const reset = headers.get(`x-codex-${prefix}-reset-at`)
+      if (!Number.isFinite(duration) || !Number.isFinite(utilization) || reset === null) return undefined
+      if (duration !== 300 && duration !== 10_080) return undefined
+      const resetAt = Date.parse(reset)
+      if (!Number.isFinite(resetAt)) return undefined
+      return { utilization: utilization / 100, reset: resetAt, status: httpStatus === 429 ? "rejected" : "allowed" }
+    }
+    const primary = window("primary")
+    const secondary = window("secondary")
+    const windows = [
+      [primary, Number(headers.get("x-codex-primary-window-minutes"))],
+      [secondary, Number(headers.get("x-codex-secondary-window-minutes"))],
+    ] as const
+    const five = windows.find((item) => item[1] === 300)?.[0]
+    const seven = windows.find((item) => item[1] === 10_080)?.[0]
+    if (!five && !seven) return undefined
+    const status = httpStatus === 429 ? "rejected" : "allowed"
+    return {
+      provider: "openai",
+      five_hour: five,
+      seven_day: seven,
+      status,
+      limiting: status === "rejected" ? (five ? "five_hour" : "seven_day") : undefined,
+      time: Date.now(),
+    }
+  }
   const get = (key: string) => headers.get(`anthropic-ratelimit-unified-${key}`)
   const status = get("status")
   if (!status) return undefined
@@ -39,9 +70,9 @@ export function parse(headers: Headers): Snapshot | undefined {
 }
 
 // Called from the provider fetch layer on every response; never throws.
-export function observe(response: Headers, request: HeadersInit | undefined) {
+export function observe(response: Headers, request: HeadersInit | undefined, httpStatus?: number) {
   try {
-    const snapshot = parse(response)
+    const snapshot = parse(response, httpStatus)
     if (!snapshot) return
     const db = table()
     db.query("INSERT OR REPLACE INTO fork_quota (provider, data, time) VALUES (?, ?, ?)").run(

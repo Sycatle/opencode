@@ -57,7 +57,7 @@ export const resolve = Effect.fn("ForkRouteTurn.resolve")(function* (input: {
   const models = new Map<string, Provider.Model>(
     connected.flatMap((item) => Object.values(item.models).map((model) => [`${item.id}/${model.id}`, model] as const)),
   )
-  const quota = ForkQuota.fresh("anthropic")
+  const quota = ForkQuota.fresh("anthropic") ?? ForkQuota.fresh("openai")
   const catalog = catalogOf(models, quota !== undefined)
   const now = Date.now()
 
@@ -82,7 +82,8 @@ export const resolve = Effect.fn("ForkRouteTurn.resolve")(function* (input: {
     window.reset > now &&
     (window.utilization >= ForkRoute.quotaThreshold(process.env.OPENCODE_FORK_ROUTE_QUOTA) ||
       quota?.status === "rejected")
-  const degraded = new Set([...health.degraded(now), ...turn.excluded, ...(overQuota ? ["anthropic"] : [])])
+  const quotaProvider = quota?.provider
+  const degraded = new Set([...health.degraded(now), ...turn.excluded, ...(overQuota && quotaProvider ? [quotaProvider] : [])])
 
   // A short follow-up keeps the confident signals of the previous message instead of classifying again.
   const latest = ForkRouteLog.decisions(input.session.id, 1)[0]
@@ -221,7 +222,7 @@ function catalogOf(models: Map<string, Provider.Model>, subscription: boolean): 
       },
       reasoning: model.capabilities.reasoning,
       released: model.release_date,
-      subscription: subscription && model.providerID === "anthropic",
+      subscription: subscription && (model.providerID === "anthropic" || model.providerID === "openai"),
     }
   })
   // `OPENCODE_FORK_ROUTE_TIERS` is JSON ({"fast": ["anthropic/claude-haiku-4-5"], ...}) rather than a config key:
