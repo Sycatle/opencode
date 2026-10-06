@@ -1,9 +1,37 @@
 import { createMemo, type Setter } from "solid-js"
+import type { Part, ReasoningPart } from "@opencode-ai/sdk/v2"
 import { useKV } from "./kv"
 
 export type ThinkingMode = "show" | "hide"
 
 const MODES: readonly ThinkingMode[] = ["show", "hide"] as const
+
+export function reasoningContent(part: ReasoningPart) {
+  return part.text.replace("[REDACTED]", "").trim()
+}
+
+// Opaque provider items retain their identities for replay, but share one TUI indicator per run.
+export function opaqueReasoningGroups(parts: readonly Part[], completed?: number) {
+  const hidden = new Set<number>()
+  const times = new Map<number, ReasoningPart["time"]>()
+  let first: number | undefined
+  parts.forEach((part, index) => {
+    if (part.type !== "reasoning" || reasoningContent(part) || !part.metadata) {
+      first = undefined
+      return
+    }
+    const end = part.time.end ?? completed
+    const time = first === undefined ? undefined : times.get(first)
+    if (!time) {
+      first = index
+      times.set(index, { start: part.time.start, end })
+      return
+    }
+    hidden.add(index)
+    time.end = time.end === undefined || end === undefined ? undefined : Math.max(time.end, end)
+  })
+  return { hidden, times }
+}
 
 // OpenAI's Responses API surfaces reasoning summaries that start with a bolded
 // title block: "**Inspecting PR workflow**\n\n<body>". Treat that first block,

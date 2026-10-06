@@ -77,7 +77,14 @@ import { sessionEpilogue } from "../../util/presentation"
 import { setPreLayoutSiblingMargin } from "../../util/layout"
 import { useTuiConfig } from "../../config"
 import { useClipboard } from "../../context/clipboard"
-import { nextThinkingMode, reasoningSummary, useThinkingMode, type ThinkingMode } from "../../context/thinking"
+import {
+  nextThinkingMode,
+  opaqueReasoningGroups,
+  reasoningContent,
+  reasoningSummary,
+  useThinkingMode,
+  type ThinkingMode,
+} from "../../context/thinking"
 import { getScrollAcceleration } from "../../util/scroll"
 import { collapseToolOutput } from "../../util/collapse-tool-output"
 import { usePluginRuntime } from "../../plugin/runtime"
@@ -1576,6 +1583,7 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
     return { runs, owner }
   })
   const [openRuns, setOpenRuns] = createStore<Record<number, boolean>>({})
+  const opaqueReasoning = createMemo(() => opaqueReasoningGroups(props.parts, props.message.time.completed))
 
   // A line in the chat when the model answering differs from the previous reply: the Router moved the
   // turn to another tier, a fallback took over, or the user picked another model.
@@ -1641,7 +1649,7 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
           const hiddenMember = () => start() !== undefined && start() !== index() && !opened()
           const items = () => exploration().runs.get(index())
           return (
-            <Show when={component() && !hiddenMember()}>
+            <Show when={component() && !hiddenMember() && !opaqueReasoning().hidden.has(index())}>
               <Show when={items()}>
                 {(list) => (
                   <ToolGroupHeader
@@ -1664,6 +1672,7 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
                   component={component()}
                   part={part as any}
                   message={props.message}
+                  reasoningTime={opaqueReasoning().times.get(index())}
                 />
               </Show>
             </Show>
@@ -1826,25 +1835,29 @@ const PART_MAPPING = {
 
 const INLINE_TOOL_ICON_WIDTH = 2
 
-function ReasoningPart(props: { last: boolean; part: ReasoningPart; message: AssistantMessage }) {
+function ReasoningPart(props: {
+  last: boolean
+  part: ReasoningPart
+  message: AssistantMessage
+  reasoningTime?: ReasoningPart["time"]
+}) {
   const { theme } = useTheme()
   const ctx = use()
   // Collapsed by default in hide mode: a single line throughout, so the
   // layout never shifts. Click to open the full markdown block, click to close.
   const [expanded, setExpanded] = createSignal(false)
 
-  const content = createMemo(() => {
-    // OpenRouter encrypts some reasoning blocks; drop the placeholder.
-    return props.part.text.replace("[REDACTED]", "").trim()
-  })
+  const content = createMemo(() => reasoningContent(props.part))
   const opaque = createMemo(() => !content() && Boolean(props.part.metadata))
-  // Reasoning is finalized when the server sets `time.end` (see processor.ts).
-  // Flips independently of the parent message completing.
-  const isDone = createMemo(() => props.part.time.end !== undefined)
+  const time = createMemo(() => props.reasoningTime ?? props.part.time)
+  // Parts may finish before the message; completion also closes unfinished provider items.
+  const isDone = createMemo(
+    () => time().end !== undefined || props.message.time.completed !== undefined || props.message.error !== undefined,
+  )
   const inMinimal = createMemo(() => ctx.thinkingMode() === "hide")
   const duration = createMemo(() => {
-    const end = props.part.time.end
-    return end === undefined ? 0 : Math.max(0, end - props.part.time.start)
+    const end = time().end ?? props.message.time.completed
+    return end === undefined ? 0 : Math.max(0, end - time().start)
   })
   const summary = createMemo(() => reasoningSummary(content()))
   const syntax = createSyntaxStyleMemo(() => generateSubtleSyntax(theme))
