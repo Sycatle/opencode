@@ -16,6 +16,7 @@ export function config(raw: unknown): Config | undefined {
 }
 
 export type Quota = {
+  provider?: string
   five_hour?: { utilization: number; reset: number }
   seven_day?: { utilization: number; reset: number }
   status: string
@@ -39,7 +40,12 @@ export function input(data: {
 export function quota(snapshot: Quota | undefined): Quota | undefined {
   if (!snapshot) return undefined
   const window = (value: Quota["five_hour"]) => value && { utilization: value.utilization, reset: value.reset }
-  return { five_hour: window(snapshot.five_hour), seven_day: window(snapshot.seven_day), status: snapshot.status }
+  return {
+    provider: snapshot.provider,
+    five_hour: window(snapshot.five_hour),
+    seven_day: window(snapshot.seven_day),
+    status: snapshot.status,
+  }
 }
 
 const ANSI = /\u001b\[[0-9;?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g

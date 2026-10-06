@@ -36,19 +36,27 @@ test("parses Codex windows in percentages and records rejection from HTTP status
   const codex = new Headers({
     "x-codex-primary-window-minutes": "300",
     "x-codex-primary-used-percent": "42.5",
-    "x-codex-primary-reset-at": "2026-10-07T12:00:00Z",
+    "x-codex-primary-reset-at": "1791374400",
     "x-codex-secondary-window-minutes": "10080",
     "x-codex-secondary-used-percent": "73",
-    "x-codex-secondary-reset-at": "2026-10-12T12:00:00Z",
+    "x-codex-secondary-reset-at": "1791806400",
   })
   expect(ForkQuota.parse(codex, 200)).toMatchObject({
     provider: "openai",
-    five_hour: { utilization: 0.425, reset: Date.parse("2026-10-07T12:00:00Z"), status: "allowed" },
-    seven_day: { utilization: 0.73, reset: Date.parse("2026-10-12T12:00:00Z"), status: "allowed" },
+    five_hour: { utilization: 0.425, reset: 1791374400000, status: "allowed" },
+    seven_day: { utilization: 0.73, reset: 1791806400000, status: "allowed" },
     status: "allowed",
   })
   expect(ForkQuota.parse(codex, 429)?.status).toBe("rejected")
-  expect(ForkQuota.parse(new Headers({ "x-codex-primary-window-minutes": "60", "x-codex-primary-used-percent": "3", "x-codex-primary-reset-at": "2026-10-07T12:00:00Z" }))).toBeUndefined()
+  expect(
+    ForkQuota.parse(
+      new Headers({
+        "x-codex-primary-window-minutes": "60",
+        "x-codex-primary-used-percent": "3",
+        "x-codex-primary-reset-at": "1791374400",
+      }),
+    ),
+  ).toBeUndefined()
   expect(ForkQuota.parse(new Headers({ "x-codex-primary-used-percent": "3" }))).toBeUndefined()
 })
 
@@ -56,7 +64,7 @@ test("OpenAI quota snapshots are stored by provider", () => {
   const codex = new Headers({
     "x-codex-primary-window-minutes": "300",
     "x-codex-primary-used-percent": "42",
-    "x-codex-primary-reset-at": "2026-10-07T12:00:00Z",
+    "x-codex-primary-reset-at": "1791374400",
   })
   ForkQuota.observe(codex, undefined, 200)
   expect(ForkQuota.latest("openai")?.five_hour?.utilization).toBe(0.42)
@@ -68,7 +76,12 @@ test("window points are measured from the session's first request, across a rese
   ForkQuota.observe(headers("0.18"), { "x-opencode-session-id": "quota-root" })
   expect(ForkQuota.windowSpent("quota-root")).toBe(7)
   expect(ForkQuota.latest()?.five_hour?.utilization).toBe(0.18)
-  expect(ForkQuota.spentPoints({ start_utilization: 0.9, start_reset: 1 }, { utilization: 0.05, reset: 2, status: "allowed" })).toBe(15)
+  expect(
+    ForkQuota.spentPoints(
+      { start_utilization: 0.9, start_reset: 1 },
+      { utilization: 0.05, reset: 2, status: "allowed" },
+    ),
+  ).toBe(15)
 })
 
 test("the window budget wraps up then stops the session", () => {

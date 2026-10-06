@@ -197,87 +197,99 @@ const synthetic = (sessionID: SessionID, reply: string) =>
         item.parts.some((part) => part.type === "text" && part.synthetic && part.text.includes("<scheduled-wakeup")),
       )
       const answered = messages.findLast(
-        (item) => item.info.role === "assistant" && item.parts.some((part) => part.type === "text" && part.text === reply),
+        (item) =>
+          item.info.role === "assistant" && item.parts.some((part) => part.type === "text" && part.text === reply),
       )
       return woken && answered ? woken : undefined
     }),
     "the session was never woken",
   )
 
-it.instance("a scheduled wakeup is injected into the idle session, then the model answers", () =>
-  Effect.gen(function* () {
-    process.env.OPENCODE_FORK_MESSAGING_POLL_MS = "100"
-    process.env.OPENCODE_FORK_WAKEUP_MIN_SECONDS = "1"
-    const { directory } = yield* TestInstance
-    const llm = yield* TestLLMServer
-    yield* setup(directory, llm.url)
-    const prompt = yield* SessionPrompt.Service
-    const sessions = yield* Session.Service
-    const session = yield* sessions.create({
-      title: "Waiter",
-      permission: [{ permission: "*", pattern: "*", action: "allow" as const }],
-    })
+it.instance(
+  "a scheduled wakeup is injected into the idle session, then the model answers",
+  () =>
+    Effect.gen(function* () {
+      process.env.OPENCODE_FORK_MESSAGING_POLL_MS = "100"
+      process.env.OPENCODE_FORK_WAKEUP_MIN_SECONDS = "1"
+      const { directory } = yield* TestInstance
+      const llm = yield* TestLLMServer
+      yield* setup(directory, llm.url)
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const session = yield* sessions.create({
+        title: "Waiter",
+        permission: [{ permission: "*", pattern: "*", action: "allow" as const }],
+      })
 
-    // schedule_wakeup is deferred: the model loads it through tool_search first.
-    yield* llm.tool("tool_search", { query: "select:schedule_wakeup" })
-    yield* llm.tool("schedule_wakeup", { delaySeconds: 1, prompt: "check the build", reason: "waiting for CI" })
-    yield* llm.text("scheduled")
-    yield* llm.textMatch((hit) => JSON.stringify(hit.body).includes("<scheduled-wakeup"), "woken up")
-    yield* prompt.prompt({ sessionID: session.id, agent: "build", parts: [{ type: "text", text: "wait for CI" }] })
-    expect(ForkWakeup.get(session.id)?.prompt).toBe("check the build")
+      // schedule_wakeup is deferred: the model loads it through deferred_tool_search first.
+      yield* llm.tool("deferred_tool_search", { query: "select:schedule_wakeup" })
+      yield* llm.tool("schedule_wakeup", { delaySeconds: 1, prompt: "check the build", reason: "waiting for CI" })
+      yield* llm.text("scheduled")
+      yield* llm.textMatch((hit) => JSON.stringify(hit.body).includes("<scheduled-wakeup"), "woken up")
+      yield* prompt.prompt({ sessionID: session.id, agent: "build", parts: [{ type: "text", text: "wait for CI" }] })
+      expect(ForkWakeup.get(session.id)?.prompt).toBe("check the build")
 
-    const woken = yield* synthetic(session.id, "woken up")
-    const text = woken.parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n")
-    expect(text).toContain('reason="waiting for CI"')
-    expect(text).toContain("check the build")
-    expect(text).toContain("not the user")
-    expect(woken.info.role).toBe("user")
-    expect((woken.info as SessionV1.User).agent).toBe("build")
-    expect(ForkWakeup.get(session.id)).toBeUndefined()
-  }),
+      const woken = yield* synthetic(session.id, "woken up")
+      const text = woken.parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n")
+      expect(text).toContain('reason="waiting for CI"')
+      expect(text).toContain("check the build")
+      expect(text).toContain("not the user")
+      expect(woken.info.role).toBe("user")
+      expect((woken.info as SessionV1.User).agent).toBe("build")
+      expect(ForkWakeup.get(session.id)).toBeUndefined()
+    }),
   30_000,
 )
 
-it.instance("an overdue wakeup persisted in fork.db is delivered right away", () =>
-  Effect.gen(function* () {
-    process.env.OPENCODE_FORK_MESSAGING_POLL_MS = "100"
-    const { directory } = yield* TestInstance
-    const llm = yield* TestLLMServer
-    yield* setup(directory, llm.url)
-    const prompt = yield* SessionPrompt.Service
-    const sessions = yield* Session.Service
-    const session = yield* sessions.create({ title: "Resumed" })
+it.instance(
+  "an overdue wakeup persisted in fork.db is delivered right away",
+  () =>
+    Effect.gen(function* () {
+      process.env.OPENCODE_FORK_MESSAGING_POLL_MS = "100"
+      const { directory } = yield* TestInstance
+      const llm = yield* TestLLMServer
+      yield* setup(directory, llm.url)
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const session = yield* sessions.create({ title: "Resumed" })
 
-    yield* llm.text("first turn")
-    yield* prompt.prompt({ sessionID: session.id, agent: "build", parts: [{ type: "text", text: "start" }] })
-    yield* llm.textMatch((hit) => JSON.stringify(hit.body).includes("<scheduled-wakeup"), "caught up")
-    ForkWakeup.set({ sessionID: session.id, due: Date.now() - 60_000, prompt: "catch up", reason: "missed" })
+      yield* llm.text("first turn")
+      yield* prompt.prompt({ sessionID: session.id, agent: "build", parts: [{ type: "text", text: "start" }] })
+      yield* llm.textMatch((hit) => JSON.stringify(hit.body).includes("<scheduled-wakeup"), "caught up")
+      ForkWakeup.set({ sessionID: session.id, due: Date.now() - 60_000, prompt: "catch up", reason: "missed" })
 
-    yield* synthetic(session.id, "caught up")
-    expect(ForkWakeup.get(session.id)).toBeUndefined()
-  }),
+      yield* synthetic(session.id, "caught up")
+      expect(ForkWakeup.get(session.id)).toBeUndefined()
+    }),
   30_000,
 )
 
-it.instance("/loop with an interval arms a repeating wakeup and runs the prompt now", () =>
-  Effect.gen(function* () {
-    process.env.OPENCODE_FORK_MESSAGING_POLL_MS = "100"
-    const { directory } = yield* TestInstance
-    const llm = yield* TestLLMServer
-    yield* setup(directory, llm.url)
-    const prompt = yield* SessionPrompt.Service
-    const sessions = yield* Session.Service
-    const session = yield* sessions.create({ title: "Looper" })
+it.instance(
+  "/loop with an interval arms a repeating wakeup and runs the prompt now",
+  () =>
+    Effect.gen(function* () {
+      process.env.OPENCODE_FORK_MESSAGING_POLL_MS = "100"
+      const { directory } = yield* TestInstance
+      const llm = yield* TestLLMServer
+      yield* setup(directory, llm.url)
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const session = yield* sessions.create({ title: "Looper" })
 
-    yield* llm.textMatch((hit) => JSON.stringify(hit.body).includes("repeats every 10 min"), "looping")
-    yield* prompt.command({ sessionID: session.id, command: "loop", arguments: "10m poll the deploy", agent: "build" })
-    expect(ForkWakeup.get(session.id)).toMatchObject({ prompt: "poll the deploy", every: 600_000 })
-    ForkWakeup.cancel(session.id)
+      yield* llm.textMatch((hit) => JSON.stringify(hit.body).includes("repeats every 10 min"), "looping")
+      yield* prompt.command({
+        sessionID: session.id,
+        command: "loop",
+        arguments: "10m poll the deploy",
+        agent: "build",
+      })
+      expect(ForkWakeup.get(session.id)).toMatchObject({ prompt: "poll the deploy", every: 600_000 })
+      ForkWakeup.cancel(session.id)
 
-    // Without an interval the model paces itself: nothing is armed.
-    yield* llm.textMatch((hit) => JSON.stringify(hit.body).includes("dynamic loop"), "paced")
-    yield* prompt.command({ sessionID: session.id, command: "loop", arguments: "poll the deploy", agent: "build" })
-    expect(ForkWakeup.get(session.id)).toBeUndefined()
-  }),
+      // Without an interval the model paces itself: nothing is armed.
+      yield* llm.textMatch((hit) => JSON.stringify(hit.body).includes("dynamic loop"), "paced")
+      yield* prompt.command({ sessionID: session.id, command: "loop", arguments: "poll the deploy", agent: "build" })
+      expect(ForkWakeup.get(session.id)).toBeUndefined()
+    }),
   30_000,
 )

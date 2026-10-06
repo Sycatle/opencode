@@ -170,7 +170,7 @@ const TIPS: Tip[] = [
   "Start a message with {highlight}!{/highlight} to run shell commands (e.g., {highlight}!ls -la{/highlight})",
   // FORK-SEAM: prompt-suggestion (shift+tab changes the mode, tab accepts the suggestion)
   (shortcuts) => press(shortcuts.agentCycle(), "to cycle between primary agents"),
-  (shortcuts) => press(shortcuts.permissionModeCycle(), "to cycle the permission mode: build, accept edits, plan, auto"),
+  (shortcuts) => press(shortcuts.permissionModeCycle(), "to cycle the permission mode: build, plan, auto"),
   (shortcuts) => press(shortcuts.suggestionAccept(), "to insert the grey prompt suggestion"),
   "Run {highlight}/loop{/highlight} to repeat a prompt on an interval, or let the agent pace itself",
   "Use {highlight}/undo{/highlight} to revert the last message and file changes",

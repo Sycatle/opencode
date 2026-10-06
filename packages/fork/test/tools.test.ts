@@ -6,9 +6,9 @@ const make = (description: string) => tool({ description, inputSchema: jsonSchem
 
 const toolset = (): Record<string, Tool> => ({
   read: make("Read a file"),
-  "chrome_click": make("Click an element in the browser page"),
-  "chrome_navigate": make("Navigate the browser to a URL"),
-  "wayland_screenshot": make("Capture a screenshot of the desktop"),
+  chrome_click: make("Click an element in the browser page"),
+  chrome_navigate: make("Navigate the browser to a URL"),
+  wayland_screenshot: make("Capture a screenshot of the desktop"),
 })
 const deferrable = ["chrome_click", "chrome_navigate", "wayland_screenshot", "not_present"]
 
@@ -18,7 +18,7 @@ const searchCall = (loaded: string[]) => ({
 
 test("withholds deferrable tools and exposes tool_search listing them", () => {
   const tools = ForkTools.defer(toolset(), deferrable, [])
-  expect(Object.keys(tools).toSorted()).toEqual(["read", ForkTools.SEARCH])
+  expect(Object.keys(tools).toSorted()).toEqual(["read", ForkTools.SEARCH].toSorted())
   const description = tools[ForkTools.SEARCH].description ?? ""
   expect(description).toContain("chrome_click")
   expect(description).toContain("wayland_screenshot")
@@ -43,7 +43,11 @@ test("tool_search description is stable while tools get loaded", () => {
 
 test("ignores failed searches", () => {
   const tools = ForkTools.defer(toolset(), deferrable, [
-    { parts: [{ type: "tool", tool: ForkTools.SEARCH, state: { status: "error", metadata: { loaded: ["chrome_click"] } } }] },
+    {
+      parts: [
+        { type: "tool", tool: ForkTools.SEARCH, state: { status: "error", metadata: { loaded: ["chrome_click"] } } },
+      ],
+    },
   ])
   expect("chrome_click" in tools).toBe(false)
 })
@@ -58,7 +62,10 @@ test("search selects exact names or ranks keyword matches", () => {
 
 test("tool_search execute reports loaded names in metadata", async () => {
   const tools = ForkTools.defer(toolset(), deferrable, [])
-  const result = await tools[ForkTools.SEARCH].execute!({ query: "select:chrome_click" }, { toolCallId: "1", messages: [] })
+  const result = await tools[ForkTools.SEARCH].execute!(
+    { query: "select:chrome_click" },
+    { toolCallId: "1", messages: [] },
+  )
   expect(result.metadata).toEqual({ loaded: ["chrome_click"] })
 })
 

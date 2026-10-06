@@ -243,7 +243,7 @@ export const RunCommand = effectCmd({
       })
       .option("auto", {
         type: "boolean",
-        describe: "let a classifier approve safe permission requests; the rest are rejected (use --yolo to approve everything)",
+        describe: "approve permission requests autonomously while preserving explicit deny rules",
         default: false,
       })
       .option("yolo", {
@@ -273,9 +273,9 @@ export const RunCommand = effectCmd({
     yield* Effect.promise(async () => {
       const rawMessage = [...args.message, ...(args["--"] || [])].join(" ")
       const interactive = args.mini
-      // FORK-SEAM: auto-mode (--auto is judged by the classifier on the server; --yolo, or --auto with the classifier off, approves everything here)
-      const yolo = args.yolo || args["dangerously-skip-permissions"] || (args.auto && !ForkClassifier.enabled())
-      const auto = args.auto && !yolo
+      // FORK-SEAM: auto-mode (--auto approves permission requests without classifier interaction)
+      const yolo = args.yolo || args["dangerously-skip-permissions"]
+      const auto = args.auto
       const thinking = interactive ? (args.thinking ?? true) : (args.thinking ?? false)
       const die = (message: string): never => {
         UI.error(message)
@@ -432,25 +432,28 @@ export const RunCommand = effectCmd({
       }
 
       // FORK-SEAM: auto-mode (the session starts in auto mode)
-      const rules: PermissionV1.Ruleset = ForkClassifier.withMode(interactive
-        ? []
-        : [
-            {
-              permission: "question",
-              action: "deny",
-              pattern: "*",
-            },
-            {
-              permission: "plan_enter",
-              action: "deny",
-              pattern: "*",
-            },
-            {
-              permission: "plan_exit",
-              action: "deny",
-              pattern: "*",
-            },
-          ], auto ? "auto" : "normal")
+      const rules: PermissionV1.Ruleset = ForkClassifier.withMode(
+        interactive
+          ? []
+          : [
+              {
+                permission: "question",
+                action: "deny",
+                pattern: "*",
+              },
+              {
+                permission: "plan_enter",
+                action: "deny",
+                pattern: "*",
+              },
+              {
+                permission: "plan_exit",
+                action: "deny",
+                pattern: "*",
+              },
+            ],
+        auto ? "auto" : "normal",
+      )
 
       function title() {
         if (args.title === undefined) return

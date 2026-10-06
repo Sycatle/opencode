@@ -196,14 +196,11 @@ export const {
 
         case "permission.asked": {
           const request = event.properties
-          // FORK-SEAM: permission-mode (auto mode is judged by the server classifier; the client only approves for --yolo or with the classifier off)
+          // FORK-SEAM: permission-mode (Auto is autonomous; --yolo keeps its protected-permission exception)
           const owner = search(store.session, request.sessionID, (s) => s.id)
           if (
-            !ForkClassifier.neverAuto(request.permission) &&
-            (permission.yolo ||
-              (!ForkClassifier.enabled() &&
-                owner.found &&
-                ForkClassifier.storedMode(store.session[owner.index].permission) === "auto"))
+            (permission.yolo && !ForkClassifier.neverAuto(request.permission)) ||
+            (owner.found && ForkClassifier.storedMode(store.session[owner.index].permission) === "auto")
           ) {
             void sdk.client.permission.reply({
               requestID: request.id,

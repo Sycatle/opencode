@@ -160,7 +160,7 @@ const layer = Layer.effect(
           },
           plan: {
             name: "plan",
-            description: "Plan mode. Disallows all edit tools.",
+            description: "Clarifies requirements and tradeoffs before autonomous execution. Disallows project edits.",
             options: {},
             permission: Permission.merge(
               defaults,

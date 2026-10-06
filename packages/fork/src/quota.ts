@@ -25,11 +25,15 @@ export function parse(headers: Headers, httpStatus?: number): Snapshot | undefin
       const duration = Number(headers.get(`x-codex-${prefix}-window-minutes`))
       const utilization = Number(headers.get(`x-codex-${prefix}-used-percent`))
       const reset = headers.get(`x-codex-${prefix}-reset-at`)
-      if (!Number.isFinite(duration) || !Number.isFinite(utilization) || reset === null) return undefined
+      if (!Number.isFinite(duration) || !Number.isFinite(utilization) || !reset?.trim()) return undefined
       if (duration !== 300 && duration !== 10_080) return undefined
-      const resetAt = Date.parse(reset)
+      const resetAt = Number(reset)
       if (!Number.isFinite(resetAt)) return undefined
-      return { utilization: utilization / 100, reset: resetAt, status: httpStatus === 429 ? "rejected" : "allowed" }
+      return {
+        utilization: utilization / 100,
+        reset: resetAt * 1000,
+        status: httpStatus === 429 ? "rejected" : "allowed",
+      }
     }
     const primary = window("primary")
     const secondary = window("secondary")
@@ -98,18 +102,17 @@ export function fresh(provider = "anthropic", now = Date.now()) {
 }
 
 export function latest(provider = "anthropic") {
-  const row = table()
-    .query<{ data: string }, [string]>("SELECT data FROM fork_quota WHERE provider = ?")
-    .get(provider)
+  const row = table().query<{ data: string }, [string]>("SELECT data FROM fork_quota WHERE provider = ?").get(provider)
   return row ? (JSON.parse(row.data) as Snapshot) : undefined
 }
 
 // Percentage points of the 5-hour window consumed since the session's first request.
 export function windowSpent(sessionID: string, provider = "anthropic") {
   const start = table()
-    .query<{ start_utilization: number; start_reset: number }, [string, string]>(
-      "SELECT start_utilization, start_reset FROM fork_quota_session WHERE session_id = ? AND provider = ?",
-    )
+    .query<
+      { start_utilization: number; start_reset: number },
+      [string, string]
+    >("SELECT start_utilization, start_reset FROM fork_quota_session WHERE session_id = ? AND provider = ?")
     .get(sessionID, provider)
   const current = latest(provider)?.five_hour
   if (!start || !current) return undefined

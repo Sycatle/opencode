@@ -299,9 +299,8 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
           })
         if (part.type === "tool") {
           // FORK-SEAM: claude-tools-history (replayed under Claude Code's names, deterministically)
-          const call = claude
-            ? ForkClaudeTools.toModelCall(part.tool, part.state.input)
-            : { tool: part.tool, input: part.state.input }
+          const tool = part.tool === ForkTools.LEGACY_SEARCH ? ForkTools.SEARCH : part.tool
+          const call = claude ? ForkClaudeTools.toModelCall(tool, part.state.input) : { tool, input: part.state.input }
           toolNames.add(call.tool)
           if (part.state.status === "completed") {
             const outputText = part.state.time.compacted
@@ -320,14 +319,15 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
             const finalAttachments = attachments.filter((a) => !isMedia(a.mime) || supportsMediaInToolResult(a))
 
             // FORK-SEAM: native-tool-search (a server search result goes back as the JSON the API expects)
-            const output = part.metadata?.providerExecuted && part.tool === ForkTools.NATIVE_SEARCH
-              ? ForkTools.nativeSearchOutput(part.state.output)
-              : finalAttachments.length > 0
-                ? {
-                    text: outputText,
-                    attachments: finalAttachments,
-                  }
-                : outputText
+            const output =
+              part.metadata?.providerExecuted && part.tool === ForkTools.NATIVE_SEARCH
+                ? ForkTools.nativeSearchOutput(part.state.output)
+                : finalAttachments.length > 0
+                  ? {
+                      text: outputText,
+                      attachments: finalAttachments,
+                    }
+                  : outputText
 
             assistantMessage.parts.push({
               type: ("tool-" + call.tool) as `tool-${string}`,

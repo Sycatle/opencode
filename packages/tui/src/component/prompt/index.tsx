@@ -1469,14 +1469,7 @@ export function Prompt(props: PromptProps) {
               >
                 <text
                   wrapMode="none"
-                  fg={fadeColor(
-                    permissionMode() === "auto"
-                      ? theme.warning
-                      : permissionMode() === "acceptEdits"
-                        ? theme.success
-                        : theme.textMuted,
-                    agentMetaAlpha(),
-                  )}
+                  fg={fadeColor(permissionMode() === "auto" ? theme.warning : theme.textMuted, agentMetaAlpha())}
                 >
                   {local.permission.yolo ? "yolo" : ForkClassifier.label(permissionMode())}
                 </text>

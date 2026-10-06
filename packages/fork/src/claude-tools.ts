@@ -149,7 +149,9 @@ const SPECS: Spec[] = [
         ? { ...without(args, "dangerouslyDisableSandbox"), sandbox: false }
         : without(args, "dangerouslyDisableSandbox"),
     toCC: (args) =>
-      args.sandbox === false ? { ...without(args, "sandbox"), dangerouslyDisableSandbox: true } : without(args, "sandbox"),
+      args.sandbox === false
+        ? { ...without(args, "sandbox"), dangerouslyDisableSandbox: true }
+        : without(args, "sandbox"),
     post: (_args, output) => output.replaceAll("`sandbox: false`", "`dangerouslyDisableSandbox: true`"),
     schema: object(
       {
@@ -423,7 +425,7 @@ const SPECS: Spec[] = [
     ].join("\n"),
   },
   {
-    native: "tool_search",
+    native: "deferred_tool_search",
     cc: "ToolSearch",
     toNative: (args) => ({ ...args, query: mapSelect(args.query, toNativeName) }),
     toCC: (args) => ({ ...args, query: mapSelect(args.query, toModelName) }),

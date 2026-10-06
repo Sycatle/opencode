@@ -970,7 +970,7 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
       {
         // FORK-SEAM: permission-mode
         name: "permission.mode.cycle",
-        title: "Cycle permission mode (build, accept edits, plan, auto)",
+        title: "Cycle permission mode (build, plan, auto)",
         category: "Agent",
         run: () => {
           cycleMode()

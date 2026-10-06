@@ -14,8 +14,8 @@ type AskInput = Parameters<Permission.Interface["ask"]>[0]
 // an allow, nor an allow into an ask. "Always" approvals live inside the Permission service and are not
 // visible here: a request they would settle may still reach plugins, which can only allow, deny or leave it.
 //
-// What is still "ask" then goes through the session's permission mode (ForkClassifier): accept-edits approves
-// edits, auto lets the small model decide. Whatever it does not approve becomes a normal request to the user.
+// What is still "ask" then goes through the session's permission mode (ForkClassifier). Auto approves without
+// user interaction; Build keeps the normal permission prompt.
 export const askWithPlugins = Effect.fn("ForkPermission.ask")(function* (
   plugin: Plugin.Interface,
   permission: Permission.Interface,
@@ -46,7 +46,7 @@ export const askWithPlugins = Effect.fn("ForkPermission.ask")(function* (
       ruleset: input.ruleset.filter((rule) => rule.permission === input.permission),
     })
 
-  if (ForkClassifier.neverAuto(input.permission)) return yield* permission.ask(input)
+  if (ForkClassifier.storedMode(input.ruleset) === "auto") return
   const instance = yield* InstanceRef
   if (!instance) return yield* permission.ask(input)
   // The judge needs Session, LLM and Provider: run it in the project's instance rather than widening this

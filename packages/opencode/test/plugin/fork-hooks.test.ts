@@ -156,7 +156,7 @@ describe("fork hooks plugin", () => {
     ),
   )
 
-  it.instance("accept-edits mode approves edits and leaves other permissions to the user", () =>
+  it.instance("auto mode approves every ask without prompting and keeps explicit denies", () =>
     Effect.gen(function* () {
       const plugin = yield* Plugin.Service
       const permission = yield* Permission.Service
@@ -169,67 +169,13 @@ describe("fork hooks plugin", () => {
           always: [],
           ruleset,
         })
-      const mode = ForkClassifier.withMode([], "acceptEdits")
-
-      yield* request("edit", mode)
-      expect((yield* request("bash", mode).pipe(Effect.timeoutOption("200 millis")))._tag).toBe("None")
-      expect((yield* request("edit", []).pipe(Effect.timeoutOption("200 millis")))._tag).toBe("None")
       const auto = ForkClassifier.withMode([], "auto")
-      expect((yield* request("sandbox_escape", auto).pipe(Effect.timeoutOption("200 millis")))._tag).toBe("None")
-      expect((yield* request("sandbox_escape", mode).pipe(Effect.timeoutOption("200 millis")))._tag).toBe("None")
-      const denied = yield* request("edit", [...mode, { permission: "edit", pattern: "*", action: "deny" }]).pipe(
+      for (const name of ["edit", "bash", "sandbox_escape", "worktree_discard"])
+        expect((yield* request(name, auto).pipe(Effect.timeoutOption("200 millis")))._tag).toBe("Some")
+      const denied = yield* request("edit", [...auto, { permission: "edit", pattern: "*", action: "deny" }]).pipe(
         Effect.flip,
       )
       expect(denied).toBeInstanceOf(PermissionV1.DeniedError)
-    }),
-  )
-
-  it.instance("auto mode asks the classifier once for an action it already approved in the session", () =>
-    Effect.gen(function* () {
-      const plugin = yield* Plugin.Service
-      const permission = yield* Permission.Service
-      const calls: string[] = []
-      // A local Jev that judges every action safe and requested.
-      const server = Bun.serve({
-        port: 0,
-        fetch: async (request) => {
-          calls.push(String((await request.json()).state))
-          return Response.json({
-            answers: {
-              risk: { type: "choice", choice: "in_scope_safe", confidence: 0.99 },
-              requested: { type: "noul", noul: 0.99 },
-            },
-          })
-        },
-      })
-      // A slow Jev would hand the request to the small model, absent here: the test would wait for the user.
-      const vars = { TYPESAFE_API_KEY: "test", OPENCODE_FORK_JEV_URL: server.url.href, OPENCODE_FORK_JEV_TIMEOUT_MS: "4000" }
-      const saved = Object.fromEntries(Object.keys(vars).map((name) => [name, process.env[name]]))
-      Object.assign(process.env, vars)
-      yield* Effect.addFinalizer(() =>
-        Effect.sync(() => {
-          server.stop(true)
-          Object.entries(saved).forEach(([name, value]) => {
-            if (value === undefined) delete process.env[name]
-            else process.env[name] = value
-          })
-        }),
-      )
-      const request = (pattern: string) =>
-        askWithPlugins(plugin, permission, {
-          sessionID: "s-auto-cache" as never,
-          permission: "bash",
-          patterns: [pattern],
-          metadata: {},
-          always: [],
-          ruleset: ForkClassifier.withMode([], "auto"),
-        })
-
-      yield* request("bun test")
-      yield* request("bun test")
-      expect(calls).toHaveLength(1)
-      yield* request("bun typecheck")
-      expect(calls).toHaveLength(2)
     }),
   )
 
@@ -266,7 +212,11 @@ describe("fork hooks events and hook types", () => {
     const record = { command: `cat >> ${log}; echo >> ${log}` }
     await plugin.config?.({ hooks: typeof hooks === "function" ? hooks(record) : hooks } as never)
     const events = async () =>
-      (await Bun.file(log).text().catch(() => ""))
+      (
+        await Bun.file(log)
+          .text()
+          .catch(() => "")
+      )
         .split("\n")
         .filter(Boolean)
         .map((line) => JSON.parse(line) as ForkHooks.Payload)
@@ -278,7 +228,10 @@ describe("fork hooks events and hook types", () => {
     const run = await start((record) => ({ SubagentStop: [record], Stop: [record], Notification: [record] }))
     await run.emit("session.created", { info: { id: "root" } })
     await run.emit("session.created", { info: { id: "child", parentID: "root" } })
-    await run.emit("message.updated", { sessionID: "child", info: { sessionID: "child", role: "assistant", agent: "explore" } })
+    await run.emit("message.updated", {
+      sessionID: "child",
+      info: { sessionID: "child", role: "assistant", agent: "explore" },
+    })
     await run.emit("session.idle", { sessionID: "child" })
     expect((await run.events()).map((e) => [e.event, e.sessionID, e.parentID, e.agent])).toEqual([
       ["SubagentStop", "child", "root", "explore"],
@@ -345,7 +298,10 @@ describe("fork hooks events and hook types", () => {
         },
       },
     )
-    const blocked = await run.plugin["tool.execute.before"]!({ tool: "bash", sessionID: "s", callID: "c" }, { args: {} }).then(
+    const blocked = await run.plugin["tool.execute.before"]!(
+      { tool: "bash", sessionID: "s", callID: "c" },
+      { args: {} },
+    ).then(
       () => undefined,
       (error: Error) => error.message,
     )

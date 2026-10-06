@@ -16,7 +16,11 @@ type Def = {
 
 export const FLAGS = {
   // ---- context and cost
-  DEFER_TOOLS: { kind: "switch", default: "on", description: "Withhold MCP and rare native tools behind tool_search" },
+  DEFER_TOOLS: {
+    kind: "switch",
+    default: "on",
+    description: "Withhold MCP and rare native tools behind deferred_tool_search",
+  },
   NATIVE_TOOL_SEARCH: {
     kind: "switch",
     default: "on",
@@ -29,7 +33,11 @@ export const FLAGS = {
   },
   SLIM_TOOLS: { kind: "switch", default: "on", description: "Compact descriptions of the native tools" },
   SLIM_SKILLS: { kind: "switch", default: "on", description: "One line per skill in the system prompt, no location" },
-  CACHE_TTL: { kind: "text", default: "1h in the TUI", description: "Prompt cache TTL of the stable prefix (set by the TUI)" },
+  CACHE_TTL: {
+    kind: "text",
+    default: "1h in the TUI",
+    description: "Prompt cache TTL of the stable prefix (set by the TUI)",
+  },
   AUTH_CACHE: {
     kind: "switch",
     default: "on",
@@ -52,12 +60,17 @@ export const FLAGS = {
   // ---- budget
   BUDGET_USD: { kind: "number", description: "Dollar budget per session tree: wrap-up at 100%, stop at 120%" },
   BUDGET_WINDOW: { kind: "number", description: "Budget in points of the subscription's 5h window" },
+  LOCALE: { kind: "text", description: "Locale for quota text (defaults to the system locale)" },
   // ---- agents and jobs
   MAX_BACKGROUND: { kind: "number", default: "4", description: "Concurrent background subagents" },
   ROUTE_SUBAGENTS: { kind: "switch", default: "on", description: "explore subagents run on the small model" },
   SUBAGENT_EFFORT: { kind: "switch", default: "on", description: "Routed subagents use their lowest effort variant" },
   SUBAGENT_INHERIT: { kind: "switch", default: "on", description: "`inherit` parameter of the task tool" },
-  BACKGROUND_SHELL: { kind: "switch", default: "on", description: "`background` parameter of bash, shell_output/shell_kill" },
+  BACKGROUND_SHELL: {
+    kind: "switch",
+    default: "on",
+    description: "`background` parameter of bash, shell_output/shell_kill",
+  },
   BACKGROUND_NOTIFY: { kind: "switch", default: "on", description: "Notify when a background job finishes" },
   WORKFLOW_TOOL: { kind: "switch", default: "on", description: "workflow tool" },
   SESSION_WORKTREE: { kind: "switch", default: "on", description: "enter_worktree / exit_worktree tools" },
@@ -66,14 +79,25 @@ export const FLAGS = {
   WAKEUPS: { kind: "switch", default: "on", description: "In-session wakeups (schedule_wakeup, /loop)" },
   WAKEUP_MIN_SECONDS: { kind: "number", description: "Shortest wakeup delay accepted" },
   // ---- permissions and safety
-  AUTO_CLASSIFIER: { kind: "switch", default: "on", description: "Auto mode asks the classifier before the user" },
   SANDBOX: { kind: "tri", default: "config", description: "Force the bash sandbox on (1) or off (0)" },
   HOOKS: { kind: "switch", default: "on", description: "Declarative hooks from the config" },
-  CC_PLUGINS: { kind: "switch", default: "on", description: "Skills, commands, agents, MCP and hooks of Claude Code plugins" },
+  CC_PLUGINS: {
+    kind: "switch",
+    default: "on",
+    description: "Skills, commands, agents, MCP and hooks of Claude Code plugins",
+  },
   // ---- Router
   ROUTE: { kind: "switch", default: "on", description: "router/* models" },
-  ROUTE_TIERS: { kind: "text", default: "derived", description: 'JSON tiers, e.g. {"fast": ["anthropic/claude-haiku-4-5"]}' },
-  ROUTE_EXCLUDE: { kind: "text", default: "fable,-fast,-pro,…", description: "Model id fragments the Router never picks" },
+  ROUTE_TIERS: {
+    kind: "text",
+    default: "derived",
+    description: 'JSON tiers, e.g. {"fast": ["anthropic/claude-haiku-4-5"]}',
+  },
+  ROUTE_EXCLUDE: {
+    kind: "text",
+    default: "fable,-fast,-pro,…",
+    description: "Model id fragments the Router never picks",
+  },
   ROUTE_QUOTA: { kind: "number", description: "5h window utilization above which the subscription goes last" },
   ROUTE_TURNS: { kind: "number", default: "6", description: "Expected turns left, for switch costs" },
   ROUTE_RECLASSIFY: { kind: "switch", default: "on", description: "Reuse the previous signals for a short follow-up" },
@@ -89,7 +113,6 @@ export const FLAGS = {
   JEV_MODEL: { kind: "text", default: "jev-latest", description: "Jev model" },
   JEV_TIMEOUT_MS: { kind: "number", default: "1500", description: "Jev request timeout" },
   ROUTE_JEV: { kind: "jev", default: "on", description: "Router signals" },
-  AUTO_CLASSIFIER_JEV: { kind: "jev", default: "on", description: "Auto mode permission verdicts" },
   SMART_COMPACTION_JEV: { kind: "jev", default: "on", description: "Task-boundary check before a compaction" },
   PINS_JEV: { kind: "jev", default: "on", description: "Auto-pin lasting constraints at compaction" },
   PROMPT_SUGGESTION_JEV: { kind: "jev", default: "on", description: "Gate prompt suggestions" },
@@ -132,6 +155,13 @@ export function raw(name: Name, env: Env = process.env) {
 export function describe(env: Env = process.env) {
   return Object.entries(FLAGS).map(([name, def]: [string, Def]) => {
     const value = env[`OPENCODE_FORK_${name}`]
-    return { name: `OPENCODE_FORK_${name}`, kind: def.kind, value, set: value !== undefined, default: def.default, description: def.description }
+    return {
+      name: `OPENCODE_FORK_${name}`,
+      kind: def.kind,
+      value,
+      set: value !== undefined,
+      default: def.default,
+      description: def.description,
+    }
   })
 }

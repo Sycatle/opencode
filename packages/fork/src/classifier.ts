@@ -1,32 +1,23 @@
-import { ForkFlags } from "./flags"
 import type { ForkJev } from "./jev"
 import { ForkTelemetry } from "./telemetry"
 
-// Auto mode: a permission the ruleset would "ask" about is judged by the small model of the session's
-// provider. "allow" approves; "deny", an error or a timeout become a real request to the user, annotated
-// with the classifier's reason (a denial is never silent). Rulesets still win: a "deny" never reaches it.
-//
 // The permission mode of a session is persisted as a marker rule in `session.permission`
 // (`{ permission: "fork.mode", pattern: <mode> }`), so it survives restarts and is visible to the server.
 
 export const MODE_PERMISSION = "fork.mode"
-export const TIMEOUT_MS = 15_000
 // Metadata key carrying the classifier's reason on the permission request shown to the user.
 export const REASON_KEY = "forkClassifier"
 
-export type Mode = "normal" | "acceptEdits" | "plan" | "auto"
-export type StoredMode = "normal" | "acceptEdits" | "auto"
+export type Mode = "normal" | "plan" | "auto"
+export type StoredMode = "normal" | "auto"
 export type Rule = { permission: string; pattern: string; action: "allow" | "deny" | "ask" }
 
-export const CYCLE: readonly Mode[] = ["normal", "acceptEdits", "plan", "auto"]
-
-export function enabled(env: Record<string, string | undefined> = process.env) {
-  return ForkFlags.on("AUTO_CLASSIFIER", env)
-}
+export const CYCLE: readonly Mode[] = ["normal", "plan", "auto"]
 
 export function storedMode(ruleset: readonly Rule[] | undefined): StoredMode | undefined {
   const marker = ruleset?.findLast((rule) => rule.permission === MODE_PERMISSION)?.pattern
-  return marker === "auto" || marker === "acceptEdits" || marker === "normal" ? marker : undefined
+  if (marker === "acceptEdits") return "normal"
+  return marker === "auto" || marker === "normal" ? marker : undefined
 }
 
 export function withMode<T extends Rule>(ruleset: readonly T[] | undefined, mode: StoredMode): (T | Rule)[] {
@@ -41,14 +32,13 @@ export function current(stored: StoredMode | undefined, agent: string | undefine
   return stored ?? "normal"
 }
 
-// build -> build with edits accepted -> plan -> auto -> build
+// build -> plan -> auto -> build
 export function next(mode: Mode): Mode {
   return CYCLE[(CYCLE.indexOf(mode) + 1) % CYCLE.length]
 }
 
 // "normal" is the build mode of the palette and the tips: the user never sees the internal name.
 export function label(mode: Mode) {
-  if (mode === "acceptEdits") return "accept edits"
   if (mode === "normal") return "build"
   return mode
 }
@@ -138,7 +128,7 @@ function safeJson(text: string): unknown {
   }
 }
 
-// Jev judges first (OPENCODE_FORK_AUTO_CLASSIFIER_JEV: "shadow" journals it without deciding, "0" turns it off).
+// Jev judges first; shadow mode journals its result without deciding.
 // It sees less than the small model: the permission, the patterns and a few fields of the action with the project
 // directory and the home directory masked, and the latest user message. No transcript, no diff, no file content.
 const JEV_FIELD = 300
@@ -174,7 +164,8 @@ export function jevRequest(input: { action: Action; directory?: string; home?: s
         instructions: "What is the main risk of running this action without asking the user?",
         criteria: {
           in_scope_safe: "Inside the project, reversible or low impact, and what the user asked for",
-          destructive: "Deletes or overwrites things the user did not mention (rm -rf, git reset --hard, force push, drop tables)",
+          destructive:
+            "Deletes or overwrites things the user did not mention (rm -rf, git reset --hard, force push, drop tables)",
           outgoing: "Sends, publishes or uploads something outside the machine (git push, deploy, email, curl POST)",
           outside_project: "Reads or writes outside the project directory (home, system paths, dotfiles)",
           secrets: "Touches secrets (.env, credentials, tokens, SSH or cloud keys)",
@@ -194,7 +185,10 @@ export type JevVerdict = { decision: "allow" | "ask"; reason: string }
 
 // undefined hands the request to the small model. `injected`: the session read tool output that looked like an
 // injection recently, so nothing is approved on Jev's word alone.
-export function jevVerdict(answers: Record<string, ForkJev.Answer> | undefined, injected: boolean): JevVerdict | undefined {
+export function jevVerdict(
+  answers: Record<string, ForkJev.Answer> | undefined,
+  injected: boolean,
+): JevVerdict | undefined {
   const risk = answers?.risk
   const requested = answers?.requested?.noul
   const choice = risk?.choice
@@ -214,15 +208,9 @@ export function jevVerdict(answers: Record<string, ForkJev.Answer> | undefined, 
   return undefined
 }
 
-// Never approved without the user, whatever the mode (auto, accept edits, --yolo): leaving the bash sandbox
-// and deleting a session worktree.
+// --yolo retains its protected-permission exceptions. Auto mode approves these through the normal mode path.
 export function neverAuto(permission: string) {
   return permission === "sandbox_escape" || permission === "worktree_discard"
-}
-
-// Accept-edits mode approves file edits and writes only (both use the "edit" permission).
-export function acceptsEdit(mode: StoredMode | undefined, permission: string) {
-  return mode === "acceptEdits" && permission === "edit"
 }
 
 export type Entry = Action & {
@@ -263,9 +251,10 @@ export function record(entry: Entry) {
 
 export function decisions(sessionID: string) {
   return table()
-    .query<{ time: number; permission: string; decision: string; reason: string; cost: number }, [string]>(
-      "SELECT time, permission, decision, reason, cost FROM fork_classifier WHERE session_id = ? ORDER BY id",
-    )
+    .query<
+      { time: number; permission: string; decision: string; reason: string; cost: number },
+      [string]
+    >("SELECT time, permission, decision, reason, cost FROM fork_classifier WHERE session_id = ? ORDER BY id")
     .all(sessionID)
 }
 

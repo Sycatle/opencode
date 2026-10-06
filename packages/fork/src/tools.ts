@@ -4,11 +4,14 @@ import type { ForkJev } from "./jev"
 
 // Deferred tools: MCP tool definitions are the largest chunk of every request
 // (often more than all native tools together) yet most turns never use them.
-// They are withheld until the model loads them through `tool_search`. The set of
+// They are withheld until the model loads them through `deferred_tool_search`. The set of
 // loaded tools is derived from session history, so it survives restarts and every
 // turn of a session sees the same tool list until the model loads something new.
 
-export const SEARCH = "tool_search"
+// Avoid OpenAI's reserved `tool_search` provider tool name. The AI SDK treats
+// that exact name as a hosted Responses API tool and expects { arguments }.
+export const SEARCH = "deferred_tool_search"
+export const LEGACY_SEARCH = "tool_search"
 const MAX_MATCHES = 5
 const NATIVE_DEFERRABLE = [
   "lsp",
@@ -91,14 +94,19 @@ export function deferNative(
   if (!candidates.length) return tools
   // A session that ran on the legacy tool_search keeps what it loaded: those calls have no tool_reference in
   // history to bring their definition back. Once the native search was used, discovered tools stay deferred.
-  const used = messages.some((message) => message.parts.some((part) => part.type === "tool" && part.tool === NATIVE_SEARCH))
+  const used = messages.some((message) =>
+    message.parts.some((part) => part.type === "tool" && part.tool === NATIVE_SEARCH),
+  )
   const loaded = used ? new Set<string>() : loadedTools(messages)
   candidates
     .filter((name) => !loaded.has(name))
     .forEach((name) => {
       const original = tools[name]
       const options = original.providerOptions ?? {}
-      tools[name] = { ...original, providerOptions: { ...options, anthropic: { ...options.anthropic, deferLoading: true } } }
+      tools[name] = {
+        ...original,
+        providerOptions: { ...options, anthropic: { ...options.anthropic, deferLoading: true } },
+      }
     })
   tools[NATIVE_SEARCH] = search
   return tools
@@ -110,8 +118,10 @@ export function restoreServerToolNames(body: string) {
   if (!body.includes('"tool_search_tool_')) return undefined
   try {
     const parsed: unknown = JSON.parse(body)
-    if (typeof parsed !== "object" || parsed === null || !("tools" in parsed) || !Array.isArray(parsed.tools)) return undefined
-    const match = (type: unknown) => (typeof type === "string" ? /^(tool_search_tool_(?:bm25|regex))_\d+$/.exec(type)?.[1] : undefined)
+    if (typeof parsed !== "object" || parsed === null || !("tools" in parsed) || !Array.isArray(parsed.tools))
+      return undefined
+    const match = (type: unknown) =>
+      typeof type === "string" ? /^(tool_search_tool_(?:bm25|regex))_\d+$/.exec(type)?.[1] : undefined
     const fixed = parsed.tools.map((item: unknown) => {
       if (typeof item !== "object" || item === null || !("type" in item)) return item
       const name = match(item.type)
@@ -129,13 +139,10 @@ export function guardServerToolNames() {
   if (guarded) return
   guarded = true
   const original = globalThis.fetch
-  globalThis.fetch = Object.assign(
-    (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
-      const fixed = typeof init?.body === "string" ? restoreServerToolNames(init.body) : undefined
-      return original(input, fixed ? { ...init, body: fixed } : init)
-    },
-    original,
-  )
+  globalThis.fetch = Object.assign((input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    const fixed = typeof init?.body === "string" ? restoreServerToolNames(init.body) : undefined
+    return original(input, fixed ? { ...init, body: fixed } : init)
+  }, original)
 }
 
 // The stored output of a native search, as the JSON the API expects back in history: a text output would be
@@ -156,7 +163,7 @@ export function loadedTools(messages: { parts: readonly HistoryPart[] }[]) {
         if (part.type === "text") return strings(part.metadata?.forkPreloaded)
         if (part.type !== "tool" || !part.tool) return []
         // A tool that already appears in history must stay defined for replay.
-        if (part.tool !== SEARCH) return [part.tool]
+        if (part.tool !== SEARCH && part.tool !== LEGACY_SEARCH) return [part.tool]
         return strings(part.state?.status === "completed" ? part.state.metadata?.loaded : undefined)
       }),
     ),

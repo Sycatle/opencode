@@ -112,7 +112,6 @@ function BuiltinLine(props: { api: TuiPluginApi }) {
     tick()
     const session = sessionID(props.api)
     if (!session) return ""
-    props.api.state.session.messages(session).length
     const wakeup = ForkWakeup.enabled() ? ForkWakeup.get(session) : undefined
     return ForkStatusline.firstLine(
       ForkStatusline.builtin({

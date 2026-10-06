@@ -88,7 +88,7 @@ export function loopTemplate(loop: { everyMs?: number }) {
       "$ARGUMENTS",
     ].join("\n")
   return [
-    "This is a dynamic loop. Do the task below now. When you are done, pick a delay that fits what you are waiting for and call the schedule_wakeup tool (ScheduleWakeup) with delaySeconds, a short reason, and prompt set to exactly the task text, so the task comes back. If nothing is left to do, call schedule_wakeup with stop: true instead. Load the tool with tool_search first if it is not available.",
+    "This is a dynamic loop. Do the task below now. When you are done, pick a delay that fits what you are waiting for and call the schedule_wakeup tool (ScheduleWakeup) with delaySeconds, a short reason, and prompt set to exactly the task text, so the task comes back. If nothing is left to do, call schedule_wakeup with stop: true instead. Load the tool with deferred_tool_search first if it is not available.",
     "",
     "Task:",
     "$ARGUMENTS",

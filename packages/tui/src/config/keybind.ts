@@ -129,7 +129,7 @@ export const Definitions = {
   agent_list: keybind("<leader>a", "List agents"),
   // FORK-SEAM: prompt-suggestion (tab accepts the suggestion; custom primary agents move to f3, free everywhere else)
   agent_cycle: keybind("f3", "Next agent"),
-  // FORK-SEAM: permission-mode (shift+tab cycles build, accept edits, plan, auto)
+  // FORK-SEAM: permission-mode (shift+tab cycles build, plan, auto)
   agent_cycle_reverse: keybind("shift+f3", "Previous agent"),
   // FORK-SEAM: prompt-suggestion
   prompt_suggestion_accept: keybind("tab", "Insert the prompt suggestion shown in the empty prompt"),

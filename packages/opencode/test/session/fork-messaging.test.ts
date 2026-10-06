@@ -179,57 +179,65 @@ const config = (url: string): Partial<ConfigV1.Info> => ({
   },
 })
 
-it.instance("a session receives a message from another session at its next turn", () =>
-  Effect.gen(function* () {
-    process.env.OPENCODE_FORK_MESSAGING_POLL_MS = "100"
-    const { directory } = yield* TestInstance
-    const llm = yield* TestLLMServer
-    yield* Effect.promise(() =>
-      Bun.write(
-        path.join(directory, "opencode.json"),
-        JSON.stringify({ $schema: "https://opencode.ai/config.json", ...config(llm.url) }),
-      ),
-    )
-    const prompt = yield* SessionPrompt.Service
-    const sessions = yield* Session.Service
-    const permission = [{ permission: "*", pattern: "*", action: "allow" as const }]
-    const receiver = yield* sessions.create({ title: "Receiver work", permission })
-    const sender = yield* sessions.create({ title: "Sender work", permission })
+it.instance(
+  "a session receives a message from another session at its next turn",
+  () =>
+    Effect.gen(function* () {
+      process.env.OPENCODE_FORK_MESSAGING_POLL_MS = "100"
+      const { directory } = yield* TestInstance
+      const llm = yield* TestLLMServer
+      yield* Effect.promise(() =>
+        Bun.write(
+          path.join(directory, "opencode.json"),
+          JSON.stringify({ $schema: "https://opencode.ai/config.json", ...config(llm.url) }),
+        ),
+      )
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const permission = [{ permission: "*", pattern: "*", action: "allow" as const }]
+      const receiver = yield* sessions.create({ title: "Receiver work", permission })
+      const sender = yield* sessions.create({ title: "Sender work", permission })
 
-    // The receiver runs a first turn, registers and goes idle.
-    yield* llm.text("receiver ready")
-    yield* prompt.prompt({ sessionID: receiver.id, agent: "build", parts: [{ type: "text", text: "start" }] })
-    expect(ForkMessaging.nameOf(receiver.id)).toBe("receiver-work")
+      // The receiver runs a first turn, registers and goes idle.
+      yield* llm.text("receiver ready")
+      yield* prompt.prompt({ sessionID: receiver.id, agent: "build", parts: [{ type: "text", text: "start" }] })
+      expect(ForkMessaging.nameOf(receiver.id)).toBe("receiver-work")
 
-    // Only the woken receiver turn contains the message.
-    yield* llm.textMatch((hit) => JSON.stringify(hit.body).includes("<session-message"), "received it")
-    // send_message is deferred: the model loads it through tool_search first.
-    yield* llm.tool("tool_search", { query: "select:send_message" })
-    yield* llm.tool("send_message", { to: "receiver-work", message: "the build is green", summary: "build green" })
-    yield* llm.text("sent")
-    yield* prompt.prompt({ sessionID: sender.id, agent: "build", parts: [{ type: "text", text: "tell the receiver" }] })
+      // Only the woken receiver turn contains the message.
+      yield* llm.textMatch((hit) => JSON.stringify(hit.body).includes("<session-message"), "received it")
+      // send_message is deferred: the model loads it through deferred_tool_search first.
+      yield* llm.tool("deferred_tool_search", { query: "select:send_message" })
+      yield* llm.tool("send_message", { to: "receiver-work", message: "the build is green", summary: "build green" })
+      yield* llm.text("sent")
+      yield* prompt.prompt({
+        sessionID: sender.id,
+        agent: "build",
+        parts: [{ type: "text", text: "tell the receiver" }],
+      })
 
-    const woken = yield* pollWithTimeout(
-      Effect.gen(function* () {
-        const messages = yield* sessions.messages({ sessionID: receiver.id })
-        const synthetic = messages.find((item) =>
-          item.parts.some((part) => part.type === "text" && part.synthetic && part.text.includes("<session-message")),
-        )
-        const reply = messages.findLast(
-          (item) => item.info.role === "assistant" && item.parts.some((part) => part.type === "text" && part.text === "received it"),
-        )
-        return synthetic && reply ? synthetic : undefined
-      }),
-      "the receiver was never woken",
-    )
-    const text = woken.parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n")
-    expect(text).toContain('from="sender-work"')
-    expect(text).toContain("the build is green")
-    expect(text).toContain("not by the user")
-    expect(woken.info.role).toBe("user")
-    // The message keeps the receiver's own agent, so its permissions are unchanged.
-    expect((woken.info as SessionV1.User).agent).toBe("build")
-    expect(ForkMessaging.claim(receiver.id)).toEqual([])
-  }),
+      const woken = yield* pollWithTimeout(
+        Effect.gen(function* () {
+          const messages = yield* sessions.messages({ sessionID: receiver.id })
+          const synthetic = messages.find((item) =>
+            item.parts.some((part) => part.type === "text" && part.synthetic && part.text.includes("<session-message")),
+          )
+          const reply = messages.findLast(
+            (item) =>
+              item.info.role === "assistant" &&
+              item.parts.some((part) => part.type === "text" && part.text === "received it"),
+          )
+          return synthetic && reply ? synthetic : undefined
+        }),
+        "the receiver was never woken",
+      )
+      const text = woken.parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n")
+      expect(text).toContain('from="sender-work"')
+      expect(text).toContain("the build is green")
+      expect(text).toContain("not by the user")
+      expect(woken.info.role).toBe("user")
+      // The message keeps the receiver's own agent, so its permissions are unchanged.
+      expect((woken.info as SessionV1.User).agent).toBe("build")
+      expect(ForkMessaging.claim(receiver.id)).toEqual([])
+    }),
   30_000,
 )

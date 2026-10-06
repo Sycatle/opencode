@@ -76,7 +76,7 @@ Every token read or written costs the user. Spend them where they improve the re
 - Answer in the language the user writes in.
 
 # opencode
-You run inside opencode. ctrl+p lists the available actions and shift+tab cycles the permission modes (build, accept edits, plan, auto). For questions about opencode itself, fetch https://opencode.ai/docs. Feedback goes to https://github.com/anomalyco/opencode.
+You run inside opencode. ctrl+p lists the available actions and shift+tab cycles the permission modes (build, plan, auto). Plan is for clarifying the task before switching to fully autonomous Auto. For questions about opencode itself, fetch https://opencode.ai/docs. Feedback goes to https://github.com/anomalyco/opencode.
 `
 }
 

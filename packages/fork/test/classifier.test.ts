@@ -6,37 +6,26 @@ test("the mode marker round-trips through the session ruleset and replaces itsel
   expect(ForkClassifier.storedMode(base)).toBeUndefined()
   const auto = ForkClassifier.withMode(base, "auto")
   expect(ForkClassifier.storedMode(auto)).toBe("auto")
-  const edits = ForkClassifier.withMode(auto, "acceptEdits")
-  expect(ForkClassifier.storedMode(edits)).toBe("acceptEdits")
-  expect(edits.filter((rule) => rule.permission === ForkClassifier.MODE_PERMISSION)).toHaveLength(1)
-  expect(ForkClassifier.withMode(edits, "normal")).toEqual(base)
+  expect(
+    ForkClassifier.storedMode([
+      { permission: ForkClassifier.MODE_PERMISSION, pattern: "acceptEdits", action: "allow" },
+    ]),
+  ).toBe("normal")
+  expect(auto.filter((rule) => rule.permission === ForkClassifier.MODE_PERMISSION)).toHaveLength(1)
+  expect(ForkClassifier.withMode(auto, "normal")).toEqual(base)
 })
 
-test("modes cycle build, accept edits, plan, auto, build", () => {
+test("modes cycle build, plan, auto, build", () => {
   const seen = ["normal" as ForkClassifier.Mode]
-  for (const _ of [1, 2, 3, 4]) seen.push(ForkClassifier.next(seen.at(-1)!))
-  expect(seen).toEqual(["normal", "acceptEdits", "plan", "auto", "normal"])
+  for (const _ of [1, 2, 3]) seen.push(ForkClassifier.next(seen.at(-1)!))
+  expect(seen).toEqual(["normal", "plan", "auto", "normal"])
   expect(ForkClassifier.current(undefined, "plan")).toBe("plan")
-  expect(ForkClassifier.current("auto", "plan")).toBe("plan")
-  expect(ForkClassifier.current("acceptEdits", "plan")).toBe("plan")
-  expect(ForkClassifier.current("acceptEdits", "build")).toBe("acceptEdits")
   expect(ForkClassifier.current("normal", "build")).toBe("normal")
-})
-
-test("accept-edits only approves the edit permission", () => {
-  expect(ForkClassifier.acceptsEdit("acceptEdits", "edit")).toBe(true)
-  expect(ForkClassifier.acceptsEdit("acceptEdits", "bash")).toBe(false)
-  expect(ForkClassifier.acceptsEdit("auto", "edit")).toBe(false)
 })
 
 test("leaving the sandbox is never approved automatically", () => {
   expect(ForkClassifier.neverAuto("sandbox_escape")).toBe(true)
   expect(ForkClassifier.neverAuto("bash")).toBe(false)
-})
-
-test("the classifier can be switched off", () => {
-  expect(ForkClassifier.enabled({})).toBe(true)
-  expect(ForkClassifier.enabled({ OPENCODE_FORK_AUTO_CLASSIFIER: "0" })).toBe(false)
 })
 
 test("parses a verdict, tolerating fences and prose, and rejects anything else", () => {
@@ -81,8 +70,9 @@ test("the transcript excerpt keeps the most recent lines within budget", () => {
 })
 
 test("decisions are recorded in fork.db", () => {
+  const sessionID = crypto.randomUUID()
   ForkClassifier.record({
-    sessionID: "ses_classifier_test",
+    sessionID,
     permission: "bash",
     patterns: ["ls *"],
     metadata: { command: "ls" },
@@ -92,7 +82,7 @@ test("decisions are recorded in fork.db", () => {
     providerID: "anthropic",
     modelID: "claude-haiku-4-5",
   })
-  expect(ForkClassifier.decisions("ses_classifier_test")).toMatchObject([
+  expect(ForkClassifier.decisions(sessionID)).toMatchObject([
     { permission: "bash", decision: "deny", reason: "outside project", cost: 0.001 },
   ])
 })
@@ -103,7 +93,10 @@ const risk = (choice: string, confidence: number, requested?: number) => ({
 })
 
 test("Jev asks the user on a confident danger and approves only a confident, requested, in-scope action", () => {
-  expect(ForkClassifier.jevVerdict(risk("destructive", 0.8), false)).toEqual({ decision: "ask", reason: "Jev: destructive (0.80)" })
+  expect(ForkClassifier.jevVerdict(risk("destructive", 0.8), false)).toEqual({
+    decision: "ask",
+    reason: "Jev: destructive (0.80)",
+  })
   expect(ForkClassifier.jevVerdict(risk("outside_project", 0.7), false)?.decision).toBe("ask")
   expect(ForkClassifier.jevVerdict(risk("secrets", 0.6), false)).toBeUndefined()
   expect(ForkClassifier.jevVerdict(risk("in_scope_safe", 0.95, 0.9), false)?.decision).toBe("allow")
