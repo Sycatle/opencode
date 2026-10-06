@@ -265,7 +265,7 @@ export async function create(input: {
     })
   }
 
-  const files: Record<string, { version: number; text: string }> = {}
+  const files: Record<string, { version: number; text: string; changedAt: number }> = {}
 
   // --- Diagnostic helpers ---
 
@@ -480,7 +480,11 @@ export async function create(input: {
         const hit = published.get(request.path)
         if (!hit) return
         if (typeof hit.version === "number" && hit.version !== request.version) return
-        if (hit.at < request.after && hit.version !== request.version) return
+        // A no-op touch can reuse unversioned diagnostics published since the last content change.
+        const document = files[request.path]
+        const after =
+          document?.version === request.version ? Math.min(request.after, document.changedAt) : request.after
+        if (hit.at < after && hit.version !== request.version) return
         if (debounceTimer) clearTimeout(debounceTimer)
         debounceTimer = setTimeout(() => finish(true), Math.max(0, DIAGNOSTICS_DEBOUNCE_MS - (Date.now() - hit.at)))
       }
@@ -560,6 +564,8 @@ export async function create(input: {
         const languageId = LANGUAGE_EXTENSIONS[extension] ?? "plaintext"
 
         const document = files[request.path]
+        if (document?.text === text) return document.version
+        const changedAt = Date.now()
         if (document !== undefined) {
           // Do not wipe diagnostics on didChange. Some servers (e.g. clangd) only
           // re-emit diagnostics when the content actually changes, so clearing
@@ -575,7 +581,7 @@ export async function create(input: {
           })
 
           const next = document.version + 1
-          files[request.path] = { version: next, text }
+          files[request.path] = { version: next, text, changedAt }
           await connection.sendNotification("textDocument/didChange", {
             textDocument: {
               uri: pathToFileURL(request.path).href,
@@ -616,7 +622,7 @@ export async function create(input: {
             text,
           },
         })
-        files[request.path] = { version: 0, text }
+        files[request.path] = { version: 0, text, changedAt }
         return 0
       },
     },

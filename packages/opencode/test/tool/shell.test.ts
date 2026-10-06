@@ -1359,9 +1359,10 @@ describe.skipIf(process.platform === "win32")("tool.shell background", () => {
         yield* shell.execute({ command: "sleep 1; echo bye; exit 3", background: true }, ctx)
         const job = (yield* jobs.list())[0]
         if (!job) throw new Error("job not started")
-        const result = yield* monitor.execute({ id: job.id, pattern: "never", timeout_ms: 20000 }, ctx)
+        const result = yield* monitor.execute({ id: job.id, until: "exit", timeout_ms: 20000 }, ctx)
         expect(result.output).toContain("exited with code 3")
         expect(result.output).toContain("bye")
+        expect((yield* monitor.execute({ id: job.id }, ctx)).output).toBe(result.output)
       }),
     ),
   )
@@ -1418,6 +1419,26 @@ describe.skipIf(process.platform === "win32")("tool.shell background", () => {
         const result = yield* monitor.execute({ command: "false", interval_ms: 500, timeout_ms: 1200 }, ctx)
         expect(result.output).toContain("Timed out")
         expect(result.output).toContain("Last command exit: 1")
+      }),
+    ),
+  )
+
+  it.live("exit monitor times out or aborts without stopping the watched job", () =>
+    runIn(
+      projectRoot,
+      Effect.gen(function* () {
+        const jobs = yield* BackgroundJob.Service
+        const { shell, monitor } = yield* tools
+        yield* shell.execute({ command: "sleep 30", background: true }, ctx)
+        const job = (yield* jobs.list())[0]
+        if (!job) throw new Error("job not started")
+        const result = yield* monitor.execute({ id: job.id, timeout_ms: 50 }, ctx)
+        expect(result.output).toContain("Timed out")
+        expect((yield* jobs.get(job.id))?.status).toBe("running")
+        const aborted = yield* monitor.execute({ id: job.id }, { ...ctx, abort: AbortSignal.abort() })
+        expect(aborted.output).toBe("Monitor aborted.")
+        yield* jobs.cancel(job.id)
+        expect((yield* monitor.execute({ id: job.id }, ctx)).output).toContain("cancelled")
       }),
     ),
   )

@@ -68,7 +68,11 @@ export const MonitorTool = Tool.define(
       const commandMode = options.command !== undefined && options.until === "success"
 
       const step: Effect.Effect<ForkMonitor.Outcome> = Effect.gen(function* () {
-        const job = options.id ? yield* background.get(options.id) : undefined
+        const job = options.id
+          ? !commandMode && options.until !== "match"
+            ? (yield* background.wait({ id: options.id })).info
+            : yield* background.get(options.id)
+          : undefined
         const ended = options.id ? job?.status !== "running" : false
 
         if (file && options.pattern && options.until === "match") {
@@ -104,10 +108,13 @@ export const MonitorTool = Tool.define(
             kind: "exit" as const,
             exit: parsed?.exit ?? null,
             tail: yield* tailOf(file),
-            error: job?.status === "error" ? (job.error ?? "error") : job?.status === "cancelled" ? "cancelled" : undefined,
+            error:
+              job?.status === "error" ? (job.error ?? "error") : job?.status === "cancelled" ? "cancelled" : undefined,
           }
         }
-        yield* Effect.sleep(`${ForkMonitor.POLL_MS} millis`)
+        yield* Effect.sleep(
+          commandMode ? Math.max(0, options.intervalMs - (Date.now() - state.lastAttempt)) : ForkMonitor.POLL_MS,
+        )
         return yield* step
       })
 
@@ -139,7 +146,8 @@ export const MonitorTool = Tool.define(
             const running = (yield* background.list()).filter(
               (job) => job.type === ForkMonitor.JOB_TYPE && job.status === "running",
             ).length
-            if (ForkShell.atCap(running)) throw new Error(ForkShell.capMessage(running).replace("shell commands", "monitors"))
+            if (ForkShell.atCap(running))
+              throw new Error(ForkShell.capMessage(running).replace("shell commands", "monitors"))
           }
 
           if (!options.background) {
@@ -166,7 +174,8 @@ export const MonitorTool = Tool.define(
           yield* background.wait({ id: job.id }).pipe(
             Effect.flatMap((result) => {
               if (!ops || result.info?.status === "cancelled") return Effect.void
-              const output = result.info?.status === "completed" ? (result.info.output ?? "") : `error\n${result.info?.error ?? ""}`
+              const output =
+                result.info?.status === "completed" ? (result.info.output ?? "") : `error\n${result.info?.error ?? ""}`
               return ops
                 .prompt({
                   sessionID: ctx.sessionID,

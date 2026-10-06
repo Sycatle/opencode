@@ -160,9 +160,12 @@ describe("LSPClient interop", () => {
           instance: ctx,
         })
 
-        await client.notify.open({ path: file })
+        expect(await client.notify.open({ path: file })).toBe(0)
+        expect(await client.notify.open({ path: file })).toBe(0)
+        expect(await client.connection.sendRequest("test/get-last-change", {})).toBeNull()
         await Bun.write(file, "second\nthird\n")
-        await client.notify.open({ path: file })
+        expect(await client.notify.open({ path: file })).toBe(1)
+        expect(await client.notify.open({ path: file })).toBe(1)
 
         const change = await client.connection.sendRequest<{
           textDocument: { version: number }
@@ -208,7 +211,6 @@ describe("LSPClient interop", () => {
         const wait = client.waitForDiagnostics({ path: file, version, mode: "document" })
         await client.connection.sendNotification("test/publish-diagnostics", {
           uri: pathToFileURL(file).href,
-          version,
           diagnostics: [
             {
               range: {
@@ -225,6 +227,13 @@ describe("LSPClient interop", () => {
         const diagnostics = client.diagnostics.get(file) ?? []
         expect(diagnostics).toHaveLength(1)
         expect(diagnostics[0]?.message).toBe("push diagnostic")
+
+        const after = Date.now()
+        expect(await client.notify.open({ path: file })).toBe(version)
+        const started = performance.now()
+        await client.waitForDiagnostics({ path: file, version, mode: "document", after })
+        expect(performance.now() - started).toBeLessThan(1000)
+        expect(client.diagnostics.get(file)?.[0]?.message).toBe("push diagnostic")
 
         const count = await client.connection.sendRequest("test/get-diagnostic-request-count", {})
         expect(count).toBe(0)

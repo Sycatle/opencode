@@ -13,10 +13,9 @@ import { SidebarSection } from "../../component/sidebar-section"
 // none and the widgets stay hidden.
 
 const id = "fork:usage"
-// Telemetry rows are written right after each provider turn, slightly after the
-// message update reaches the TUI, so the widgets poll instead of only reacting.
+// Telemetry can arrive after message updates and from other processes. Poll the
+// database revision, not the full session tree; the clock also keeps quotas fresh.
 const REFRESH_MS = 1500
-// A quota snapshot older than this no longer describes the current windows.
 
 const money = (value: number) => `$${value < 1 ? value.toFixed(4) : value.toFixed(2)}`
 const tokens = (value: number) => (value >= 1000 ? `${(value / 1000).toFixed(1)}k` : String(value))
@@ -25,13 +24,18 @@ const percent = (value: number | undefined) => (value === undefined ? "-" : `${M
 // One timer for every widget, and one computation per session and refresh: the sidebar and the prompt show
 // several widgets for the same session, each would otherwise walk the session tree on its own.
 const [tick, setTick] = createSignal(0)
+const [revision, setRevision] = createSignal("")
 let timer: ReturnType<typeof setInterval> | undefined
 let users = 0
 const computed = new Map<string, { key: string; value: ReturnType<typeof summarize> }>()
 
-function useSummary(api: TuiPluginApi, sessionID: () => string) {
+function useSummary(sessionID: () => string) {
   users++
-  timer ??= setInterval(() => setTick((value) => value + 1), REFRESH_MS)
+  setRevision(ForkTelemetry.revision())
+  timer ??= setInterval(() => {
+    setRevision(ForkTelemetry.revision())
+    setTick((value) => value + 1)
+  }, REFRESH_MS)
   onCleanup(() => {
     users--
     if (users > 0 || !timer) return
@@ -40,12 +44,13 @@ function useSummary(api: TuiPluginApi, sessionID: () => string) {
     computed.clear()
   })
   return createMemo(() => {
-    const key = `${tick()}:${api.state.session.messages(sessionID()).length}`
+    tick()
+    const key = revision()
     const cached = computed.get(sessionID())
-    if (cached?.key === key) return cached.value
-    const value = summarize(sessionID())
-    computed.set(sessionID(), { key, value })
-    return value
+    const value = cached?.key === key ? cached.value : summarize(sessionID())
+    if (cached?.key !== key) computed.set(sessionID(), { key, value })
+    const quota = value.quota && Date.now() - value.quota.time < ForkQuota.FRESH_MS ? value.quota : undefined
+    return { ...value, quota, windowSpent: quota ? value.windowSpent : undefined }
   })
 }
 
@@ -55,7 +60,7 @@ function summarize(sessionID: string) {
   // Only subscription responses carry quota headers, so a fresh snapshot for the
   // session's provider means the session runs on a subscription.
   const provider = steps.findLast((step) => step.session_id === sessionID)?.provider_id
-  const quota = provider ? ForkQuota.fresh(provider) : undefined
+  const quota = provider ? ForkQuota.latest(provider) : undefined
   return { ...summary, quota, windowSpent: quota ? ForkQuota.windowSpent(sessionID, quota.provider) : undefined }
 }
 
@@ -100,7 +105,7 @@ function paceColor(api: TuiPluginApi, level: "ok" | "warning" | "error") {
 
 function Quota(props: { api: TuiPluginApi; session_id: string }) {
   const theme = () => props.api.theme.current
-  const summary = useSummary(props.api, () => props.session_id)
+  const summary = useSummary(() => props.session_id)
   const window = ForkBudget.windowLimit()
   return (
     <Show when={summary().quota}>
@@ -164,7 +169,7 @@ function Quota(props: { api: TuiPluginApi; session_id: string }) {
 
 function Usage(props: { api: TuiPluginApi; session_id: string }) {
   const theme = () => props.api.theme.current
-  const summary = useSummary(props.api, () => props.session_id)
+  const summary = useSummary(() => props.session_id)
   const shares = createMemo(() => {
     const last = summary().last
     return last ? ForkSummary.shares(last.breakdown) : undefined
@@ -217,7 +222,7 @@ function Usage(props: { api: TuiPluginApi; session_id: string }) {
 
 function Subagents(props: { api: TuiPluginApi; session_id: string }) {
   const theme = () => props.api.theme.current
-  const summary = useSummary(props.api, () => props.session_id)
+  const summary = useSummary(() => props.session_id)
   const running = (sessionID: string) => props.api.state.session.status(sessionID)?.type === "busy"
   const active = createMemo(() => summary().children.filter((child) => running(child.sessionID)).length)
 
@@ -260,7 +265,7 @@ function Budget(props: { api: TuiPluginApi; session_id: string }) {
   const dimensions = useTerminalDimensions()
   // The reset countdown only appears when the status row has room next to the model and the shortcuts.
   const narrow = () => dimensions().width < 150
-  const summary = useSummary(props.api, () => props.session_id)
+  const summary = useSummary(() => props.session_id)
   const limit = ForkBudget.limit()
   const window = ForkBudget.windowLimit()
   const level = createMemo(() => ForkSummary.budgetLevel(summary().cost, limit))

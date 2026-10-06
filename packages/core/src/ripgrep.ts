@@ -56,6 +56,8 @@ export interface FindInput {
   readonly follow?: boolean
   readonly signal?: AbortSignal
   readonly onEntry?: (entry: Entry) => Effect.Effect<void>
+  /** Consume entries through onEntry without retaining the result array. */
+  readonly collect?: boolean
 }
 
 export interface GlobInput {
@@ -113,6 +115,7 @@ const layer = Layer.effect(
       readonly parse: (line: string) => Effect.Effect<A | undefined, Error>
       readonly pattern?: string
       readonly onItem?: (item: A) => Effect.Effect<void>
+      readonly collect?: boolean
     }) => {
       const program = Effect.scoped(
         Effect.gen(function* () {
@@ -124,20 +127,25 @@ const layer = Layer.effect(
             Effect.forkScoped,
           )
           let observed = 0
-          const rows = yield* Stream.decodeText(handle.stdout).pipe(
+          const stream = Stream.decodeText(handle.stdout).pipe(
             Stream.splitLines,
             Stream.filter((line) => line.length > 0),
             Stream.mapEffect(input.parse),
             Stream.filter((row): row is A => row !== undefined),
             Stream.tap((row) => {
-              if (!input.onItem || observed++ >= input.limit) return Effect.void
+              observed++
+              if (!input.onItem || observed > input.limit) return Effect.void
               return input.onItem(row)
             }),
             Stream.take(input.limit + 1),
-            Stream.runCollect,
-            Effect.map((chunk) => [...chunk]),
           )
-          const truncated = rows.length > input.limit
+          const rows = yield* input.collect === false
+            ? stream.pipe(Stream.runDrain, Effect.as([] as A[]))
+            : stream.pipe(
+                Stream.runCollect,
+                Effect.map((chunk) => [...chunk]),
+              )
+          const truncated = observed > input.limit
           if (truncated) return { items: rows.slice(0, input.limit), truncated, partial: false }
 
           const code = yield* handle.exitCode
@@ -231,6 +239,7 @@ const layer = Layer.effect(
             )
           },
           onItem: input.onEntry,
+          collect: input.collect,
         }).pipe(
           Effect.map((result) => result.items),
           Effect.catchTag("Ripgrep.InvalidPatternError", (cause) => Effect.fail(failure(cause.message, cause))),

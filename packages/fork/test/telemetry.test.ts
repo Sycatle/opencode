@@ -1,10 +1,31 @@
 import { expect, test } from "bun:test"
+import { Database } from "bun:sqlite"
 import os from "os"
 import path from "path"
 import { jsonSchema, tool } from "ai"
 
 process.env.OPENCODE_FORK_DB = path.join(os.tmpdir(), `fork-telemetry-${process.pid}-${Date.now()}.db`)
 const { ForkTelemetry } = await import("../src/telemetry")
+
+test("revision detects local and external writes but stays stable on reads", async () => {
+  const before = ForkTelemetry.revision()
+  ForkTelemetry.steps("revision")
+  expect(ForkTelemetry.revision()).toBe(before)
+  await ForkTelemetry.record({
+    sessionID: "revision",
+    messageID: "revision-message",
+    providerID: "anthropic",
+    modelID: "claude",
+    tokens: { input: 1, output: 1, reasoning: 0, cache: { read: 0, write: 0 } },
+    cost: 0.01,
+  })
+  const local = ForkTelemetry.revision()
+  expect(local).not.toBe(before)
+  using external = new Database(ForkTelemetry.db().filename)
+  external.query("UPDATE fork_usage SET cost = ? WHERE session_id = ?").run(0.02, "revision")
+  expect(ForkTelemetry.revision()).not.toBe(local)
+  expect(ForkTelemetry.steps("revision")[0]?.cost).toBe(0.02)
+})
 
 const request = {
   agent: "build",

@@ -95,6 +95,14 @@ export async function record(usage: Usage) {
   } catch {}
 }
 
+// data_version covers other connections; total_changes covers writes on this one.
+export function revision() {
+  const handle = db()
+  const version = handle.query<{ data_version: number }, []>("PRAGMA data_version").get()
+  const changes = handle.query<{ changes: number }, []>("SELECT total_changes() AS changes").get()
+  return `${version?.data_version}:${changes?.changes}`
+}
+
 export function steps(sessionID: string, options?: { children?: boolean }) {
   if (!options?.children)
     return db().query<Step, [string]>(`SELECT * FROM fork_usage WHERE session_id = ? ORDER BY id`).all(sessionID)
