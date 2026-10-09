@@ -13,6 +13,8 @@ import * as Client from "effect/unstable/sql/SqlClient"
 import type { Connection } from "effect/unstable/sql/SqlConnection"
 import { classifySqliteError, SqlError } from "effect/unstable/sql/SqlError"
 import * as Statement from "effect/unstable/sql/Statement"
+// FORK-SEAM: busy-retry (statements retry on "database is locked", see docs/fork/seams.md)
+import { retryBusy } from "./busy"
 import { Sqlite } from "./sqlite"
 
 const ATTR_DB_SYSTEM_NAME = "db.system.name"
@@ -88,13 +90,14 @@ const make = (options: Config) =>
 
     const connection = identity<SqliteConnection>({
       execute(query, params, transformRows) {
-        return transformRows ? Effect.map(run(query, params), transformRows) : run(query, params)
+        const result = retryBusy(query, run(query, params))
+        return transformRows ? Effect.map(result, transformRows) : result
       },
       executeRaw(query, params) {
-        return run(query, params)
+        return retryBusy(query, run(query, params))
       },
       executeValues(query, params) {
-        return runValues(query, params)
+        return retryBusy(query, runValues(query, params))
       },
       executeUnprepared(query, params, transformRows) {
         return this.execute(query, params, transformRows)

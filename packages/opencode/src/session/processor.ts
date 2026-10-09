@@ -656,6 +656,8 @@ const layer = Layer.effect(
           "session.id": input.sessionID,
           messageID: input.assistantMessage.id,
           error: errorMessage(e),
+          // Wrappers like SqlError ("Failed to execute statement") hide the real reason (e.g. "database is locked").
+          cause: causeChain(e),
           stack: e instanceof Error ? e.stack : undefined,
         })
         const error = parse(e)
@@ -776,6 +778,15 @@ const layer = Layer.effect(
     return Service.of({ create })
   }),
 )
+
+function causeChain(error: unknown) {
+  const chain: string[] = []
+  for (let next = error; next instanceof Error && chain.length < 8; next = next.cause) {
+    const tag = "_tag" in next && typeof next._tag === "string" ? next._tag : next.name
+    chain.push(`${tag}: ${next.message}`)
+  }
+  return chain.length > 1 ? chain.join(" <- ") : undefined
+}
 
 export const node = LayerNode.make({
   service: Service,
