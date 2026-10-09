@@ -1,0 +1,3 @@
+[test]
+# bench/fixture holds a deliberately failing test (the bench "debug" task); a bare `bun test` must not run it.
+root = "./test"

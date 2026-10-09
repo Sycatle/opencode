@@ -1,5 +1,11 @@
-import { afterEach, expect, test } from "bun:test"
+import { afterEach, beforeEach, expect, test } from "bun:test"
 import { ForkCache } from "../src/cache"
+
+// The TUI exports OPENCODE_FORK_CACHE_TTL to its children, so a suite launched from a session inherits it.
+beforeEach(() => {
+  delete process.env.OPENCODE_FORK_CACHE_TTL
+  delete process.env.OPENCODE_FORK_AUTH_CACHE
+})
 
 afterEach(() => {
   delete process.env.OPENCODE_FORK_CACHE_TTL
