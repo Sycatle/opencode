@@ -25,6 +25,13 @@ export function withMode<T extends Rule>(ruleset: readonly T[] | undefined, mode
   return mode === "normal" ? rest : [...rest, { permission: MODE_PERMISSION, pattern: mode, action: "allow" }]
 }
 
+// `session.update` appends the rules it receives to the stored ones (the last marker wins) instead of replacing
+// them. To change the mode of an existing session send only this marker, "normal" included: sending a ruleset
+// without the marker leaves the old one in place and duplicates every rule.
+export function modeRule(mode: StoredMode): Rule {
+  return { permission: MODE_PERMISSION, pattern: mode, action: "allow" }
+}
+
 // Plan is an agent, not a stored mode: a stored mode wins, otherwise the plan agent means plan.
 // Plan is exclusive: it cannot be combined with accepted edits or auto approval, whatever was stored.
 export function current(stored: StoredMode | undefined, agent: string | undefined): Mode {

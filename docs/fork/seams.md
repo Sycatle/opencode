@@ -118,6 +118,9 @@ Fichiers ajoutés par le fork (sans conflit possible) :
 - `packages/opencode/src/session/fork-preload.ts`
 - `packages/opencode/src/session/fork-suggest.ts`
 - `script/fork-sync.sh`
+- `packages/opencode/src/server/routes/instance/httpapi/groups/fork.ts` et `handlers/fork.ts` : API HTTP en lecture seule des données fork pour le web (`GET /fork/session/:sessionID/usage`). Enregistrée en une ligne dans `api.ts` et `server.ts`. Après modification : régénérer `packages/sdk/js` (`./packages/sdk/js/script/build.ts`).
+- `packages/app/src/components/session/session-fork-usage.tsx` : coût avec sous-agents, cache, quota et budget dans l'onglet contexte du web
+- `packages/core/src/database/busy.ts` (retry sur `database is locked`, avertissement sur requête lente) appelé par `sqlite.bun.ts` et `sqlite.node.ts`
 
 Dépendance `@opencode-fork/core` ajoutée dans `packages/opencode/package.json` et `packages/tui/package.json`.
 

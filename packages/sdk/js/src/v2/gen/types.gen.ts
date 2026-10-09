@@ -2262,6 +2262,56 @@ export type McpResource = {
   client: string
 }
 
+export type ForkUsage = {
+  turns: number
+  cost: number
+  cacheHit?: number
+  last?: {
+    context: number
+    cost: number
+    cacheHit?: number
+    breakdown: {
+      system: number
+      tools: number
+      history: number
+      tool_output: number
+    }
+  }
+  children: Array<{
+    sessionID: string
+    agent: string
+    model: string
+    turns: number
+    cost: number
+  }>
+  quota?: {
+    provider: string
+    status: string
+    time: number
+    fiveHour?: {
+      utilization: number
+      reset: number
+      status: string
+    }
+    sevenDay?: {
+      utilization: number
+      reset: number
+      status: string
+    }
+    windowSpent?: number
+  }
+  budget: {
+    usd?: number
+    window?: number
+  }
+}
+
+export type ForkSuggestion = {
+  enabled: boolean
+  messageID?: string
+  text?: string
+}
+
 export type Symbol = {
   name: string
   kind: number
@@ -7945,6 +7995,66 @@ export type ExperimentalResourceListResponses = {
 
 export type ExperimentalResourceListResponse =
   ExperimentalResourceListResponses[keyof ExperimentalResourceListResponses]
+
+export type ForkSessionUsageData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/fork/session/{sessionID}/usage"
+}
+
+export type ForkSessionUsageErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type ForkSessionUsageError = ForkSessionUsageErrors[keyof ForkSessionUsageErrors]
+
+export type ForkSessionUsageResponses = {
+  /**
+   * Session usage
+   */
+  200: ForkUsage
+}
+
+export type ForkSessionUsageResponse = ForkSessionUsageResponses[keyof ForkSessionUsageResponses]
+
+export type ForkSessionSuggestionData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/fork/session/{sessionID}/suggestion"
+}
+
+export type ForkSessionSuggestionErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type ForkSessionSuggestionError = ForkSessionSuggestionErrors[keyof ForkSessionSuggestionErrors]
+
+export type ForkSessionSuggestionResponses = {
+  /**
+   * Next prompt suggestion
+   */
+  200: ForkSuggestion
+}
+
+export type ForkSessionSuggestionResponse = ForkSessionSuggestionResponses[keyof ForkSessionSuggestionResponses]
 
 export type FindTextData = {
   body?: never

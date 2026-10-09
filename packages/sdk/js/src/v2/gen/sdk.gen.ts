@@ -74,6 +74,10 @@ import type {
   FindSymbolsResponses,
   FindTextErrors,
   FindTextResponses,
+  ForkSessionSuggestionErrors,
+  ForkSessionSuggestionResponses,
+  ForkSessionUsageErrors,
+  ForkSessionUsageResponses,
   FormatterStatusErrors,
   FormatterStatusResponses,
   GlobalConfigGetErrors,
@@ -1722,6 +1726,83 @@ export class Worktree extends HeyApiClient {
   }
 }
 
+export class Session2 extends HeyApiClient {
+  /**
+   * Get session usage
+   *
+   * Get cost, cache hit ratio, context breakdown, subagent cost, subscription quota and budget for a session and its subagents. Empty when no usage was recorded.
+   */
+  public usage<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ForkSessionUsageResponses, ForkSessionUsageErrors, ThrowOnError>({
+      url: "/fork/session/{sessionID}/usage",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get next prompt suggestion
+   *
+   * Get the predicted next user prompt for the session. It belongs to messageID, the last assistant message of the turn that produced it.
+   */
+  public suggestion<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      ForkSessionSuggestionResponses,
+      ForkSessionSuggestionErrors,
+      ThrowOnError
+    >({
+      url: "/fork/session/{sessionID}/suggestion",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Fork extends HeyApiClient {
+  private _session?: Session2
+  get session(): Session2 {
+    return (this._session ??= new Session2({ client: this.client }))
+  }
+}
+
 export class Find extends HeyApiClient {
   /**
    * Find text
@@ -3359,7 +3440,7 @@ export class Provider extends HeyApiClient {
   }
 }
 
-export class Session2 extends HeyApiClient {
+export class Session3 extends HeyApiClient {
   /**
    * List sessions
    *
@@ -5423,7 +5504,7 @@ export class Question2 extends HeyApiClient {
   }
 }
 
-export class Session3 extends HeyApiClient {
+export class Session4 extends HeyApiClient {
   /**
    * List sessions
    *
@@ -7003,9 +7084,9 @@ export class V2 extends HeyApiClient {
     return (this._agent ??= new Agent({ client: this.client }))
   }
 
-  private _session?: Session3
-  get session(): Session3 {
-    return (this._session ??= new Session3({ client: this.client }))
+  private _session?: Session4
+  get session(): Session4 {
+    return (this._session ??= new Session4({ client: this.client }))
   }
 
   private _model?: Model
@@ -7122,6 +7203,11 @@ export class OpencodeClient extends HeyApiClient {
     return (this._worktree ??= new Worktree({ client: this.client }))
   }
 
+  private _fork?: Fork
+  get fork(): Fork {
+    return (this._fork ??= new Fork({ client: this.client }))
+  }
+
   private _find?: Find
   get find(): Find {
     return (this._find ??= new Find({ client: this.client }))
@@ -7192,9 +7278,9 @@ export class OpencodeClient extends HeyApiClient {
     return (this._provider ??= new Provider({ client: this.client }))
   }
 
-  private _session?: Session2
-  get session(): Session2 {
-    return (this._session ??= new Session2({ client: this.client }))
+  private _session?: Session3
+  get session(): Session3 {
+    return (this._session ??= new Session3({ client: this.client }))
   }
 
   private _part?: Part

@@ -183,7 +183,9 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
       list,
       visible: agentsVisible,
       current() {
-        return pickAgent(agentsVisible() ? (scope()?.agent ?? store.current) : "build")
+        const selected = scope()?.agent ?? store.current
+        // FORK-SEAM: permission-mode-web (the mode cycle selects plan even when the agent picker is hidden)
+        return pickAgent(agentsVisible() || selected === "plan" ? selected : "build")
       },
       set(name: string | undefined) {
         const item = pickAgent(name)

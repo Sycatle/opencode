@@ -55,6 +55,18 @@ const setStorage = (key: string, value: string | null) => {
 const readDefaultServerUrl = () => getStorage(DEFAULT_SERVER_URL_KEY)
 const writeDefaultServerUrl = (url: string | null) => setStorage(DEFAULT_SERVER_URL_KEY, url)
 
+const clickHandlers = new Map<string, () => void>()
+
+if ("serviceWorker" in navigator && window.isSecureContext) {
+  navigator.serviceWorker.register("/sw.js").catch(() => {})
+  navigator.serviceWorker.addEventListener("message", (event) => {
+    if (event.data?.type !== "notification-click") return
+    const onClick = clickHandlers.get(event.data.tag)
+    clickHandlers.delete(event.data.tag)
+    onClick?.()
+  })
+}
+
 const notify: Platform["notify"] = async (title, description, onClick) => {
   if (!("Notification" in window)) return
 
@@ -67,6 +79,20 @@ const notify: Platform["notify"] = async (title, description, onClick) => {
 
   const inView = document.visibilityState === "visible" && document.hasFocus()
   if (inView) return
+
+  // Android Chrome rejects `new Notification`; a service worker registration is the only way there.
+  const registration = await navigator.serviceWorker?.getRegistration()
+  if (registration?.active) {
+    const tag = crypto.randomUUID()
+    if (onClick) clickHandlers.set(tag, onClick)
+    await registration.showNotification(title, {
+      body: description ?? "",
+      icon: "/favicon-96x96-v3.png",
+      tag,
+      data: { url: location.href },
+    })
+    return
+  }
 
   const notification = new Notification(title, {
     body: description ?? "",

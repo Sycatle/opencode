@@ -1,5 +1,6 @@
 import type { Message, Session } from "@opencode-ai/sdk/v2/client"
 import { showToast } from "@/utils/toast"
+import { ForkMode } from "@/components/prompt-input/fork-mode"
 import { base64Encode } from "@opencode-ai/core/util/encode"
 import { Binary } from "@opencode-ai/core/util/binary"
 import { useNavigate, useParams, useSearchParams } from "@solidjs/router"
@@ -417,6 +418,13 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       if (created) {
         seed(sessionDirectory, created)
         session = created
+        // FORK-SEAM: permission-mode-web (the mode picked on the new session screen)
+        if (ForkMode.draftMode() !== "normal") {
+          await client.session
+            .update({ sessionID: created.id, permission: ForkMode.withMode([], ForkMode.draftMode()) })
+            .catch((err) => showToast({ title: language.t("prompt.forkMode.failed"), description: errorMessage(err) }))
+          ForkMode.resetDraftMode()
+        }
         await startTransition(() => {
           if (!session) return
           if (shouldAutoAccept) permissionState.enableAutoAccept(session.id, sessionDirectory)

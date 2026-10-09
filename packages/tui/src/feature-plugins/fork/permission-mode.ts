@@ -46,7 +46,7 @@ export function cycle(input: {
     input.onError(error)
   }
   input
-    .save(ForkClassifier.withMode(input.rules, stored))
+    .save([ForkClassifier.modeRule(stored)])
     .then((result) => {
       const error = (result as { error?: unknown } | undefined)?.error
       if (error) return fail(error)

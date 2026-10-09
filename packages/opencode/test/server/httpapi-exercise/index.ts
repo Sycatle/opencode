@@ -595,6 +595,26 @@ const scenarios: Scenario[] = [
     }),
   http.protected.get("/experimental/resource", "experimental.resource.list").json(),
   http.protected
+    .get("/fork/session/{sessionID}/usage", "fork.session.usage")
+    .seeded((ctx) => ctx.session({ title: "Fork usage owner" }))
+    .at((ctx) => ({
+      path: route("/fork/session/{sessionID}/usage", { sessionID: ctx.state.id }),
+      headers: ctx.headers(),
+    }))
+    .json(200, (body) => {
+      check(typeof body === "object" && body !== null && "budget" in body, "usage should report the budget")
+    }),
+  http.protected
+    .get("/fork/session/{sessionID}/suggestion", "fork.session.suggestion")
+    .seeded((ctx) => ctx.session({ title: "Fork suggestion owner" }))
+    .at((ctx) => ({
+      path: route("/fork/session/{sessionID}/suggestion", { sessionID: ctx.state.id }),
+      headers: ctx.headers(),
+    }))
+    .json(200, (body) => {
+      check(typeof body === "object" && body !== null && "enabled" in body, "suggestion should report if enabled")
+    }),
+  http.protected
     .post("/sync/history", "sync.history.list")
     .at((ctx) => ({ path: "/sync/history", headers: ctx.headers(), body: {} }))
     .json(200, array),

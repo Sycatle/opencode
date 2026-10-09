@@ -10,6 +10,8 @@ import { createEffect, createMemo, on, Show } from "solid-js"
 import { ModelSelectorPopoverV2 } from "@/components/dialog-select-model"
 import { DialogSelectModelUnpaidV2 } from "@/components/dialog-select-model-unpaid-v2"
 import type { PromptInputProps } from "@/components/prompt-input/contracts"
+import { ForkMode } from "@/components/prompt-input/fork-mode"
+import { createForkSuggestion } from "@/components/prompt-input/fork-suggestion"
 import { normalizePromptHistoryEntry, promptLength, type PromptHistoryComment } from "@/components/prompt-input/history"
 import { createPersistedPromptInputHistory } from "@/components/prompt-input/history-store"
 import { promptDesignPlaceholder, promptPlaceholder } from "@/components/prompt-input/placeholder"
@@ -42,6 +44,7 @@ export type PromptInputV2ComposerProps = {
 export type PromptInputV2ControllerProps = Omit<PromptInputProps, "class" | "submission">
 export type PromptInputV2ComposerController = PromptInputV2Interaction & {
   readonly model: PromptInputProps["controls"]["model"]
+  readonly forkMode: ForkMode.Mode
 }
 
 export function PromptInputV2Composer(props: PromptInputV2ComposerProps) {
@@ -51,6 +54,16 @@ export function PromptInputV2Composer(props: PromptInputV2ComposerProps) {
 
   return (
     <div class="flex flex-col gap-3">
+      {/* FORK-SEAM: permission-mode-web */}
+      <Show when={props.controller.forkMode !== "normal"}>
+        <div
+          data-component="fork-mode"
+          data-mode={props.controller.forkMode}
+          class="self-start rounded-full bg-v2-surface-base px-3 py-1 text-12-medium text-v2-text-text-base"
+        >
+          {language.t(`prompt.forkMode.${ForkMode.label(props.controller.forkMode)}`)}
+        </div>
+      </Show>
       <PromptInputV2
         controller={props.controller}
         borderUnderlay={props.borderUnderlay}
@@ -141,6 +154,21 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
     promptDesignPlaceholder(mode(), placeholder(), (key, params) =>
       language.t(key as Parameters<typeof language.t>[0], params as never),
     )
+  // FORK-SEAM: prompt-suggestion-web
+  const suggestion = createForkSuggestion({
+    sessionID: () => props.controls.session.id,
+    messageID: () => {
+      const id = props.controls.session.id
+      const last = id ? sync().data.message[id]?.at(-1) : undefined
+      return last?.role === "assistant" && !working() ? last.id : undefined
+    },
+    fetch: (sessionID) =>
+      sdk()
+        .client.fork.session.suggestion({ sessionID })
+        .then((result) => result.data)
+        .catch(() => undefined),
+  })
+  const visibleSuggestion = () => (mode() === "normal" && blank() ? suggestion() : undefined)
 
   const historyComments = () => {
     const byID = new Map(comments.all().map((item) => [`${item.file}\n${item.id}`, item] as const))
@@ -383,7 +411,13 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
       store: platform.draftStore?.putBlob,
     },
     view: {
-      placeholder: designPlaceholder,
+      placeholder: () => visibleSuggestion() ?? designPlaceholder(),
+      onKeyDown: (event) => {
+        const text = visibleSuggestion()
+        if (!text || event.key !== "Tab" || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return
+        event.preventDefault()
+        prompt.set([{ type: "text", content: text, start: 0, end: text.length }], text.length)
+      },
       get agent() {
         return props.controls.agents.visible && props.controls.agents.options.length > 0
           ? {
@@ -409,6 +443,9 @@ export function usePromptInputV2Controller(props: PromptInputV2ControllerProps):
     },
   })
   Object.defineProperty(controller, "model", { get: () => props.controls.model })
+  Object.defineProperty(controller, "forkMode", {
+    get: () => ForkMode.current(props.controls.session.id, info()?.permission, props.controls.agents.current),
+  })
 
   command.register("prompt-input", () => [
     {

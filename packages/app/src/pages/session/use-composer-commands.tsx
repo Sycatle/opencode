@@ -2,6 +2,10 @@ import { useCommand, type CommandOption } from "@/context/command"
 import { useLanguage } from "@/context/language"
 import { useLocal, type ModelSelection } from "@/context/local"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { useSDK } from "@/context/sdk"
+import { useSync } from "@/context/sync"
+import { ForkMode } from "@/components/prompt-input/fork-mode"
+import { showToast } from "@/utils/toast"
 import { getCursorPosition, setCursorPosition } from "@/components/prompt-input/editor-dom"
 import { useSessionLayout } from "./session-layout"
 import { createSessionOwnership } from "./session-ownership"
@@ -18,7 +22,9 @@ export const useComposerCommands = (input: { model?: ModelSelection } = {}) => {
   const dialog = useDialog()
   const language = useLanguage()
   const local = useLocal()
-  const { sessionKey } = useSessionLayout()
+  const sdk = useSDK()
+  const sync = useSync()
+  const { sessionKey, params } = useSessionLayout()
   const sessionOwnership = createSessionOwnership(sessionKey)
   const model = input.model ?? local.model
   const modelCommand = withCategory(language.t("command.category.model"))
@@ -70,6 +76,27 @@ export const useComposerCommands = (input: { model?: ModelSelection } = {}) => {
       slash: "agent",
       disabled: !local.agent.visible(),
       onSelect: () => local.agent.move(1),
+    }),
+    // FORK-SEAM: permission-mode-web
+    agentCommand({
+      id: "fork.mode.cycle",
+      title: language.t("command.mode.cycle"),
+      description: language.t("command.mode.cycle.description"),
+      keybind: "shift+tab",
+      onSelect: () => {
+        const sessionID = params.id
+        const mode = ForkMode.cycle({
+          sessionID,
+          rules: sessionID ? sync().session.get(sessionID)?.permission : undefined,
+          agent: local.agent.current()?.name,
+          setAgent: local.agent.set,
+          save: (permission) => sdk().client.session.update({ sessionID: sessionID!, permission }),
+          onError: () => showToast({ variant: "error", title: language.t("prompt.forkMode.failed") }),
+        })
+        showToast({
+          title: language.t("prompt.forkMode.changed", { mode: language.t(`prompt.forkMode.${ForkMode.label(mode)}`) }),
+        })
+      },
     }),
     agentCommand({
       id: "agent.cycle.reverse",

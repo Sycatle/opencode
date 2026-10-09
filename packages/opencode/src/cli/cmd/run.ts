@@ -688,7 +688,7 @@ export const RunCommand = effectCmd({
           if (current.data && ForkClassifier.storedMode(current.data.permission) !== "auto")
             await sdk.session.update({
               sessionID,
-              permission: ForkClassifier.withMode(current.data.permission, "auto"),
+              permission: [ForkClassifier.modeRule("auto")],
             })
         }
 

@@ -15,6 +15,14 @@ test("the mode marker round-trips through the session ruleset and replaces itsel
   expect(ForkClassifier.withMode(auto, "normal")).toEqual(base)
 })
 
+test("an appended mode marker wins over earlier ones, so leaving auto sends an explicit normal marker", () => {
+  const base = [{ permission: "question", pattern: "*", action: "deny" as const }]
+  // session.update appends: this is the stored ruleset after switching to auto and back.
+  const stored = [...base, ForkClassifier.modeRule("auto"), ForkClassifier.modeRule("normal")]
+  expect(ForkClassifier.storedMode(stored)).toBe("normal")
+  expect(ForkClassifier.storedMode([...stored, ForkClassifier.modeRule("auto")])).toBe("auto")
+})
+
 test("modes cycle build, plan, auto, build", () => {
   const seen = ["normal" as ForkClassifier.Mode]
   for (const _ of [1, 2, 3]) seen.push(ForkClassifier.next(seen.at(-1)!))
