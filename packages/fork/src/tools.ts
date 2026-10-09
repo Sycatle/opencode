@@ -133,6 +133,42 @@ export function restoreServerToolNames(body: string) {
   }
 }
 
+// A search result in history can name a tool the request no longer defines (plan_exit is denied to the build
+// agent it switches to), and the API rejects a tool_reference to an undefined tool. Only the request knows both.
+export function dropDanglingToolReferences(body: string) {
+  if (!body.includes('"tool_reference"')) return undefined
+  try {
+    const parsed: unknown = JSON.parse(body)
+    if (!isObject(parsed) || !Array.isArray(parsed.tools) || !Array.isArray(parsed.messages)) return undefined
+    const defined = new Set(parsed.tools.flatMap((item) => (isObject(item) && typeof item.name === "string" ? [item.name] : [])))
+    let changed = false
+    const messages = parsed.messages.map((message: unknown) => {
+      if (!isObject(message) || !Array.isArray(message.content)) return message
+      return {
+        ...message,
+        content: message.content.map((block: unknown) => {
+          if (!isObject(block) || block.type !== "tool_search_tool_result") return block
+          const result = block.content
+          if (!isObject(result) || !Array.isArray(result.tool_references)) return block
+          const kept = result.tool_references.filter(
+            (ref: unknown) => !isObject(ref) || typeof ref.tool_name !== "string" || defined.has(ref.tool_name),
+          )
+          if (kept.length === result.tool_references.length) return block
+          changed = true
+          return { ...block, content: { ...result, tool_references: kept } }
+        }),
+      }
+    })
+    return changed ? JSON.stringify({ ...parsed, messages }) : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
+}
+
 let guarded = false
 
 export function guardServerToolNames() {
@@ -140,8 +176,11 @@ export function guardServerToolNames() {
   guarded = true
   const original = globalThis.fetch
   globalThis.fetch = Object.assign((input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
-    const fixed = typeof init?.body === "string" ? restoreServerToolNames(init.body) : undefined
-    return original(input, fixed ? { ...init, body: fixed } : init)
+    const body = typeof init?.body === "string" ? init.body : undefined
+    const restored = body ? restoreServerToolNames(body) : undefined
+    const fixed = restored ?? body
+    const cleaned = fixed ? (dropDanglingToolReferences(fixed) ?? restored) : undefined
+    return original(input, cleaned ? { ...init, body: cleaned } : init)
   }, original)
 }
 

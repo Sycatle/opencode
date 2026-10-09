@@ -298,6 +298,15 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
             type: "step-start",
           })
         if (part.type === "tool") {
+          // A server tool call (native tool search) cut short by an interrupt never got its result block, and
+          // the API rejects a server_tool_use without one. There is nothing to replay, so the call is dropped.
+          if (
+            part.metadata?.providerExecuted &&
+            (part.state.status === "pending" ||
+              part.state.status === "running" ||
+              (part.state.status === "error" && part.state.metadata?.interrupted === true))
+          )
+            continue
           // FORK-SEAM: claude-tools-history (replayed under Claude Code's names, deterministically)
           const tool = part.tool === ForkTools.LEGACY_SEARCH ? ForkTools.SEARCH : part.tool
           const call = claude ? ForkClaudeTools.toModelCall(tool, part.state.input) : { tool, input: part.state.input }

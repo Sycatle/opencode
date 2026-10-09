@@ -152,6 +152,29 @@ test("restoreServerToolNames undoes opencode-claude-auth's prefix on server sear
   expect(ForkTools.restoreServerToolNames(JSON.stringify({ tools: [{ name: "mcp_Read" }] }))).toBeUndefined()
 })
 
+test("dropDanglingToolReferences removes references to tools the request does not define", () => {
+  const result = (...names: string[]) => ({
+    role: "user",
+    content: [
+      {
+        type: "tool_search_tool_result",
+        tool_use_id: "srvtoolu_1",
+        content: {
+          type: "tool_search_tool_search_result",
+          tool_references: names.map((tool_name) => ({ type: "tool_reference", tool_name })),
+        },
+      },
+    ],
+  })
+  const body = (...names: string[]) =>
+    JSON.stringify({ tools: [{ name: "mcp_Bash" }, { name: "mcp_Write" }], messages: [result(...names)] })
+
+  const fixed = JSON.parse(ForkTools.dropDanglingToolReferences(body("mcp_ExitPlanMode", "mcp_Bash")) ?? "{}")
+  expect(fixed.messages[0].content[0].content.tool_references).toEqual([{ type: "tool_reference", tool_name: "mcp_Bash" }])
+  expect(ForkTools.dropDanglingToolReferences(body("mcp_Bash", "mcp_Write"))).toBeUndefined()
+  expect(ForkTools.dropDanglingToolReferences(JSON.stringify({ tools: [], messages: [] }))).toBeUndefined()
+})
+
 test("nativeSearchOutput reads back the stored references, an unreadable output is an empty result", () => {
   expect(ForkTools.nativeSearchOutput('[{"type":"tool_reference","toolName":"x"}]')).toEqual([
     { type: "tool_reference", toolName: "x" },
