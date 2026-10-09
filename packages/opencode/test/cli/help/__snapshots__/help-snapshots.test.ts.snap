@@ -1,7 +1,7 @@
 // Bun Snapshot v1, https://bun.sh/docs/test/snapshots
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode acp --help 1`] = `
-"opencode acp
+"syacode acp
 
 start ACP (Agent Client Protocol) server
 
@@ -22,16 +22,16 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode mcp --help 1`] = `
-"opencode mcp
+"syacode mcp
 
 manage MCP (Model Context Protocol) servers
 
 Commands:
-  opencode mcp add [name]     add an MCP server
-  opencode mcp list           list MCP servers and their status                        [aliases: ls]
-  opencode mcp auth [name]    authenticate with an OAuth-enabled MCP server
-  opencode mcp logout [name]  remove OAuth credentials for an MCP server
-  opencode mcp debug <name>   debug OAuth connection for an MCP server
+  syacode mcp add [name]     add an MCP server
+  syacode mcp list           list MCP servers and their status                         [aliases: ls]
+  syacode mcp auth [name]    authenticate with an OAuth-enabled MCP server
+  syacode mcp logout [name]  remove OAuth credentials for an MCP server
+  syacode mcp debug <name>   debug OAuth connection for an MCP server
 
 Options:
   -h, --help        show help                                                              [boolean]
@@ -42,9 +42,9 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode attach --help 1`] = `
-"opencode attach <url>
+"syacode attach <url>
 
-attach to a running opencode server
+attach to a running syacode server
 
 Positionals:
   url  http://localhost:4096                                                     [string] [required]
@@ -68,7 +68,7 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode run --help 1`] = `
-"opencode run [message..]
+"syacode run [message..]
 
 run opencode with a message
 
@@ -103,29 +103,29 @@ Options:
                                                                                             [string]
       --thinking     show thinking blocks                                                  [boolean]
   -i, --interactive  run in direct interactive split-footer mode          [boolean] [default: false]
-      --auto         auto-approve permissions that are not explicitly denied (dangerous!)
+      --auto         approve permission requests autonomously while preserving explicit deny rules
                                                                           [boolean] [default: false]"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode debug --help 1`] = `
-"opencode debug
+"syacode debug
 
 debugging and troubleshooting tools
 
 Commands:
-  opencode debug config        show resolved configuration
-  opencode debug lsp           LSP debugging utilities
-  opencode debug rg            ripgrep debugging utilities
-  opencode debug file          file system debugging utilities
-  opencode debug scrap         list all known projects
-  opencode debug skill         list all available skills
-  opencode debug snapshot      snapshot debugging utilities
-  opencode debug startup       print startup timing
-  opencode debug agent <name>  show agent configuration details
-  opencode debug v2            debug v2 catalog and built-in plugins
-  opencode debug info          show debug information
-  opencode debug paths         show global paths (data, config, cache, state)
-  opencode debug wait          wait indefinitely (for debugging)
+  syacode debug config        show resolved configuration
+  syacode debug lsp           LSP debugging utilities
+  syacode debug rg            ripgrep debugging utilities
+  syacode debug file          file system debugging utilities
+  syacode debug scrap         list all known projects
+  syacode debug skill         list all available skills
+  syacode debug snapshot      snapshot debugging utilities
+  syacode debug startup       print startup timing
+  syacode debug agent <name>  show agent configuration details
+  syacode debug v2            debug v2 catalog and built-in plugins
+  syacode debug info          show debug information
+  syacode debug paths         show global paths (data, config, cache, state)
+  syacode debug wait          wait indefinitely (for debugging)
 
 Options:
   -h, --help        show help                                                              [boolean]
@@ -136,14 +136,14 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode providers --help 1`] = `
-"opencode providers
+"syacode providers
 
 manage AI providers and credentials
 
 Commands:
-  opencode providers list               list providers and credentials                 [aliases: ls]
-  opencode providers login [url]        log in to a provider
-  opencode providers logout [provider]  log out from a configured provider
+  syacode providers list               list providers and credentials                  [aliases: ls]
+  syacode providers login [url]        log in to a provider
+  syacode providers logout [provider]  log out from a configured provider
 
 Options:
   -h, --help        show help                                                              [boolean]
@@ -154,13 +154,13 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode agent --help 1`] = `
-"opencode agent
+"syacode agent
 
 manage agents
 
 Commands:
-  opencode agent create  create a new agent
-  opencode agent list    list all available agents
+  syacode agent create  create a new agent
+  syacode agent list    list all available agents
 
 Options:
   -h, --help        show help                                                              [boolean]
@@ -171,7 +171,7 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode upgrade --help 1`] = `
-"opencode upgrade [target]
+"syacode upgrade [target]
 
 upgrade opencode to the latest or a specific version
 
@@ -189,7 +189,7 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode uninstall --help 1`] = `
-"opencode uninstall
+"syacode uninstall
 
 uninstall opencode and remove all related files
 
@@ -206,9 +206,9 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode serve --help 1`] = `
-"opencode serve
+"syacode serve
 
-starts a headless opencode server
+starts a headless syacode server
 
 Options:
   -h, --help         show help                                                             [boolean]
@@ -226,9 +226,9 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode web --help 1`] = `
-"opencode web
+"syacode web
 
-start opencode server and open web interface
+start syacode server and open web interface
 
 Options:
   -h, --help         show help                                                             [boolean]
@@ -246,7 +246,7 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode models --help 1`] = `
-"opencode models [provider]
+"syacode models [provider]
 
 list all available models
 
@@ -264,7 +264,7 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode stats --help 1`] = `
-"opencode stats
+"syacode stats
 
 show token usage and cost statistics
 
@@ -282,7 +282,7 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode export --help 1`] = `
-"opencode export [sessionID]
+"syacode export [sessionID]
 
 export session data as JSON
 
@@ -299,7 +299,7 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode import --help 1`] = `
-"opencode import <file>
+"syacode import <file>
 
 import session data from JSON file or URL
 
@@ -315,13 +315,13 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode github --help 1`] = `
-"opencode github
+"syacode github
 
 manage GitHub agent
 
 Commands:
-  opencode github install  install the GitHub agent
-  opencode github run      run the GitHub agent
+  syacode github install  install the GitHub agent
+  syacode github run      run the GitHub agent
 
 Options:
   -h, --help        show help                                                              [boolean]
@@ -332,7 +332,7 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode pr --help 1`] = `
-"opencode pr <number>
+"syacode pr <number>
 
 fetch and checkout a GitHub PR branch, then run opencode
 
@@ -348,13 +348,13 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode session --help 1`] = `
-"opencode session
+"syacode session
 
 manage sessions
 
 Commands:
-  opencode session list                list sessions
-  opencode session delete <sessionID>  delete a session
+  syacode session list                list sessions
+  syacode session delete <sessionID>  delete a session
 
 Options:
   -h, --help        show help                                                              [boolean]
@@ -365,7 +365,7 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode plugin --help 1`] = `
-"opencode plugin <module>
+"syacode plugin <module>
 
 install plugin and update config
 
@@ -383,13 +383,13 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode db --help 1`] = `
-"opencode db
+"syacode db
 
 database tools
 
 Commands:
-  opencode db [query]     open an interactive sqlite3 shell or run a query                 [default]
-  opencode db path        print the database path
+  syacode db [query]     open an interactive sqlite3 shell or run a query                  [default]
+  syacode db path        print the database path
 
 Positionals:
   query  SQL query to execute                                                               [string]
@@ -404,7 +404,7 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode mcp list --help 1`] = `
-"opencode mcp list
+"syacode mcp list
 
 list MCP servers and their status
 
@@ -417,7 +417,7 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode mcp add --help 1`] = `
-"opencode mcp add [name]
+"syacode mcp add [name]
 
 add an MCP server
 
@@ -436,12 +436,12 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode mcp auth --help 1`] = `
-"opencode mcp auth [name]
+"syacode mcp auth [name]
 
 authenticate with an OAuth-enabled MCP server
 
 Commands:
-  opencode mcp auth list  list OAuth-capable MCP servers and their auth status         [aliases: ls]
+  syacode mcp auth list  list OAuth-capable MCP servers and their auth status          [aliases: ls]
 
 Positionals:
   name  name of the MCP server                                                              [string]
@@ -455,7 +455,7 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode mcp logout --help 1`] = `
-"opencode mcp logout [name]
+"syacode mcp logout [name]
 
 remove OAuth credentials for an MCP server
 
@@ -471,7 +471,7 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode providers list --help 1`] = `
-"opencode providers list
+"syacode providers list
 
 list providers and credentials
 
@@ -484,7 +484,7 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode providers login --help 1`] = `
-"opencode providers login [url]
+"syacode providers login [url]
 
 log in to a provider
 
@@ -502,7 +502,7 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode providers logout --help 1`] = `
-"opencode providers logout [provider]
+"syacode providers logout [provider]
 
 log out from a configured provider
 
@@ -518,7 +518,7 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode agent create --help 1`] = `
-"opencode agent create
+"syacode agent create
 
 create a new agent
 
@@ -538,7 +538,7 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode agent list --help 1`] = `
-"opencode agent list
+"syacode agent list
 
 list all available agents
 
@@ -551,7 +551,7 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode session list --help 1`] = `
-"opencode session list
+"syacode session list
 
 list sessions
 
@@ -566,7 +566,7 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode session delete --help 1`] = `
-"opencode session delete <sessionID>
+"syacode session delete <sessionID>
 
 delete a session
 
@@ -582,7 +582,7 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode github install --help 1`] = `
-"opencode github install
+"syacode github install
 
 install the GitHub agent
 
@@ -595,7 +595,7 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode github run --help 1`] = `
-"opencode github run
+"syacode github run
 
 run the GitHub agent
 
@@ -610,7 +610,7 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode db path --help 1`] = `
-"opencode db path
+"syacode db path
 
 print the database path
 
