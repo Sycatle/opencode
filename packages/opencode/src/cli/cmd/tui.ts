@@ -13,6 +13,7 @@ import type { GlobalEvent } from "@opencode-ai/sdk/v2"
 import type { EventSource } from "@opencode-ai/tui/context/sdk"
 import { writeHeapSnapshot } from "v8"
 import { ServerAuth } from "@/server/auth"
+import { InstallationVersion } from "@opencode-ai/core/installation/version"
 import { validateSession } from "../tui/validate-session"
 import { win32InstallCtrlCGuard } from "@opencode-ai/tui/terminal-win32"
 
@@ -21,6 +22,20 @@ declare global {
 }
 
 type RpcClient = ReturnType<typeof Rpc.client<typeof rpc>>
+
+// Only a server of this exact build is shared: another version may not read the same database the same way.
+// OPENCODE_FORK_EMBEDDED=1 keeps the in-process server.
+async function sharedServer() {
+  if (process.env.OPENCODE_FORK_EMBEDDED) return undefined
+  const url = "http://127.0.0.1:4096"
+  const response = await fetch(url + "/global/health", {
+    headers: ServerAuth.headers(),
+    signal: AbortSignal.timeout(300),
+  }).catch(() => undefined)
+  if (!response?.ok) return undefined
+  const body = await response.json().catch(() => undefined)
+  return body?.version === InstallationVersion ? url : undefined
+}
 
 function createWorkerFetch(client: RpcClient): typeof fetch {
   const fn = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
@@ -212,14 +227,23 @@ export const TuiThreadCommand = cmd({
       }
       const cwd = Filesystem.resolve(process.cwd())
 
-      const worker = new Worker(file, {
-        env: Object.fromEntries(
-          Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined),
-        ),
-      })
-      const client = Rpc.client<typeof rpc>(worker)
+      const network = resolveNetworkOptionsNoConfig(args)
+      const external = hasArg("--port") || hasArg("--hostname") || network.mdns === true
+
+      // FORK-SEAM: shared-server (a matching server already on the default port replaces the embedded worker)
+      const sharedUrl = external ? undefined : await sharedServer()
+      const backend = sharedUrl
+        ? ({ kind: "shared", url: sharedUrl } as const)
+        : (() => {
+            const worker = new Worker(file, {
+              env: Object.fromEntries(
+                Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined),
+              ),
+            })
+            return { kind: "local", worker, client: Rpc.client<typeof rpc>(worker) } as const
+          })()
       const reload = () => {
-        client.call("reload", undefined).catch(() => {})
+        if (backend.kind === "local") backend.client.call("reload", undefined).catch(() => {})
       }
       process.on("SIGUSR2", reload)
 
@@ -228,30 +252,31 @@ export const TuiThreadCommand = cmd({
         if (stopped) return
         stopped = true
         process.off("SIGUSR2", reload)
-        await withTimeout(client.call("shutdown", undefined), 5000).catch(() => {})
-        worker.terminate()
+        if (backend.kind === "shared") return
+        await withTimeout(backend.client.call("shutdown", undefined), 5000).catch(() => {})
+        backend.worker.terminate()
       }
 
       const prompt = await input(args.prompt)
       const config = await TuiConfig.get()
 
-      const network = resolveNetworkOptionsNoConfig(args)
-      const external = hasArg("--port") || hasArg("--hostname") || network.mdns === true
+      const headers = external || backend.kind === "shared" ? ServerAuth.headers() : undefined
 
-      const headers = external ? ServerAuth.headers() : undefined
-
-      const transport = external
-        ? {
-            url: (await client.call("server", network)).url,
-            fetch: undefined,
-            events: undefined,
-            headers,
-          }
-        : {
-            url: "http://opencode.internal",
-            fetch: createWorkerFetch(client),
-            events: createEventSource(client),
-          }
+      const transport =
+        backend.kind === "shared"
+          ? { url: backend.url, fetch: undefined, events: undefined, headers }
+          : external
+            ? {
+                url: (await backend.client.call("server", network)).url,
+                fetch: undefined,
+                events: undefined,
+                headers,
+              }
+            : {
+                url: "http://opencode.internal",
+                fetch: createWorkerFetch(backend.client),
+                events: createEventSource(backend.client),
+              }
 
       try {
         await validateSession({
@@ -267,9 +292,10 @@ export const TuiThreadCommand = cmd({
         return
       }
 
-      setTimeout(() => {
-        client.call("checkUpgrade", { directory: cwd }).catch(() => {})
-      }, 1000).unref?.()
+      if (backend.kind === "local")
+        setTimeout(() => {
+          backend.client.call("checkUpgrade", { directory: cwd }).catch(() => {})
+        }, 1000).unref?.()
 
       try {
         const { Effect } = await import("effect")
@@ -280,8 +306,8 @@ export const TuiThreadCommand = cmd({
             url: transport.url,
             async onSnapshot() {
               const tui = writeHeapSnapshot("tui.heapsnapshot")
-              const server = await client.call("snapshot", undefined)
-              return [tui, server]
+              if (backend.kind === "shared") return [tui]
+              return [tui, await backend.client.call("snapshot", undefined)]
             },
             config,
             pluginHost: createLegacyTuiPluginHost(),

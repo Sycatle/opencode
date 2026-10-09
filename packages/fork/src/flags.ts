@@ -124,6 +124,10 @@ export const FLAGS = {
   // ---- internal
   INTERACTIVE: { kind: "text", default: "set by the TUI", description: "Marks an interactive session" },
   REMOTE: { kind: "text", default: "set by attach", description: "The TUI is attached to a server on another machine" },
+  EMBEDDED: {
+    kind: "text",
+    description: "Any value: the TUI keeps its in-process server instead of joining the shared one on 127.0.0.1:4096",
+  },
   DB: { kind: "text", default: "<data>/fork.db", description: "Fork database path" },
 } satisfies Record<string, Def>
 
